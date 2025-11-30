@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Build outputs
+.next/
+dist/
+build/
+*.egg-info/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temp files
+*.tmp
+*.temp
+/tmp/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test / Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+
