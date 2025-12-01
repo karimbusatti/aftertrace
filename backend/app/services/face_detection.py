@@ -8,6 +8,7 @@ for enhanced surveillance visualization effects.
 import cv2
 import numpy as np
 from typing import Any
+import time
 
 # MediaPipe imports - handle gracefully if not installed
 try:
@@ -123,12 +124,83 @@ class FaceDetector:
             self._face_mesh.close()
 
 
+def draw_cctv_overlay(
+    frame: np.ndarray,
+    frame_idx: int,
+    fps: float = 30.0,
+):
+    """
+    Draw CCTV-style overlay with timestamp, camera ID, and recording indicator.
+    
+    Args:
+        frame: Frame to draw on (modified in-place)
+        frame_idx: Current frame index for timestamp
+        fps: Video FPS for accurate timestamp
+    """
+    h, w = frame.shape[:2]
+    
+    # Semi-transparent overlay areas
+    overlay = frame.copy()
+    
+    # Top bar - dark gradient
+    cv2.rectangle(overlay, (0, 0), (w, 35), (0, 0, 0), -1)
+    frame[:35] = cv2.addWeighted(frame[:35], 0.4, overlay[:35], 0.6, 0)
+    
+    # Camera ID (top left)
+    cam_id = "CAM-01"
+    cv2.putText(
+        frame, cam_id, (12, 24),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA
+    )
+    
+    # Timestamp (top right)
+    seconds = frame_idx / fps
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    # Add frame-based time offset for realism
+    ms = int((seconds % 1) * 1000)
+    timestamp_full = f"{timestamp}.{ms:03d}"
+    
+    text_size = cv2.getTextSize(timestamp_full, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)[0]
+    cv2.putText(
+        frame, timestamp_full, (w - text_size[0] - 12, 24),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA
+    )
+    
+    # REC indicator (pulsing)
+    if (frame_idx // 15) % 2 == 0:  # Pulse every ~0.5s at 30fps
+        cv2.circle(frame, (w - 20, 55), 6, (0, 0, 255), -1, cv2.LINE_AA)
+        cv2.putText(
+            frame, "REC", (w - 55, 60),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1, cv2.LINE_AA
+        )
+    
+    # Bottom info bar
+    cv2.rectangle(overlay, (0, h - 25), (w, h), (0, 0, 0), -1)
+    frame[h-25:] = cv2.addWeighted(frame[h-25:], 0.4, overlay[h-25:], 0.6, 0)
+    
+    # Analysis mode indicator
+    cv2.putText(
+        frame, "ANALYSIS: ACTIVE", (12, h - 8),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 0), 1, cv2.LINE_AA
+    )
+    
+    # Frame counter
+    frame_text = f"F:{frame_idx:06d}"
+    text_size = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)[0]
+    cv2.putText(
+        frame, frame_text, (w - text_size[0] - 12, h - 8),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (180, 180, 180), 1, cv2.LINE_AA
+    )
+
+
 def draw_face_boxes(
     frame: np.ndarray,
     faces: list,
-    color: tuple = (0, 255, 255),
+    color: tuple = (0, 255, 0),
     thickness: int = 2,
     show_confidence: bool = True,
+    frame_idx: int = 0,
+    style: str = "cctv",
 ):
     """
     Draw face bounding boxes with surveillance-style corners.
@@ -139,34 +211,96 @@ def draw_face_boxes(
         color: BGR color for boxes
         thickness: Line thickness
         show_confidence: Show confidence percentage
+        frame_idx: Current frame for animations
+        style: "cctv" for corner brackets, "full" for full rectangle
     """
-    for (x, y, w, h, conf) in faces:
-        # Draw corner brackets instead of full rectangle
-        corner_len = min(w, h) // 4
+    h_frame, w_frame = frame.shape[:2]
+    
+    for idx, (x, y, w, h, conf) in enumerate(faces):
+        # Clamp to frame bounds
+        x = max(0, x)
+        y = max(0, y)
+        w = min(w, w_frame - x)
+        h = min(h, h_frame - y)
         
-        # Top-left corner
-        cv2.line(frame, (x, y), (x + corner_len, y), color, thickness)
-        cv2.line(frame, (x, y), (x, y + corner_len), color, thickness)
+        if style == "cctv":
+            # Draw corner brackets with animated scanning effect
+            corner_len = max(min(w, h) // 4, 15)
+            
+            # Scanning animation - corners pulse
+            pulse = 1.0 + 0.2 * np.sin(frame_idx * 0.15 + idx)
+            animated_thickness = max(1, int(thickness * pulse))
+            
+            # Outer glow effect
+            glow_color = tuple(max(0, min(255, int(c * 0.5))) for c in color)
+            _draw_corner_brackets(frame, x, y, w, h, corner_len, glow_color, animated_thickness + 2)
+            
+            # Main brackets
+            _draw_corner_brackets(frame, x, y, w, h, corner_len, color, animated_thickness)
+            
+            # Center crosshair
+            cx, cy = x + w // 2, y + h // 2
+            cross_size = 8
+            cv2.line(frame, (cx - cross_size, cy), (cx + cross_size, cy), color, 1, cv2.LINE_AA)
+            cv2.line(frame, (cx, cy - cross_size), (cx, cy + cross_size), color, 1, cv2.LINE_AA)
+            
+            # Scanning line effect (horizontal line sweeping down)
+            scan_y = y + int((frame_idx * 3) % h)
+            if scan_y < y + h:
+                cv2.line(frame, (x, scan_y), (x + w, scan_y), 
+                        (color[0], color[1], color[2]), 1, cv2.LINE_AA)
+            
+        else:
+            # Full rectangle with rounded corners effect
+            cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness)
         
-        # Top-right corner
-        cv2.line(frame, (x + w, y), (x + w - corner_len, y), color, thickness)
-        cv2.line(frame, (x + w, y), (x + w, y + corner_len), color, thickness)
+        # Subject label
+        subject_label = f"SUBJ-{idx + 1:02d}"
+        cv2.putText(
+            frame, subject_label, (x, y - 25),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA
+        )
         
-        # Bottom-left corner
-        cv2.line(frame, (x, y + h), (x + corner_len, y + h), color, thickness)
-        cv2.line(frame, (x, y + h), (x, y + h - corner_len), color, thickness)
-        
-        # Bottom-right corner
-        cv2.line(frame, (x + w, y + h), (x + w - corner_len, y + h), color, thickness)
-        cv2.line(frame, (x + w, y + h), (x + w, y + h - corner_len), color, thickness)
-        
-        # Confidence label
+        # Confidence with progress bar
         if show_confidence:
-            label = f"{int(conf * 100)}%"
+            conf_text = f"{int(conf * 100)}%"
             cv2.putText(
-                frame, label, (x, y - 8),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA
+                frame, conf_text, (x, y - 8),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA
             )
+            
+            # Confidence bar
+            bar_width = min(60, w)
+            bar_height = 4
+            bar_x = x + len(conf_text) * 8 + 10
+            bar_y = y - 12
+            
+            # Background bar
+            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), 
+                         (50, 50, 50), -1)
+            # Filled portion
+            filled_width = int(bar_width * conf)
+            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + filled_width, bar_y + bar_height), 
+                         color, -1)
+
+
+def _draw_corner_brackets(frame, x, y, w, h, corner_len, color, thickness):
+    """Draw the four corner brackets of a detection box."""
+    # Top-left corner
+    cv2.line(frame, (x, y), (x + corner_len, y), color, thickness, cv2.LINE_AA)
+    cv2.line(frame, (x, y), (x, y + corner_len), color, thickness, cv2.LINE_AA)
+    
+    # Top-right corner
+    cv2.line(frame, (x + w, y), (x + w - corner_len, y), color, thickness, cv2.LINE_AA)
+    cv2.line(frame, (x + w, y), (x + w, y + corner_len), color, thickness, cv2.LINE_AA)
+    
+    # Bottom-left corner
+    cv2.line(frame, (x, y + h), (x + corner_len, y + h), color, thickness, cv2.LINE_AA)
+    cv2.line(frame, (x, y + h), (x, y + h - corner_len), color, thickness, cv2.LINE_AA)
+    
+    # Bottom-right corner
+    cv2.line(frame, (x + w, y + h), (x + w - corner_len, y + h), color, thickness, cv2.LINE_AA)
+    cv2.line(frame, (x + w, y + h), (x + w, y + h - corner_len), color, thickness, cv2.LINE_AA)
 
 
 def draw_face_mesh(
@@ -175,9 +309,10 @@ def draw_face_mesh(
     color: tuple = (0, 255, 0),
     draw_contours: bool = True,
     draw_points: bool = False,
+    glow: bool = True,
 ):
     """
-    Draw face mesh landmarks.
+    Draw face mesh landmarks with optional glow effect.
     
     Args:
         frame: Frame to draw on (modified in-place)
@@ -185,6 +320,7 @@ def draw_face_mesh(
         color: BGR color for mesh
         draw_contours: Draw mesh contour lines
         draw_points: Draw individual points
+        glow: Add glow effect to mesh
     """
     if not MEDIAPIPE_AVAILABLE:
         return
@@ -203,27 +339,44 @@ def draw_face_mesh(
     RIGHT_EYE = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388,
                  387, 386, 385, 384, 398]
     
+    LEFT_EYEBROW = [70, 63, 105, 66, 107, 55, 65, 52, 53, 46]
+    RIGHT_EYEBROW = [300, 293, 334, 296, 336, 285, 295, 282, 283, 276]
+    
+    NOSE = [168, 6, 197, 195, 5, 4, 1, 19, 94, 2]
+    
+    # Create glow layer if enabled
+    if glow:
+        glow_layer = np.zeros_like(frame)
+    
     for face_points in mesh_points:
         if not face_points:
             continue
         
         if draw_contours:
-            # Draw face oval
-            _draw_contour(frame, face_points, FACE_OVAL, color)
-            # Draw eyes
-            _draw_contour(frame, face_points, LEFT_EYE, color)
-            _draw_contour(frame, face_points, RIGHT_EYE, color)
-            # Draw lips
-            _draw_contour(frame, face_points, LIPS_OUTER, color)
+            # Draw all contours
+            contours = [FACE_OVAL, LEFT_EYE, RIGHT_EYE, LIPS_OUTER, 
+                       LEFT_EYEBROW, RIGHT_EYEBROW, NOSE]
+            
+            for contour in contours:
+                if glow:
+                    _draw_contour(glow_layer, face_points, contour, color, thickness=2)
+                _draw_contour(frame, face_points, contour, color, thickness=1)
         
         if draw_points:
             for i, (x, y, z) in enumerate(face_points):
-                # Only draw every 5th point to avoid clutter
-                if i % 5 == 0:
+                # Only draw every 3rd point to avoid clutter
+                if i % 3 == 0:
+                    if glow:
+                        cv2.circle(glow_layer, (x, y), 2, color, -1)
                     cv2.circle(frame, (x, y), 1, color, -1)
+    
+    # Apply glow
+    if glow and mesh_points:
+        glow_layer = cv2.GaussianBlur(glow_layer, (15, 15), 0)
+        frame[:] = cv2.addWeighted(frame, 1.0, glow_layer, 0.5, 0)
 
 
-def _draw_contour(frame, points, indices, color):
+def _draw_contour(frame, points, indices, color, thickness=1):
     """Draw connected contour from point indices."""
     for i in range(len(indices)):
         idx1 = indices[i]
@@ -231,14 +384,14 @@ def _draw_contour(frame, points, indices, color):
         if idx1 < len(points) and idx2 < len(points):
             pt1 = (points[idx1][0], points[idx1][1])
             pt2 = (points[idx2][0], points[idx2][1])
-            cv2.line(frame, pt1, pt2, color, 1, cv2.LINE_AA)
+            cv2.line(frame, pt1, pt2, color, thickness, cv2.LINE_AA)
 
 
 def draw_face_glow(
     frame: np.ndarray,
     faces: list,
-    color: tuple = (255, 100, 50),
-    intensity: float = 0.5,
+    color: tuple = (0, 255, 80),
+    intensity: float = 0.4,
 ):
     """
     Draw a soft glow around detected faces.
@@ -258,14 +411,68 @@ def draw_face_glow(
     for (x, y, bw, bh, conf) in faces:
         # Draw filled ellipse for face glow
         center = (x + bw // 2, y + bh // 2)
-        axes = (bw // 2 + 20, bh // 2 + 20)
+        axes = (bw // 2 + 30, bh // 2 + 30)
         cv2.ellipse(glow_layer, center, axes, 0, 0, 360, color, -1)
     
     # Heavy blur for soft glow
-    glow_layer = cv2.GaussianBlur(glow_layer, (51, 51), 0)
+    glow_layer = cv2.GaussianBlur(glow_layer, (61, 61), 0)
     
     # Blend with frame
     frame[:] = cv2.addWeighted(frame, 1.0, glow_layer, intensity, 0)
 
 
-
+def draw_biometric_data(
+    frame: np.ndarray,
+    faces: list,
+    mesh_points: list,
+    frame_idx: int,
+    color: tuple = (0, 255, 0),
+):
+    """
+    Draw advanced biometric analysis overlay.
+    Shows fake biometric data for surveillance aesthetic.
+    
+    Args:
+        frame: Frame to draw on (modified in-place)
+        faces: List of face bounding boxes
+        mesh_points: List of face mesh landmarks
+        frame_idx: Current frame for animations
+        color: BGR color for overlay
+    """
+    h, w = frame.shape[:2]
+    
+    for idx, (x, y, bw, bh, conf) in enumerate(faces):
+        # Data panel background (right side of face)
+        panel_x = min(x + bw + 10, w - 150)
+        panel_y = max(y, 10)
+        
+        # Semi-transparent background
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (panel_x, panel_y), (panel_x + 140, panel_y + 120), 
+                     (0, 0, 0), -1)
+        frame[panel_y:panel_y+120, panel_x:panel_x+140] = cv2.addWeighted(
+            frame[panel_y:panel_y+120, panel_x:panel_x+140], 0.3,
+            overlay[panel_y:panel_y+120, panel_x:panel_x+140], 0.7, 0
+        )
+        
+        # Fake biometric data
+        metrics = [
+            ("FACE-ID", f"#{idx+1:04d}"),
+            ("CONF", f"{conf*100:.1f}%"),
+            ("DIST", f"{np.random.uniform(1.5, 4.5):.1f}m"),
+            ("POSE", f"{np.random.randint(-15, 15)}°"),
+            ("EYE-D", f"{np.random.uniform(55, 70):.1f}mm"),
+        ]
+        
+        for i, (label, value) in enumerate(metrics):
+            y_pos = panel_y + 15 + i * 20
+            cv2.putText(frame, label, (panel_x + 5, y_pos),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.35, (100, 100, 100), 1)
+            cv2.putText(frame, value, (panel_x + 70, y_pos),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1, cv2.LINE_AA)
+        
+        # Scanning animation at bottom
+        scan_progress = (frame_idx % 60) / 60.0
+        bar_width = int(130 * scan_progress)
+        cv2.rectangle(frame, (panel_x + 5, panel_y + 110), 
+                     (panel_x + 5 + bar_width, panel_y + 115), color, -1)

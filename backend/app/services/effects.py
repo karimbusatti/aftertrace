@@ -40,6 +40,7 @@ def draw_frame(
         frame_idx: Current frame index (for animations)
         overlay_mode: If True, blend effects at 40% over original frame
                       If False, replace background with darkened/tinted version
+        face_data: Optional face detection results
     
     Returns:
         Rendered frame with effects applied
@@ -48,10 +49,62 @@ def draw_frame(
     
     if overlay_mode:
         # OVERLAY MODE: Keep original visible, blend effects on top
-        return _draw_frame_overlay(frame, points, preset, colors, frame_idx)
+        output = _draw_frame_overlay(frame, points, preset, colors, frame_idx)
     else:
         # NORMAL MODE: Replace background with effect
-        return _draw_frame_replace(frame, points, preset, colors, frame_idx)
+        output = _draw_frame_replace(frame, points, preset, colors, frame_idx)
+    
+    # Apply face detection overlays
+    if face_data:
+        output = _apply_face_overlays(output, face_data, preset, colors, frame_idx)
+    
+    # Apply CCTV overlay if enabled
+    if preset.get("cctv_overlay", False):
+        from .face_detection import draw_cctv_overlay
+        draw_cctv_overlay(output, frame_idx, fps=30.0)
+    
+    return output
+
+
+def _apply_face_overlays(
+    frame: np.ndarray,
+    face_data: dict,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int,
+) -> np.ndarray:
+    """Apply face detection visual overlays based on preset settings."""
+    from .face_detection import (
+        draw_face_boxes, draw_face_mesh, draw_face_glow, draw_biometric_data
+    )
+    
+    output = frame.copy()
+    faces = face_data.get("faces", [])
+    mesh_points = face_data.get("mesh_points", [])
+    
+    # Get colors for face overlays
+    face_color = colors.get("point", (0, 255, 0))
+    
+    # Draw face glow first (goes under everything)
+    if preset.get("face_glow", False) and faces:
+        draw_face_glow(output, faces, face_color, intensity=0.3)
+    
+    # Draw face mesh
+    if preset.get("detect_mesh", False) and mesh_points:
+        draw_face_mesh(output, mesh_points, face_color, draw_contours=True, glow=True)
+    
+    # Draw face boxes with CCTV style
+    if preset.get("face_boxes", False) and faces:
+        draw_face_boxes(
+            output, faces, face_color, thickness=2,
+            show_confidence=True, frame_idx=frame_idx, style="cctv"
+        )
+    
+    # Draw biometric data panels
+    if preset.get("biometric_data", False) and faces:
+        draw_biometric_data(output, faces, mesh_points, frame_idx, face_color)
+    
+    return output
 
 
 def _draw_frame_replace(

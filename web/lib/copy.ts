@@ -13,35 +13,35 @@
 export const statsCopy = {
   trackability_score: {
     label: "trackability",
-    explainer: "a rough 0–100 guess of how easy it is to follow you across frames. higher = more visible to algorithms.",
+    explainer: "how easy it is to follow you across frames. higher = more visible to algorithms.",
   },
   longest_track_seconds: {
     label: "longest track",
-    explainer: "how long we kept eyes on a single point on you. longer = steadier signal for anyone watching.",
+    explainer: "how long a single point on you stayed locked. longer = steadier signal.",
   },
   max_continuous_tracking_frames: {
     label: "max frames tracked",
-    explainer: "the most frames a single point survived. more frames = more data to work with.",
+    explainer: "the most frames a single point survived. more = more data to work with.",
   },
   average_points_per_frame: {
-    label: "avg points per frame",
-    explainer: "how many trackable features we found on you at any given moment. more points = richer profile.",
+    label: "avg features",
+    explainer: "trackable points found on you at any moment. more = richer profile.",
   },
   people_detected: {
-    label: "subjects detected",
-    explainer: "how many distinct people (roughly) appeared in frame. this is a stub—real detection coming later.",
+    label: "subjects",
+    explainer: "distinct people detected in frame. each one is a separate data trail.",
   },
   frames_processed: {
     label: "frames",
-    explainer: "total video frames we analyzed. more frames = more chances to learn your patterns.",
+    explainer: "total video frames analyzed. each frame is a snapshot of your biometric surface.",
   },
   total_points_spawned: {
-    label: "points tracked",
-    explainer: "total number of trackable features we spawned and followed throughout the clip.",
+    label: "total points",
+    explainer: "all trackable features spawned and followed throughout the clip.",
   },
   beats_detected: {
-    label: "beats",
-    explainer: "audio peaks we used to sync the visual effect. no beats? we guessed timing instead.",
+    label: "audio beats",
+    explainer: "audio peaks used to sync visual effects. no beats means we guessed timing.",
   },
 } as const;
 
@@ -56,17 +56,17 @@ export const trackingSummary = {
   low: {
     range: [0, 39],
     headline: "low visibility",
-    body: "this clip is pretty kind to you. not many clear points to grab onto.",
+    body: "you're blending in. not many clear points to grab onto.",
   },
   medium: {
     range: [40, 69],
     headline: "moderate visibility",
-    body: "you're gently glowing on radar. easy enough to follow, but not standing out.",
+    body: "you're on radar. followable, but not standing out.",
   },
   high: {
     range: [70, 100],
     headline: "high visibility",
-    body: "you're basically a walking qr code here. everything about you is easy to lock onto.",
+    body: "you're fully legible. everything about you is easy to lock onto.",
   },
 } as const;
 
@@ -90,6 +90,37 @@ export function getTrackingSummary(score: number) {
 }
 
 // =============================================================================
+// PERSONALIZED TIPS
+// Tips tailored to the user's trackability score
+// =============================================================================
+
+export const personalizedTips = {
+  low: [
+    "you're already hard to track. keep doing what you're doing.",
+    "low lighting and motion blur are working in your favor here.",
+    "consider this your baseline — you can use this as a reference for other clips.",
+  ],
+  medium: [
+    "your face is visible for extended periods — consider angles that break the frontal view.",
+    "consistent lighting makes tracking easier. shadows and movement help.",
+    "try adding visual noise: hats, glasses, hair across your face.",
+    "if you're in frame alone, you're the only thing to focus on.",
+  ],
+  high: [
+    "you're very trackable here. clear face, stable position, good lighting — all things algorithms love.",
+    "frontal face exposure is the main factor. turn slightly, tilt your head, add occlusion.",
+    "if this were actual surveillance footage, you'd be trivial to identify.",
+    "consider what you're wearing: plain, solid colors make you easier to isolate.",
+    "you're in frame alone with clear contrast. crowded scenes break the signal.",
+  ],
+} as const;
+
+export function getPersonalizedTips(score: number): string[] {
+  const level = getTrackingLevel(score);
+  return [...personalizedTips[level]];
+}
+
+// =============================================================================
 // TIPS SECTIONS
 // "How to be less trackable" content for the bottom sheet
 // =============================================================================
@@ -98,31 +129,28 @@ export const tipsSections = [
   {
     id: "devices",
     title: "your devices",
-    icon: null,
     tips: [
-      "revoke camera/mic permissions from apps that don't need them. settings > privacy.",
-      "cloud backup means your photos live on corporate servers indefinitely.",
-      "approximate location works for 90% of apps. precise location is a gift you don't owe anyone.",
-      "front cameras have lower resolution. sometimes that's a feature, not a bug.",
-      "clear your photo metadata before uploading. exiftool or shortcut automations work.",
+      "revoke camera/mic permissions from apps that don't need them. settings → privacy.",
+      "cloud backup = your photos on corporate servers indefinitely. local or encrypted only.",
+      "approximate location works for 90% of apps. precise GPS is a gift you don't owe.",
+      "front cameras often have lower resolution. sometimes that's a feature, not a bug.",
+      "clear your photo metadata before uploading. EXIF data includes location, device, time.",
     ],
   },
   {
     id: "physical",
     title: "physical space",
-    icon: null,
     tips: [
       "flat, even lighting is optimal for facial recognition. shadows break the pattern.",
-      "glasses, hats, hair across your face—anything that fragments the oval helps.",
+      "glasses, hats, hair across your face — anything that fragments the face oval helps.",
       "move with crowds, not through empty spaces. being the only motion source is a spotlight.",
-      "patterned clothing and asymmetric accessories create visual noise.",
-      "infrared LEDs are invisible to you but can blind cameras at night.",
+      "patterned clothing and asymmetric accessories create visual noise for body tracking.",
+      "infrared LEDs are invisible to you but can blind cameras at night. legal gray area.",
     ],
   },
   {
     id: "digital",
     title: "digital hygiene",
-    icon: null,
     tips: [
       "same angle, same background, same pose = trivial to link across platforms.",
       "metadata (timestamp, GPS, device ID) often reveals more than the image itself.",
@@ -131,9 +159,20 @@ export const tipsSections = [
       "100% untrackable isn't the goal. friction is. make it expensive to follow you.",
     ],
   },
+  {
+    id: "awareness",
+    title: "general awareness",
+    tips: [
+      "public cameras are everywhere. entrances, intersections, transit, stores. map them mentally.",
+      "smart devices are always listening: phones, speakers, TVs. assume the mic is on.",
+      "your gait, posture, and movement patterns are as unique as your fingerprint.",
+      "facial recognition works from surprisingly far away. 50+ meters with good cameras.",
+      "the goal isn't paranoia. it's informed consent about your own visibility.",
+    ],
+  },
 ] as const;
 
-export type TipsSection = typeof tipsSections[number];
+export type TipsSection = (typeof tipsSections)[number];
 
 // =============================================================================
 // MISC COPY
@@ -142,15 +181,14 @@ export type TipsSection = typeof tipsSections[number];
 
 export const miscCopy = {
   privacyNote: "no data stored. your video stays on your device.",
-  processingHint: "mapping your biometric surface…",
+  processingHint: "mapping your biometric surface...",
   downloadNote: "video will be deleted from our servers after download.",
   learnMoreLink: "what does this mean?",
-  tipsSheetTitle: "counter-surveillance basics",
+  tipsSheetTitle: "counter-surveillance",
   tipsSheetSubtitle: "practical friction for the camera age",
   
   // Alternate playback mode
-  alternateModeLabel: "alternate with original",
-  effectOnlyLabel: "effect only",
-  alternateModeHelper: "see how much of you is still recognisable once reduced to data.",
+  alternateModeLabel: "compare",
+  effectOnlyLabel: "effect",
+  alternateModeHelper: "see how much of you is still recognizable once reduced to data.",
 } as const;
-

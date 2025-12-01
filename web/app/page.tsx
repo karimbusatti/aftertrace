@@ -9,7 +9,7 @@ import { processVideo, type ProcessResponse } from "@/lib/api";
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
-  const [preset, setPreset] = useState("grid_trace");
+  const [preset, setPreset] = useState("face_scanner");
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ProcessResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,10 +76,13 @@ export default function Home() {
   return (
     <main className="min-h-dvh flex flex-col">
       {/* Header */}
-      <header className="px-6 py-5">
+      <header className="px-6 py-5 flex items-center justify-between">
         <span className="font-display font-bold text-lg tracking-tight">
           <span className="text-accent">a</span>
           <span className="text-text-primary">ftertrace</span>
+        </span>
+        <span className="text-text-muted text-xs font-mono hidden sm:block">
+          v1.0
         </span>
       </header>
 
@@ -88,13 +91,13 @@ export default function Home() {
         <div className="w-full max-w-md mx-auto">
           {/* Hero text */}
           <div className="mb-10 animate-fade-in">
-            <h1 className="font-display font-bold text-display-md text-text-primary mb-4">
-              See what cameras
+            <h1 className="font-display font-bold text-4xl md:text-5xl text-text-primary mb-4 leading-[1.1]">
+              see what
               <br />
-              <span className="text-accent">see about you</span>
+              <span className="text-accent">cameras see</span>
             </h1>
-            <p className="text-text-secondary text-lg leading-relaxed">
-              Turn your clips into glitch-art visuals. See what's visible — and what you might want to hide.
+            <p className="text-text-secondary text-base md:text-lg leading-relaxed max-w-sm">
+              transform your clips into surveillance art. understand your digital footprint.
             </p>
           </div>
 
@@ -103,7 +106,7 @@ export default function Home() {
             ref={cardRef}
             onMouseMove={handleCardMouseMove}
             onMouseLeave={handleCardMouseLeave}
-            className="card p-6 space-y-6 animate-slide-up shadow-lg shadow-black/20 border border-white/10 parallax-card"
+            className="card glow-border p-6 space-y-6 animate-slide-up shadow-2xl shadow-black/40 parallax-card"
             style={{ 
               animationDelay: "0.1s",
               transform: `perspective(1000px) rotateY(${cardTransform.x}deg) rotateX(${-cardTransform.y}deg) translateZ(0)`,
@@ -127,10 +130,17 @@ export default function Home() {
                 disabled={!canSubmit}
                 className="btn-primary w-full"
               >
-                {isLoading ? "Processing…" : "Create Aftertrace"}
+                {isLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    processing
+                  </span>
+                ) : (
+                  "create aftertrace"
+                )}
               </button>
-              <p className="text-text-muted text-xs text-center mt-2 opacity-0 group-hover:opacity-100 sm:opacity-0 max-sm:opacity-60 transition-opacity duration-200">
-                this might take a few seconds — we're crunching every frame.
+              <p className="text-text-muted text-xs text-center mt-3 opacity-0 group-hover:opacity-100 sm:opacity-0 max-sm:opacity-60 transition-opacity duration-200 font-mono">
+                frame-by-frame analysis. takes a moment.
               </p>
             </div>
           </div>
@@ -150,9 +160,20 @@ export default function Home() {
       </div>
 
       {/* Footer */}
-      <footer className="px-6 py-6 text-center">
-        <p className="text-text-muted text-sm">
-          nothing stored. nothing tracked.
+      <footer className="px-6 py-8 text-center space-y-3">
+        <p className="text-text-muted text-xs font-mono">
+          nothing stored · nothing tracked · your data stays yours
+        </p>
+        <p className="text-text-secondary text-sm">
+          made by{" "}
+          <a 
+            href="https://twitter.com/karimbusatti" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-accent hover:text-accent-soft transition-colors"
+          >
+            Karim
+          </a>
         </p>
       </footer>
 
@@ -160,6 +181,7 @@ export default function Home() {
       <TipsSheet 
         isOpen={isTipsOpen} 
         onClose={() => setIsTipsOpen(false)} 
+        trackabilityScore={result?.metadata?.trackability_score}
       />
     </main>
   );
