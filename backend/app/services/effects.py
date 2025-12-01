@@ -694,19 +694,22 @@ def draw_blob_track(
     colors: dict,
 ) -> np.ndarray:
     """
-    Blob Track effect: Clean white bounding boxes with coordinate labels.
+    Blob Track effect: Clean white bounding boxes with IDs and connection lines.
     
-    Detects contours/blobs in the frame and draws minimal white rectangles
-    with x:0.xxx y:0.xxx coordinate labels - TouchDesigner style.
+    TouchDesigner-style tracking visualization with:
+    - Outline-only rectangles (no fill)
+    - ID numbers on each blob
+    - Connection lines between nearby blobs
+    - Coordinate labels
     """
     h, w = frame.shape[:2]
     
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # Apply threshold to find bright regions
-    threshold = preset.get("blob_threshold", 30)
-    blur_size = preset.get("blob_blur", 5)
+    # Apply threshold to find regions of interest
+    threshold = preset.get("blob_threshold", 25)
+    blur_size = preset.get("blob_blur", 7)
     
     # Blur to reduce noise
     blurred = cv2.GaussianBlur(gray, (blur_size, blur_size), 0)
@@ -720,43 +723,71 @@ def draw_blob_track(
     # Find contours
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Create output - dark background with subtle original
-    bg_alpha = preset.get("bg_alpha", 0.15)
+    # Create output - very dark background with hint of original
+    bg_alpha = preset.get("bg_alpha", 0.08)
     output = (frame * bg_alpha).astype(np.uint8)
     
     # Filter and sort contours by area
-    min_area = preset.get("min_blob_area", 500)
-    max_blobs = preset.get("max_blobs", 50)
+    min_area = preset.get("min_blob_area", 400)
+    max_blobs = preset.get("max_blobs", 80)
     
     valid_contours = [(cv2.contourArea(c), c) for c in contours if cv2.contourArea(c) > min_area]
     valid_contours.sort(key=lambda x: x[0], reverse=True)
     valid_contours = valid_contours[:max_blobs]
     
-    # Draw each blob
+    if not valid_contours:
+        return output
+    
+    # Colors
     box_color = (255, 255, 255)  # White
+    line_color = (180, 180, 180)  # Light gray for connections
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = preset.get("label_scale", 0.35)
+    font_scale = preset.get("label_scale", 0.30)
+    
+    # Store blob centers for connection lines
+    blob_centers = []
+    blob_boxes = []
     
     for idx, (area, contour) in enumerate(valid_contours):
-        # Get bounding rectangle
         x, y, bw, bh = cv2.boundingRect(contour)
-        
-        # Draw clean white rectangle
+        center_x = x + bw // 2
+        center_y = y + bh // 2
+        blob_centers.append((center_x, center_y))
+        blob_boxes.append((x, y, bw, bh, idx))
+    
+    # Draw connection lines between nearby blobs FIRST (so boxes draw on top)
+    max_connection_dist = preset.get("max_connection_dist", 200)
+    for i in range(len(blob_centers)):
+        for j in range(i + 1, len(blob_centers)):
+            p1 = blob_centers[i]
+            p2 = blob_centers[j]
+            dist = np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+            if dist < max_connection_dist:
+                # Fade line based on distance
+                alpha = 1.0 - (dist / max_connection_dist)
+                color = tuple(int(c * alpha) for c in line_color)
+                cv2.line(output, p1, p2, color, 1, cv2.LINE_AA)
+    
+    # Draw each blob box and labels
+    start_id = preset.get("start_id", 100)
+    
+    for (x, y, bw, bh, idx) in blob_boxes:
+        # Draw clean white rectangle outline
         cv2.rectangle(output, (x, y), (x + bw, y + bh), box_color, 1, cv2.LINE_AA)
         
         # Calculate normalized coordinates (0-1 range)
         cx = (x + bw / 2) / w
         cy = (y + bh / 2) / h
         
-        # Draw coordinate label
-        label = f"x:{cx:.3f} y:{cy:.3f}"
-        label_y = max(y - 5, 12)
-        cv2.putText(output, label, (x, label_y), font, font_scale, box_color, 1, cv2.LINE_AA)
+        # Draw ID number inside box (top-left corner)
+        blob_id = start_id + idx
+        id_label = f"ID:{blob_id}"
+        cv2.putText(output, id_label, (x + 3, y + 12), font, font_scale, box_color, 1, cv2.LINE_AA)
         
-        # Optional: draw center point
-        center_x = x + bw // 2
-        center_y = y + bh // 2
-        cv2.drawMarker(output, (center_x, center_y), box_color, cv2.MARKER_CROSS, 6, 1)
+        # Draw coordinate label above box
+        coord_label = f"x:{cx:.3f} y:{cy:.3f}"
+        label_y = max(y - 4, 10)
+        cv2.putText(output, coord_label, (x, label_y), font, font_scale - 0.02, (200, 200, 200), 1, cv2.LINE_AA)
     
     return output
 
@@ -773,8 +804,8 @@ def draw_particle_silhouette(
     """
     Particle Silhouette effect: Dense point cloud forming body shape.
     
-    Creates thousands of tiny particles that cluster around bright/moving
-    regions, forming a glowing silhouette effect like bb.dere's work.
+    Creates thousands of tiny particles clustered around the subject,
+    forming a glowing ethereal silhouette - inspired by bb.dere's work.
     """
     h, w = frame.shape[:2]
     
@@ -782,50 +813,61 @@ def draw_particle_silhouette(
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Get preset params
-    particle_density = preset.get("particle_density", 0.02)
-    brightness_threshold = preset.get("brightness_threshold", 40)
-    particle_size = preset.get("particle_size", 1)
-    scatter_range = preset.get("scatter_range", 3)
-    glow_intensity = preset.get("particle_glow", 0.5)
+    particle_density = preset.get("particle_density", 0.035)
+    brightness_threshold = preset.get("brightness_threshold", 35)
+    scatter_range = preset.get("scatter_range", 2)
+    glow_intensity = preset.get("particle_glow", 0.7)
     
     # Create output - pure black background
     output = np.zeros((h, w, 3), dtype=np.uint8)
     
-    # Get particle color (default white/cream)
-    particle_color = colors.get("point", (230, 230, 255))
+    # Particle color - warm white/cream for that ethereal look
+    particle_color = (235, 240, 255)  # Slightly warm white
     
-    # Find bright pixels
+    # Find subject pixels (bright regions)
     bright_mask = gray > brightness_threshold
-    bright_coords = np.column_stack(np.where(bright_mask))
     
-    if len(bright_coords) == 0:
+    # Also use edge detection for more detail on subject boundaries
+    edges = cv2.Canny(gray, 30, 100)
+    edge_mask = edges > 0
+    
+    # Combine: subject body + edge details
+    combined_mask = np.logical_or(bright_mask, edge_mask)
+    all_coords = np.column_stack(np.where(combined_mask))
+    
+    if len(all_coords) == 0:
         return output
     
-    # Sample particles based on density
-    num_particles = int(len(bright_coords) * particle_density)
-    num_particles = min(num_particles, 15000)  # Cap for performance
+    # Sample particles - more density for richer effect
+    num_particles = int(len(all_coords) * particle_density)
+    num_particles = min(num_particles, 25000)  # Higher cap for dense effect
+    num_particles = max(num_particles, 1000)
     
-    if num_particles > 0:
-        indices = np.random.choice(len(bright_coords), size=num_particles, replace=False)
-        sampled = bright_coords[indices]
+    if num_particles > 0 and len(all_coords) > 0:
+        if len(all_coords) > num_particles:
+            indices = np.random.choice(len(all_coords), size=num_particles, replace=False)
+            sampled = all_coords[indices]
+        else:
+            sampled = all_coords
         
-        # Draw particles with scatter
+        # Draw particles
         for (row, col) in sampled:
-            # Add random scatter for organic feel
+            # Scatter for organic feel
             px = col + random.randint(-scatter_range, scatter_range)
             py = row + random.randint(-scatter_range, scatter_range)
             
             px = max(0, min(px, w - 1))
             py = max(0, min(py, h - 1))
             
-            # Vary brightness based on original pixel brightness
-            brightness_factor = gray[row, col] / 255.0
-            color = tuple(int(c * brightness_factor) for c in particle_color)
+            # Brightness variation based on original + random
+            base_brightness = gray[row, col] / 255.0
+            random_var = 0.7 + random.random() * 0.3
+            brightness = base_brightness * random_var
             
-            if particle_size <= 1:
-                output[py, px] = color
-            else:
-                cv2.circle(output, (px, py), particle_size, color, -1, cv2.LINE_AA)
+            color = tuple(int(c * brightness) for c in particle_color)
+            
+            # Single pixel particles for that dense stipple effect
+            output[py, px] = color
     
     # Add glow effect
     if glow_intensity > 0:
@@ -848,7 +890,7 @@ def draw_particle_silhouette(
 
 
 # =============================================================================
-# NUMBER CLOUD EFFECT
+# NUMBER CLOUD EFFECT (Subject isolation)
 # =============================================================================
 
 def draw_number_cloud(
@@ -857,67 +899,99 @@ def draw_number_cloud(
     colors: dict,
 ) -> np.ndarray:
     """
-    Number Cloud effect: Frame IDs and coordinates scattered across motion.
+    Number Cloud effect: Sequential IDs scattered ONLY on the subject.
     
-    Places sequential numbers and coordinate text at detected feature points,
-    creating a data-visualization aesthetic.
+    Uses foreground detection to isolate the subject, then places
+    numbers only on the person/object, not the background.
     """
     h, w = frame.shape[:2]
     
-    # Convert to grayscale
+    # Convert to grayscale and HSV for better subject detection
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # Edge detection for feature points
-    edges = cv2.Canny(gray, 50, 150)
-    
     # Get params
-    number_density = preset.get("number_density", 0.3)
-    font_scale = preset.get("number_font_scale", 0.3)
-    show_coords = preset.get("show_coordinates", True)
+    font_scale = preset.get("number_font_scale", 0.28)
     start_number = preset.get("start_number", 19000)
+    brightness_threshold = preset.get("subject_threshold", 60)
     
-    # Create output
-    bg_alpha = preset.get("bg_alpha", 0.2)
-    output = (frame * bg_alpha).astype(np.uint8)
+    # === SUBJECT ISOLATION ===
+    # Use multiple techniques to find the subject
     
-    # Find edge points
-    edge_points = np.column_stack(np.where(edges > 0))
+    # 1. Brightness-based detection (subjects are usually brighter than dark bg)
+    bright_mask = gray > brightness_threshold
     
-    if len(edge_points) == 0:
+    # 2. Edge detection to find subject boundaries
+    edges = cv2.Canny(gray, 40, 120)
+    
+    # 3. Dilate edges to create subject region
+    kernel = np.ones((5, 5), np.uint8)
+    dilated_edges = cv2.dilate(edges, kernel, iterations=2)
+    
+    # 4. Find contours and create subject mask
+    contours, _ = cv2.findContours(dilated_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Create subject mask from largest contours (likely the person)
+    subject_mask = np.zeros((h, w), dtype=np.uint8)
+    if contours:
+        # Sort by area, keep largest ones (the subject)
+        sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        # Fill the top contours (likely the subject)
+        for contour in sorted_contours[:10]:
+            if cv2.contourArea(contour) > 500:  # Minimum size
+                cv2.fillPoly(subject_mask, [contour], 255)
+    
+    # Combine masks: subject must be bright AND within detected contours
+    combined_mask = cv2.bitwise_and(bright_mask.astype(np.uint8) * 255, subject_mask)
+    
+    # Create output - pure black background
+    output = np.zeros((h, w, 3), dtype=np.uint8)
+    
+    # Find points ONLY within subject mask
+    subject_points = np.column_stack(np.where(combined_mask > 0))
+    
+    if len(subject_points) == 0:
+        # Fallback to just bright areas
+        subject_points = np.column_stack(np.where(bright_mask))
+    
+    if len(subject_points) == 0:
         return output
     
-    # Sample points
-    max_numbers = preset.get("max_numbers", 800)
-    step = max(1, int(len(edge_points) * number_density / max_numbers))
-    sampled = edge_points[::step][:max_numbers]
+    # Sample points for numbers
+    max_numbers = preset.get("max_numbers", 1200)
+    density = preset.get("number_density", 0.02)
+    num_to_sample = min(max_numbers, int(len(subject_points) * density))
+    num_to_sample = max(100, num_to_sample)
+    
+    if len(subject_points) > num_to_sample:
+        indices = np.random.choice(len(subject_points), size=num_to_sample, replace=False)
+        sampled = subject_points[indices]
+    else:
+        sampled = subject_points
     
     # Draw numbers
     font = cv2.FONT_HERSHEY_SIMPLEX
-    text_color = colors.get("point", (255, 255, 255))
+    text_color = (255, 255, 255)  # Pure white
     
     for idx, (row, col) in enumerate(sampled):
         number = start_number + idx
+        text = str(number)
         
-        if show_coords:
-            # Show coordinate format: x:0.xxx y:0.xxx
-            nx = col / w
-            ny = row / h
-            text = f"{number}"
-        else:
-            text = str(number)
+        # Small random offset for organic feel
+        ox = random.randint(-1, 1)
+        oy = random.randint(-1, 1)
         
-        # Random small offset
-        ox = random.randint(-2, 2)
-        oy = random.randint(-2, 2)
+        px = max(0, min(col + ox, w - 35))
+        py = max(8, min(row + oy, h - 2))
         
-        px = max(0, min(col + ox, w - 40))
-        py = max(10, min(row + oy, h - 5))
+        # Vary opacity based on position for depth
+        brightness = 0.6 + 0.4 * (row / h)  # Brighter at bottom
+        color = tuple(int(c * brightness) for c in text_color)
         
-        cv2.putText(output, text, (px, py), font, font_scale, text_color, 1, cv2.LINE_AA)
+        cv2.putText(output, text, (px, py), font, font_scale, color, 1, cv2.LINE_AA)
     
-    # Add subtle glow
-    glow = cv2.GaussianBlur(output, (5, 5), 0)
-    output = cv2.addWeighted(output, 1.0, glow, 0.3, 0)
+    # Subtle glow for cohesion
+    glow = cv2.GaussianBlur(output, (3, 3), 0)
+    output = cv2.addWeighted(output, 1.0, glow, 0.2, 0)
     
     return output
 

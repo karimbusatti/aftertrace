@@ -1,79 +1,19 @@
 "use client";
 
-interface Preset {
+type Preset = {
   id: string;
   name: string;
   description: string;
-  featured?: boolean;
-}
+};
 
 const PRESETS: Preset[] = [
-  // Featured presets first
-  {
-    id: "blob_track",
-    name: "Blob Track",
-    description: "coordinate boxes",
-    featured: true,
-  },
-  {
-    id: "particle_silhouette",
-    name: "Particle Cloud",
-    description: "point silhouette",
-    featured: true,
-  },
-  {
-    id: "number_cloud",
-    name: "Number Cloud",
-    description: "scattered IDs",
-    featured: true,
-  },
-  {
-    id: "face_scanner",
-    name: "Face Scanner",
-    description: "detection boxes",
-    featured: true,
-  },
-  // Other presets
-  {
-    id: "biometric",
-    name: "Biometric",
-    description: "full analysis",
-  },
-  {
-    id: "face_mesh",
-    name: "Face Mesh",
-    description: "468 points",
-  },
-  {
-    id: "data_body",
-    name: "Data Body",
-    description: "text silhouette",
-  },
-  {
-    id: "grid_trace",
-    name: "Grid Trace",
-    description: "geometric net",
-  },
-  {
-    id: "heat_map",
-    name: "Thermal",
-    description: "heat signature",
-  },
-  {
-    id: "catodic_cube",
-    name: "Catodic",
-    description: "CRT glitch",
-  },
-  {
-    id: "ember_trails",
-    name: "Ember",
-    description: "particle trails",
-  },
-  {
-    id: "soft_blobs",
-    name: "Soft Blobs",
-    description: "organic flow",
-  },
+  { id: "blob_track", name: "Blob Track", description: "Boxes with IDs and connections" },
+  { id: "number_cloud", name: "Number Cloud", description: "IDs on subject only" },
+  { id: "particle_silhouette", name: "Particle Cloud", description: "Ethereal point silhouette" },
+  { id: "face_scanner", name: "Face Scanner", description: "Minimal detection boxes" },
+  { id: "biometric", name: "Biometric", description: "CCTV-style data overlay" },
+  { id: "numeric_aura", name: "Numeric Aura", description: "Data-body contour" },
+  { id: "motion_trace", name: "Motion Trace", description: "Clean optical flow trails" },
 ];
 
 interface PresetPickerProps {
@@ -83,64 +23,35 @@ interface PresetPickerProps {
 }
 
 export function PresetPicker({ value, onChange, disabled }: PresetPickerProps) {
-  const featured = PRESETS.filter(p => p.featured);
-  const others = PRESETS.filter(p => !p.featured);
-
   return (
-    <div className="w-full space-y-4">
-      <p className="text-text-muted text-xs uppercase tracking-wider font-mono">
-        choose effect
-      </p>
-      
-      {/* Featured presets - larger */}
-      <div className="grid grid-cols-2 gap-2">
-        {featured.map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            onClick={() => onChange(preset.id)}
-            disabled={disabled}
-            className={`
-              w-full p-3 rounded-xl text-left transition-all duration-200 ease-out
-              border outline-none
-              ${value === preset.id
-                ? "bg-white/10 border-white/40"
-                : "bg-white/[0.03] border-white/[0.06] hover:border-white/20 hover:bg-white/[0.06]"
-              }
-              ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
-            `}
-          >
-            <p className={`font-medium text-sm ${value === preset.id ? "text-white" : "text-text-primary"}`}>
-              {preset.name}
-            </p>
-            <p className="text-[11px] text-text-muted mt-0.5 font-mono">
-              {preset.description}
-            </p>
-          </button>
-        ))}
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-text-muted text-[11px] font-mono uppercase tracking-widest">
+          Effect
+        </span>
+        <span className="text-text-muted text-[11px] font-mono">
+          {PRESETS.findIndex(p => p.id === value) + 1}/{PRESETS.length}
+        </span>
       </div>
-
-      {/* Other presets - smaller grid */}
-      <div className="grid grid-cols-4 gap-1.5">
-        {others.map((preset) => (
+      
+      <div className="flex flex-wrap gap-2">
+        {PRESETS.map((preset) => (
           <button
             key={preset.id}
-            type="button"
             onClick={() => onChange(preset.id)}
             disabled={disabled}
             className={`
-              w-full py-2 px-2 rounded-lg text-center transition-all duration-200 ease-out
-              border outline-none
-              ${value === preset.id
-                ? "bg-white/10 border-white/40"
-                : "bg-white/[0.02] border-white/[0.04] hover:border-white/15 hover:bg-white/[0.05]"
+              px-3 py-2 text-[11px] font-mono uppercase tracking-wide
+              border transition-all duration-200
+              disabled:opacity-40 disabled:cursor-not-allowed
+              ${value === preset.id 
+                ? "border-white bg-white text-black" 
+                : "border-white/20 text-text-secondary hover:border-white/40 hover:text-white"
               }
-              ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
             `}
+            title={preset.description}
           >
-            <p className={`font-medium text-[11px] ${value === preset.id ? "text-white" : "text-text-secondary"}`}>
-              {preset.name}
-            </p>
+            {preset.name}
           </button>
         ))}
       </div>

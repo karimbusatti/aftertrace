@@ -1,21 +1,21 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Instrument+Serif:ital@0;1&family=Syne:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@300;400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --surface: #030303;
+  --surface: #000000;
   --surface-raised: #0a0a0a;
   --surface-overlay: #111111;
-  --accent: #FF4D00;
-  --accent-soft: #FF6B35;
-  --text-primary: #F5F5F5;
-  --text-secondary: #777777;
+  --accent: #ffffff;
+  --accent-soft: #e0e0e0;
+  --text-primary: #ffffff;
+  --text-secondary: #888888;
   --text-muted: #444444;
-  --danger: #FF3B3B;
-  --success: #00FF88;
-  --warning: #FFB800;
+  --danger: #ff4444;
+  --success: #44ff88;
+  --warning: #ffaa44;
 }
 
 * {
@@ -23,11 +23,12 @@
 }
 
 html {
-  font-family: "Syne", system-ui, sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--surface);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01" 1, "ss02" 1;
 }
 
 body {
@@ -36,39 +37,25 @@ body {
   background: var(--surface);
 }
 
-/* Subtle animated gradient background */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  background: 
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(255, 77, 0, 0.08) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(255, 107, 53, 0.05) 0%, transparent 40%);
-  pointer-events: none;
-  z-index: -2;
-}
-
-/* Grain texture overlay - subtle noise for depth */
+/* Subtle vignette */
 body::after {
   content: "";
   position: fixed;
   inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  opacity: 0.02;
+  background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.4) 100%);
   pointer-events: none;
-  z-index: 9999;
-  mix-blend-mode: overlay;
+  z-index: 9998;
 }
 
 /* Custom selection */
 ::selection {
-  background: var(--accent);
-  color: var(--surface);
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--text-primary);
 }
 
 /* Focus styles */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 1px solid rgba(255, 255, 255, 0.3);
   outline-offset: 2px;
 }
 
@@ -79,9 +66,9 @@ body::after {
   }
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar - minimal */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -89,124 +76,41 @@ body::after {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--text-muted);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* Monospace for data */
 .font-mono {
-  font-family: "Space Mono", ui-monospace, monospace;
-}
-
-/* Display font - elegant serif for headings */
-.font-display {
-  font-family: "Syne", system-ui, sans-serif;
-  font-weight: 700;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  letter-spacing: -0.02em;
 }
 
 /* Button base */
 @layer components {
   .btn-primary {
-    @apply relative px-8 py-4 bg-accent text-white font-semibold text-lg 
-           rounded-full transition-all duration-300 ease-out
-           hover:bg-accent-soft hover:scale-[1.02] hover:shadow-[0_0_50px_rgba(255,77,0,0.4)]
+    @apply relative px-8 py-4 bg-white text-black font-medium text-sm
+           tracking-wide uppercase
+           transition-all duration-300 ease-out
+           hover:bg-opacity-90
            active:scale-[0.98]
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none disabled:hover:bg-accent;
+           disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-white;
   }
 
   .btn-secondary {
-    @apply relative px-6 py-3 bg-transparent text-text-primary font-medium
-           rounded-full border border-white/15 transition-all duration-300 ease-out
-           hover:border-accent/60 hover:text-accent hover:bg-accent/5
+    @apply relative px-6 py-3 bg-transparent text-white font-medium text-sm
+           border border-white/20 tracking-wide uppercase
+           transition-all duration-300 ease-out
+           hover:border-white/40 hover:bg-white/5
            active:scale-[0.98];
   }
 
   .card {
-    @apply backdrop-blur-sm border border-white/5 rounded-3xl;
-    background-color: rgba(10, 10, 10, 0.8);
-  }
-
-  /* Glowing border effect */
-  .glow-border {
-    position: relative;
-  }
-  
-  .glow-border::before {
-    content: "";
-    position: absolute;
-    inset: -1px;
-    border-radius: inherit;
-    padding: 1px;
-    background: linear-gradient(135deg, rgba(255,77,0,0.3), transparent 50%, rgba(255,107,53,0.2));
-    -webkit-mask: 
-      linear-gradient(#fff 0 0) content-box, 
-      linear-gradient(#fff 0 0);
-    mask: 
-      linear-gradient(#fff 0 0) content-box, 
-      linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    pointer-events: none;
-  }
-
-  /* Live indicator pulse animation */
-  .live-pulse {
-    @apply relative;
-  }
-  
-  .live-pulse::before {
-    content: "";
-    @apply absolute inset-0 rounded-full animate-ping;
-    animation-duration: 1.5s;
-  }
-  
-  /* Scanline animation for CCTV effect */
-  .scanline-overlay {
-    position: relative;
-    overflow: hidden;
-  }
-  
-  .scanline-overlay::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0, 0, 0, 0.03) 2px,
-      rgba(0, 0, 0, 0.03) 4px
-    );
-    pointer-events: none;
-    animation: scanline 8s linear infinite;
-  }
-  
-  @keyframes scanline {
-    0% { background-position: 0 0; }
-    100% { background-position: 0 100px; }
-  }
-  
-  /* Typing animation for hints */
-  .typing-cursor::after {
-    content: "_";
-    animation: blink 1s step-end infinite;
-  }
-  
-  @keyframes blink {
-    0%, 50% { opacity: 1; }
-    51%, 100% { opacity: 0; }
-  }
-}
-
-/* Parallax card - desktop only */
-@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
-  .parallax-card {
-    transition: transform 0.15s ease-out;
-    will-change: transform;
+    @apply border border-white/[0.08] rounded-none bg-black/40;
   }
 }
 
@@ -219,7 +123,7 @@ body::after {
 @keyframes slide-up {
   from { 
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(16px);
   }
   to { 
     opacity: 1;
@@ -227,29 +131,15 @@ body::after {
   }
 }
 
-@keyframes pulse-glow {
-  0%, 100% { 
-    box-shadow: 0 0 20px rgba(255, 77, 0, 0.2);
-  }
-  50% { 
-    box-shadow: 0 0 40px rgba(255, 77, 0, 0.4);
-  }
-}
-
 .animate-fade-in {
-  animation: fade-in 0.4s ease-out forwards;
+  animation: fade-in 0.6s ease-out forwards;
 }
 
 .animate-slide-up {
-  animation: slide-up 0.5s ease-out forwards;
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
+  animation: slide-up 0.6s ease-out forwards;
 }
 
 /* Staggered animations */
 .stagger-1 { animation-delay: 0.1s; }
 .stagger-2 { animation-delay: 0.2s; }
 .stagger-3 { animation-delay: 0.3s; }
-.stagger-4 { animation-delay: 0.4s; }

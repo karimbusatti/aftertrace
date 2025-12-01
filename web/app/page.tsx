@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState } from "react";
 import { UploadZone } from "@/components/UploadZone";
 import { PresetPicker } from "@/components/PresetPicker";
 import { ResultPanel } from "@/components/ResultPanel";
@@ -15,32 +15,6 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isTipsOpen, setIsTipsOpen] = useState(false);
-  
-  // Parallax state for desktop card effect
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [cardTransform, setCardTransform] = useState({ x: 0, y: 0 });
-  
-  const handleCardMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!cardRef.current || window.innerWidth < 768) return;
-    
-    const rect = cardRef.current.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    
-    // Calculate offset from center (-1 to 1)
-    const offsetX = (e.clientX - centerX) / (rect.width / 2);
-    const offsetY = (e.clientY - centerY) / (rect.height / 2);
-    
-    // Very subtle rotation (max 2 degrees) and translate (max 3px)
-    setCardTransform({
-      x: offsetX * 2,
-      y: offsetY * 2,
-    });
-  }, []);
-  
-  const handleCardMouseLeave = useCallback(() => {
-    setCardTransform({ x: 0, y: 0 });
-  }, []);
 
   const handleSubmit = async () => {
     if (!file) return;
@@ -55,7 +29,6 @@ export default function Home() {
       setResult(response);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Something went wrong";
-      // Check if this is a validation error (too heavy, etc.)
       if (message.includes("too heavy") || message.includes("under 20 seconds")) {
         setValidationError(message);
       } else {
@@ -68,49 +41,50 @@ export default function Home() {
 
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
-    setValidationError(null); // Clear validation error when new file selected
+    setValidationError(null);
   };
 
   const canSubmit = file && !isLoading;
 
   return (
     <main className="min-h-dvh flex flex-col">
-      {/* Header */}
-      <header className="px-6 py-5 flex items-center justify-between">
-        <span className="font-display font-bold text-lg tracking-tight">
-          <span className="text-accent">a</span>
-          <span className="text-text-primary">ftertrace</span>
-        </span>
-        <span className="text-text-muted text-xs font-mono hidden sm:block">
+      {/* Header - minimal */}
+      <header className="px-6 py-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-2 h-2 bg-white rounded-full" />
+          <span className="text-sm font-medium tracking-wide uppercase">
+            Aftertrace
+          </span>
+        </div>
+        <span className="text-text-muted text-xs font-mono">
           v1.0
         </span>
       </header>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col justify-center px-6 pb-8">
-        <div className="w-full max-w-md mx-auto">
-          {/* Hero text */}
-          <div className="mb-10 animate-fade-in">
-            <h1 className="font-display font-bold text-4xl md:text-5xl text-text-primary mb-4 leading-[1.1]">
-              see what
+      <div className="flex-1 flex flex-col justify-center px-6 pb-12">
+        <div className="w-full max-w-lg mx-auto">
+          {/* Hero text - elegant */}
+          <div className="mb-12 animate-fade-in">
+            <p className="text-text-muted text-xs font-mono uppercase tracking-widest mb-4">
+              visual analysis tool
+            </p>
+            <h1 className="text-4xl md:text-5xl font-light text-white leading-[1.1] tracking-tight">
+              See what cameras
               <br />
-              <span className="text-accent">cameras see</span>
+              <span className="font-normal">see about you</span>
             </h1>
-            <p className="text-text-secondary text-base md:text-lg leading-relaxed max-w-sm">
-              transform your clips into surveillance art. understand your digital footprint.
+            <p className="text-text-secondary text-sm mt-6 max-w-md leading-relaxed">
+              Transform your clips into data visualizations. 
+              Understand your digital footprint through motion tracking, 
+              facial detection, and biometric analysis.
             </p>
           </div>
 
           {/* Card */}
           <div 
-            ref={cardRef}
-            onMouseMove={handleCardMouseMove}
-            onMouseLeave={handleCardMouseLeave}
-            className="card glow-border p-6 space-y-6 animate-slide-up shadow-2xl shadow-black/40 parallax-card"
-            style={{ 
-              animationDelay: "0.1s",
-              transform: `perspective(1000px) rotateY(${cardTransform.x}deg) rotateX(${-cardTransform.y}deg) translateZ(0)`,
-            }}
+            className="card p-6 space-y-6 animate-slide-up"
+            style={{ animationDelay: "0.15s" }}
           >
             <UploadZone
               onFileSelect={handleFileSelect}
@@ -118,36 +92,38 @@ export default function Home() {
               error={validationError}
             />
 
-            <PresetPicker
-              value={preset}
-              onChange={setPreset}
-              disabled={isLoading}
-            />
+            <div className="border-t border-white/[0.06] pt-6">
+              <PresetPicker
+                value={preset}
+                onChange={setPreset}
+                disabled={isLoading}
+              />
+            </div>
 
-            <div className="group">
+            <div className="pt-2">
               <button
                 onClick={handleSubmit}
                 disabled={!canSubmit}
                 className="btn-primary w-full"
               >
                 {isLoading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    processing
+                  <span className="flex items-center justify-center gap-3">
+                    <span className="w-3 h-3 border border-black/30 border-t-black rounded-full animate-spin" />
+                    Analyzing
                   </span>
                 ) : (
-                  "create aftertrace"
+                  "Create Aftertrace"
                 )}
               </button>
-              <p className="text-text-muted text-xs text-center mt-3 opacity-0 group-hover:opacity-100 sm:opacity-0 max-sm:opacity-60 transition-opacity duration-200 font-mono">
-                frame-by-frame analysis. takes a moment.
+              <p className="text-text-muted text-[11px] text-center mt-4 font-mono">
+                Frame-by-frame analysis · ~30 seconds
               </p>
             </div>
           </div>
 
           {/* Results */}
           {(result || error || isLoading) && (
-            <div className="mt-6">
+            <div className="mt-8">
               <ResultPanel
                 result={result}
                 error={error}
@@ -159,22 +135,24 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="px-6 py-8 text-center space-y-3">
-        <p className="text-text-muted text-xs font-mono">
-          nothing stored · nothing tracked · your data stays yours
-        </p>
-        <p className="text-text-secondary text-sm">
-          made by{" "}
-          <a 
-            href="https://instagram.com/thechildofvenus" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="text-accent hover:text-accent-soft transition-colors"
-          >
-            Karim
-          </a>
-        </p>
+      {/* Footer - minimal */}
+      <footer className="px-6 py-8 text-center">
+        <div className="space-y-2">
+          <p className="text-text-muted text-[11px] font-mono uppercase tracking-widest">
+            No data stored · Deleted after download
+          </p>
+          <p className="text-text-secondary text-xs">
+            Made by{" "}
+            <a 
+              href="https://instagram.com/thechildofvenus" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-white hover:opacity-70 transition-opacity"
+            >
+              Karim
+            </a>
+          </p>
+        </div>
       </footer>
 
       {/* Tips Sheet */}

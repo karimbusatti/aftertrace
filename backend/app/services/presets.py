@@ -132,17 +132,17 @@ PRESETS: dict[str, dict[str, Any]] = {
     
     "blob_track": {
         "name": "Blob Track",
-        "description": "Clean white boxes with coordinate labels",
+        "description": "Boxes with IDs and connection lines",
         
-        "spawn_per_beat": 15,
-        "max_points": 50,
+        "spawn_per_beat": 12,
+        "max_points": 40,
         
-        "life_frames": 20,
-        "trail_length": 10,
+        "life_frames": 18,
+        "trail_length": 8,
         "trail_fade": True,
         
         "shape": "square",
-        "point_size": 3,
+        "point_size": 2,
         "trace_thickness": 1,
         
         "connect_points": False,
@@ -155,16 +155,18 @@ PRESETS: dict[str, dict[str, Any]] = {
         "scanlines": False,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.85,
+        "darken_factor": 0.92,
         
         # Blob tracking options
         "text_mode": "blob_track",
-        "blob_threshold": 25,
-        "blob_blur": 7,
-        "min_blob_area": 300,
-        "max_blobs": 60,
-        "label_scale": 0.32,
-        "bg_alpha": 0.12,
+        "blob_threshold": 20,
+        "blob_blur": 9,
+        "min_blob_area": 350,
+        "max_blobs": 100,
+        "max_connection_dist": 180,
+        "label_scale": 0.28,
+        "start_id": 100,
+        "bg_alpha": 0.06,
     },
     
     # =========================================================================
@@ -173,13 +175,13 @@ PRESETS: dict[str, dict[str, Any]] = {
     
     "particle_silhouette": {
         "name": "Particle Cloud",
-        "description": "Dense point cloud forming your silhouette",
+        "description": "Ethereal point silhouette",
         
-        "spawn_per_beat": 10,
-        "max_points": 40,
+        "spawn_per_beat": 8,
+        "max_points": 30,
         
-        "life_frames": 25,
-        "trail_length": 15,
+        "life_frames": 20,
+        "trail_length": 10,
         "trail_fade": True,
         
         "shape": "circle",
@@ -198,14 +200,13 @@ PRESETS: dict[str, dict[str, Any]] = {
         
         "darken_factor": 1.0,
         
-        # Particle silhouette options
+        # Particle silhouette options - bb.dere style
         "text_mode": "particle_silhouette",
-        "particle_density": 0.025,
-        "brightness_threshold": 35,
-        "particle_size": 1,
+        "particle_density": 0.04,
+        "brightness_threshold": 30,
         "scatter_range": 2,
-        "particle_glow": 0.6,
-        "connect_particles": True,
+        "particle_glow": 0.75,
+        "connect_particles": False,
     },
     
     # =========================================================================
@@ -253,17 +254,17 @@ PRESETS: dict[str, dict[str, Any]] = {
     
     "number_cloud": {
         "name": "Number Cloud",
-        "description": "Frame IDs scattered across motion",
+        "description": "IDs scattered on subject only",
         
-        "spawn_per_beat": 10,
-        "max_points": 40,
+        "spawn_per_beat": 8,
+        "max_points": 30,
         
-        "life_frames": 20,
-        "trail_length": 10,
+        "life_frames": 16,
+        "trail_length": 8,
         "trail_fade": True,
         
         "shape": "circle",
-        "point_size": 2,
+        "point_size": 1,
         "trace_thickness": 1,
         
         "connect_points": False,
@@ -276,16 +277,15 @@ PRESETS: dict[str, dict[str, Any]] = {
         "scanlines": False,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.85,
+        "darken_factor": 1.0,
         
-        # Number cloud options
+        # Number cloud options - subject isolation
         "text_mode": "number_cloud",
-        "number_density": 0.35,
-        "number_font_scale": 0.28,
-        "show_coordinates": False,
+        "number_density": 0.025,
+        "number_font_scale": 0.26,
         "start_number": 19000,
-        "max_numbers": 1000,
-        "bg_alpha": 0.18,
+        "max_numbers": 1500,
+        "subject_threshold": 50,
     },
     
     # =========================================================================

@@ -22,9 +22,8 @@ const config: Config = {
         warning: "var(--warning)",
       },
       fontFamily: {
-        display: ["Syne", "system-ui", "sans-serif"],
-        body: ["Syne", "system-ui", "sans-serif"],
-        mono: ["Space Mono", "ui-monospace", "monospace"],
+        sans: ["Inter", "system-ui", "sans-serif"],
+        mono: ["Geist Mono", "ui-monospace", "monospace"],
       },
       fontSize: {
         "display-lg": ["3.5rem", { lineHeight: "1.1", letterSpacing: "-0.02em" }],
