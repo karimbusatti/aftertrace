@@ -12,18 +12,13 @@ interface ResultPanelProps {
 export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPanelProps) {
   if (isLoading) {
     return (
-      <div className="card p-6 text-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="w-10 h-10 border border-white/20 border-t-white rounded-full animate-spin" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-4 h-4 bg-white/10 rounded-full" />
-            </div>
-          </div>
+      <div className="card p-5 text-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border border-white/15 border-t-white rounded-full animate-spin" />
           <div>
-            <p className="text-white text-sm">Analyzing frame by frame</p>
-            <p className="text-text-muted text-[10px] mt-1 font-mono">
-              Processing · This takes ~30 seconds
+            <p className="text-white text-xs">Processing</p>
+            <p className="text-text-muted text-[9px] mt-0.5 font-mono">
+              Frame by frame analysis
             </p>
           </div>
         </div>
@@ -33,13 +28,13 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
 
   if (error) {
     return (
-      <div className="card p-5 border-danger/20">
-        <div className="flex items-start gap-3">
-          <div className="w-1.5 h-1.5 bg-danger rounded-full mt-1.5 shrink-0" />
+      <div className="card p-4 border-danger/15">
+        <div className="flex items-start gap-2.5">
+          <div className="w-1 h-1 bg-danger rounded-full mt-1.5 shrink-0" />
           <div>
-            <p className="text-white text-sm">{error}</p>
-            <p className="text-text-muted text-[10px] mt-1">
-              Try a different video or format
+            <p className="text-white text-xs">{error}</p>
+            <p className="text-text-muted text-[9px] mt-0.5">
+              Try a different video
             </p>
           </div>
         </div>
@@ -53,7 +48,7 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
   const trackability = metadata?.trackability_score ?? 0;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       {/* Video */}
       <div className="card overflow-hidden">
         <video
@@ -66,32 +61,23 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
           className="w-full aspect-video bg-black"
         />
       </div>
-
+      
       {/* Stats */}
-      <div className="card p-4">
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-text-muted text-[10px] font-mono uppercase tracking-[0.2em]">
+      <div className="card p-3.5">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-text-muted text-[9px] font-mono uppercase tracking-[0.2em]">
             Analysis
           </span>
           <TrackabilityBadge score={trackability} />
-        </div>
+          </div>
         
-        <div className="grid grid-cols-3 gap-3 text-center">
-          <StatBlock 
-            value={metadata?.points_tracked ?? 0} 
-            label="Points" 
-          />
-          <StatBlock 
-            value={metadata?.frames_processed ?? 0} 
-            label="Frames" 
-          />
-          <StatBlock 
-            value={metadata?.faces_detected ?? 0} 
-            label="Faces" 
-          />
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <StatBlock value={metadata?.points_tracked ?? 0} label="Pts" />
+          <StatBlock value={metadata?.frames_processed ?? 0} label="Frm" />
+          <StatBlock value={metadata?.faces_detected ?? 0} label="Fce" />
         </div>
-      </div>
-
+          </div>
+          
       {/* Actions */}
       <div className="flex gap-2">
         <a
@@ -101,11 +87,8 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
         >
           Download
         </a>
-        <button
-          onClick={onOpenTips}
-          className="btn-secondary"
-        >
-          Reduce footprint
+        <button onClick={onOpenTips} className="btn-secondary">
+          Tips
         </button>
       </div>
     </div>
@@ -114,11 +97,11 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
 
 function StatBlock({ value, label }: { value: number; label: string }) {
   return (
-    <div className="py-2">
-      <p className="text-white text-xl font-light font-mono tracking-tight">
+    <div className="py-1">
+      <p className="text-white text-lg font-light font-mono">
         {value.toLocaleString()}
       </p>
-      <p className="text-text-muted text-[9px] font-mono uppercase tracking-[0.15em] mt-1">
+      <p className="text-text-muted text-[8px] font-mono uppercase tracking-wider mt-0.5">
         {label}
       </p>
     </div>
@@ -127,20 +110,17 @@ function StatBlock({ value, label }: { value: number; label: string }) {
 
 function TrackabilityBadge({ score }: { score: number }) {
   const getLevel = (s: number) => {
-    if (s >= 70) return { label: "High", color: "bg-danger", textColor: "text-danger" };
-    if (s >= 40) return { label: "Medium", color: "bg-warning", textColor: "text-warning" };
-    return { label: "Low", color: "bg-success", textColor: "text-success" };
+    if (s >= 70) return { label: "High", color: "bg-danger" };
+    if (s >= 40) return { label: "Med", color: "bg-warning" };
+    return { label: "Low", color: "bg-success" };
   };
 
   const level = getLevel(score);
 
   return (
-    <div className="flex items-center gap-2">
-      <div className={`w-1.5 h-1.5 rounded-full ${level.color}`} />
-      <span className="text-white text-sm font-mono">{score}%</span>
-      <span className={`text-[9px] font-mono uppercase tracking-wider ${level.textColor}`}>
-        {level.label}
-      </span>
+    <div className="flex items-center gap-1.5">
+      <div className={`w-1 h-1 rounded-full ${level.color}`} />
+      <span className="text-white text-xs font-mono">{score}%</span>
     </div>
   );
 }
