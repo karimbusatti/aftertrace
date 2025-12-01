@@ -52,7 +52,7 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
       {/* Video */}
       <div className="card overflow-hidden">
         <video
-          src={result.video_url}
+          src={result.download_url}
           controls
           autoPlay
           loop
@@ -72,16 +72,16 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
           </div>
         
         <div className="grid grid-cols-3 gap-2 text-center">
-          <StatBlock value={metadata?.points_tracked ?? 0} label="Pts" />
+          <StatBlock value={metadata?.total_points_spawned ?? 0} label="Pts" />
           <StatBlock value={metadata?.frames_processed ?? 0} label="Frm" />
-          <StatBlock value={metadata?.faces_detected ?? 0} label="Fce" />
+          <StatBlock value={metadata?.people_detected ?? 0} label="Fce" />
         </div>
           </div>
           
       {/* Actions */}
       <div className="flex gap-2">
         <a
-          href={result.video_url}
+          href={result.download_url}
           download
           className="btn-primary flex-1 text-center"
         >
