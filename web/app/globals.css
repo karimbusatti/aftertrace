@@ -126,7 +126,8 @@ body::after {
   }
 
   .card {
-    @apply bg-surface-raised/80 backdrop-blur-sm border border-white/5 rounded-3xl;
+    @apply backdrop-blur-sm border border-white/5 rounded-3xl;
+    background-color: rgba(10, 10, 10, 0.8);
   }
 
   /* Glowing border effect */
