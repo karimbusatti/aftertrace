@@ -9,7 +9,7 @@ pydantic-settings==2.1.0
 opencv-python-headless==4.9.0.80
 numpy==1.26.3
 librosa==0.10.1
-soundfile==0.12.1
+# soundfile==0.12.1  # May need system libs - try without first
 moviepy==1.0.3
 imageio-ffmpeg==0.4.9
 
