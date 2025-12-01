@@ -49,11 +49,10 @@ export default function Home() {
   return (
     <main className="min-h-dvh flex flex-col">
       {/* Header */}
-      <header className="px-6 py-6 flex items-center justify-between">
+      <header className="px-6 py-6">
         <span className="text-lg font-semibold tracking-tight">
           <span className="text-accent">a</span>ftertrace
         </span>
-        <span className="text-text-muted text-sm font-mono">v1.0</span>
       </header>
 
       {/* Main content */}
