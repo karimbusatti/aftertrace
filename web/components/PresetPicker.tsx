@@ -6,19 +6,22 @@ type Preset = {
   description: string;
 };
 
-const PRESETS: Preset[] = [
-  { id: "blob_track", name: "Blob Track", description: "boxes with IDs and connections" },
-  { id: "number_cloud", name: "Number Cloud", description: "subject becomes numbers" },
+const MAIN_PRESETS: Preset[] = [
+  { id: "blob_track", name: "Blob Track", description: "coordinate boxes" },
   { id: "particle_silhouette", name: "Particle Cloud", description: "point silhouette" },
-  { id: "contour_trace", name: "Contour", description: "edge visualization" },
+  { id: "number_cloud", name: "Number Cloud", description: "scattered IDs" },
   { id: "face_scanner", name: "Face Scanner", description: "detection boxes" },
-  { id: "biometric", name: "Biometric", description: "CCTV analysis" },
-  { id: "motion_trace", name: "Motion Trace", description: "flowing trails" },
-  { id: "grid_trace", name: "Grid", description: "geometric network" },
-  { id: "data_body", name: "Data Body", description: "code silhouette" },
-  { id: "heat_map", name: "Thermal", description: "heat signature" },
-  { id: "catodic_cube", name: "Catodic", description: "CRT glitch" },
-  { id: "ember_trails", name: "Ember", description: "spark trails" },
+];
+
+const SECONDARY_PRESETS: Preset[] = [
+  { id: "biometric", name: "Biometric", description: "" },
+  { id: "face_mesh", name: "Face Mesh", description: "" },
+  { id: "data_body", name: "Data Body", description: "" },
+  { id: "grid_trace", name: "Grid Trace", description: "" },
+  { id: "heat_map", name: "Thermal", description: "" },
+  { id: "catodic_cube", name: "Catodic", description: "" },
+  { id: "ember_trails", name: "Ember", description: "" },
+  { id: "soft_blobs", name: "Soft Blobs", description: "" },
 ];
 
 interface PresetPickerProps {
@@ -30,47 +33,47 @@ interface PresetPickerProps {
 export function PresetPicker({ value, onChange, disabled }: PresetPickerProps) {
   return (
     <div>
-      <p className="text-text-muted text-sm mb-3">choose effect</p>
+      <p className="text-text-muted text-xs font-mono uppercase tracking-widest mb-4">
+        Choose Effect
+      </p>
       
-      {/* Main presets - first row */}
-      <div className="flex flex-wrap gap-2 mb-3">
-        {PRESETS.slice(0, 4).map((preset) => (
+      {/* Main 4 presets - 2x2 grid */}
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        {MAIN_PRESETS.map((preset) => (
           <button
             key={preset.id}
             onClick={() => onChange(preset.id)}
             disabled={disabled}
             className={`
-              px-4 py-2.5 rounded-full text-sm font-medium
-              transition-all duration-200
+              p-4 rounded-xl text-left transition-all duration-200
               disabled:opacity-50 disabled:cursor-not-allowed
-              ${value === preset.id 
-                ? "bg-accent text-white" 
-                : "bg-white/5 text-text-secondary hover:bg-white/10 hover:text-white"
+              ${value === preset.id
+                ? "bg-white/10 border-2 border-white/30" 
+                : "bg-white/5 border-2 border-transparent hover:bg-white/8"
               }
             `}
           >
-            {preset.name}
-            <span className="text-xs ml-1 opacity-60">
+            <span className="block text-white font-semibold">{preset.name}</span>
+            <span className="block text-text-muted text-sm font-mono mt-1">
               {preset.description}
             </span>
           </button>
         ))}
       </div>
       
-      {/* More presets */}
-      <div className="flex flex-wrap gap-2">
-        {PRESETS.slice(4).map((preset) => (
+      {/* Secondary presets - 2 rows of 4 */}
+      <div className="grid grid-cols-4 gap-2">
+        {SECONDARY_PRESETS.map((preset) => (
           <button
             key={preset.id}
             onClick={() => onChange(preset.id)}
             disabled={disabled}
             className={`
-              px-3 py-1.5 rounded-full text-xs font-medium
-              transition-all duration-200
+              py-3 px-2 rounded-xl text-center text-sm transition-all duration-200
               disabled:opacity-50 disabled:cursor-not-allowed
               ${value === preset.id 
-                ? "bg-accent text-white" 
-                : "bg-white/5 text-text-muted hover:bg-white/10 hover:text-text-secondary"
+                ? "bg-white/10 border-2 border-white/30 text-white" 
+                : "bg-white/5 border-2 border-transparent text-text-secondary hover:bg-white/8 hover:text-white"
               }
             `}
           >
