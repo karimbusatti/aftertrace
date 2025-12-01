@@ -22,32 +22,17 @@ const config: Config = {
         warning: "var(--warning)",
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        mono: ["Geist Mono", "ui-monospace", "monospace"],
+        display: ["Syne", "system-ui", "sans-serif"],
+        body: ["Syne", "system-ui", "sans-serif"],
+        mono: ["Space Mono", "ui-monospace", "monospace"],
       },
-      fontSize: {
-        "display-lg": ["3.5rem", { lineHeight: "1.1", letterSpacing: "-0.02em" }],
-        "display-md": ["2.5rem", { lineHeight: "1.1", letterSpacing: "-0.02em" }],
-        "display-sm": ["2rem", { lineHeight: "1.2", letterSpacing: "-0.01em" }],
+      borderRadius: {
+        "4xl": "2rem",
       },
       animation: {
-        "fade-in": "fade-in 0.4s ease-out forwards",
-        "slide-up": "slide-up 0.5s ease-out forwards",
+        "fade-in": "fade-in 0.5s ease-out forwards",
+        "slide-up": "slide-up 0.6s ease-out forwards",
         "pulse-glow": "pulse-glow 2s ease-in-out infinite",
-      },
-      keyframes: {
-        "fade-in": {
-          from: { opacity: "0" },
-          to: { opacity: "1" },
-        },
-        "slide-up": {
-          from: { opacity: "0", transform: "translateY(20px)" },
-          to: { opacity: "1", transform: "translateY(0)" },
-        },
-        "pulse-glow": {
-          "0%, 100%": { boxShadow: "0 0 20px rgba(255, 77, 0, 0.2)" },
-          "50%": { boxShadow: "0 0 40px rgba(255, 77, 0, 0.4)" },
-        },
       },
     },
   },

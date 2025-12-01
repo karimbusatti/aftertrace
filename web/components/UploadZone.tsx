@@ -59,11 +59,11 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         className={`
-          relative h-28 flex flex-col items-center justify-center
-          border border-dashed transition-all duration-150 cursor-pointer
-          ${disabled ? "opacity-30 cursor-not-allowed" : ""}
-          ${isDragging ? "border-white bg-white/[0.01]" : "border-white/10 hover:border-white/20"}
-          ${error ? "border-danger/30" : ""}
+          relative h-40 flex flex-col items-center justify-center rounded-2xl
+          border-2 border-dashed transition-all duration-300 cursor-pointer
+          ${disabled ? "opacity-50 cursor-not-allowed" : ""}
+          ${isDragging ? "border-accent bg-accent/5" : "border-white/20 hover:border-white/40"}
+          ${error ? "border-danger/50" : ""}
         `}
       >
         <input
@@ -77,28 +77,36 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
         
         {fileName ? (
           <div className="text-center px-4">
-            <p className="text-white text-[11px] font-mono truncate max-w-[220px]">
+            <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center mx-auto mb-3">
+              <span className="text-accent text-xl">✓</span>
+            </div>
+            <p className="text-white font-medium truncate max-w-[250px]">
               {fileName}
             </p>
-            <p className="text-text-muted text-[9px] mt-1">
-              Tap to change
+            <p className="text-text-muted text-sm mt-1">
+              tap to change
             </p>
           </div>
         ) : (
           <div className="text-center">
-            <div className="text-text-muted text-lg mb-1">↑</div>
-            <p className="text-text-secondary text-[11px]">
-              Drop or tap
+            <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-3">
+              <span className="text-2xl">↑</span>
+            </div>
+            <p className="text-white font-medium">
+              upload a clip
             </p>
-            <p className="text-text-muted text-[9px] mt-0.5 font-mono">
-              &lt;20s
+            <p className="text-text-secondary text-sm mt-1">
+              drag & drop, tap to browse, or record
+            </p>
+            <p className="text-text-muted text-xs mt-2">
+              processed server-side, deleted after download
             </p>
           </div>
         )}
       </div>
       
       {error && (
-        <p className="text-danger text-[9px] mt-1.5 font-mono">
+        <p className="text-danger text-sm mt-2">
           {error}
         </p>
       )}

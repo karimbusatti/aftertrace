@@ -12,29 +12,25 @@ interface ResultPanelProps {
 export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPanelProps) {
   if (isLoading) {
     return (
-      <div className="card p-5 text-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border border-white/15 border-t-white rounded-full animate-spin" />
-          <div>
-            <p className="text-white text-xs">Processing</p>
-            <p className="text-text-muted text-[9px] mt-0.5 font-mono">
-              Frame by frame analysis
-            </p>
-          </div>
-        </div>
+      <div className="card p-8 text-center">
+        <div className="w-12 h-12 border-2 border-accent/30 border-t-accent rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-white font-medium">analyzing frame by frame...</p>
+        <p className="text-text-muted text-sm mt-2">
+          this usually takes about 30 seconds
+        </p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="card p-4 border-danger/15">
-        <div className="flex items-start gap-2.5">
-          <div className="w-1 h-1 bg-danger rounded-full mt-1.5 shrink-0" />
+      <div className="card p-6 border-danger/20">
+        <div className="flex items-start gap-3">
+          <span className="text-danger text-xl">✕</span>
           <div>
-            <p className="text-white text-xs">{error}</p>
-            <p className="text-text-muted text-[9px] mt-0.5">
-              Try a different video
+            <p className="text-white font-medium">{error}</p>
+            <p className="text-text-muted text-sm mt-1">
+              try a different video or format
             </p>
           </div>
         </div>
@@ -48,7 +44,7 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
   const trackability = metadata?.trackability_score ?? 0;
 
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-4">
       {/* Video */}
       <div className="card overflow-hidden">
         <video
@@ -61,34 +57,44 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
           className="w-full aspect-video bg-black"
         />
       </div>
-      
+
       {/* Stats */}
-      <div className="card p-3.5">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-text-muted text-[9px] font-mono uppercase tracking-[0.2em]">
-            Analysis
-          </span>
+      <div className="card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-text-muted text-sm">analysis results</span>
           <TrackabilityBadge score={trackability} />
-          </div>
-        
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <StatBlock value={metadata?.total_points_spawned ?? 0} label="Pts" />
-          <StatBlock value={metadata?.frames_processed ?? 0} label="Frm" />
-          <StatBlock value={metadata?.people_detected ?? 0} label="Fce" />
         </div>
-          </div>
-          
+        
+        <div className="grid grid-cols-3 gap-4 text-center">
+          <StatBlock 
+            value={metadata?.total_points_spawned ?? 0} 
+            label="points tracked" 
+          />
+          <StatBlock 
+            value={metadata?.frames_processed ?? 0} 
+            label="frames" 
+          />
+          <StatBlock 
+            value={metadata?.people_detected ?? 0} 
+            label="people detected" 
+          />
+        </div>
+      </div>
+
       {/* Actions */}
-      <div className="flex gap-2">
+      <div className="flex gap-3">
         <a
           href={result.download_url}
           download
           className="btn-primary flex-1 text-center"
         >
-          Download
+          download
         </a>
-        <button onClick={onOpenTips} className="btn-secondary">
-          Tips
+        <button
+          onClick={onOpenTips}
+          className="btn-secondary"
+        >
+          how to hide
         </button>
       </div>
     </div>
@@ -97,11 +103,11 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
 
 function StatBlock({ value, label }: { value: number; label: string }) {
   return (
-    <div className="py-1">
-      <p className="text-white text-lg font-light font-mono">
+    <div>
+      <p className="text-white text-2xl font-bold">
         {value.toLocaleString()}
       </p>
-      <p className="text-text-muted text-[8px] font-mono uppercase tracking-wider mt-0.5">
+      <p className="text-text-muted text-xs mt-1">
         {label}
       </p>
     </div>
@@ -110,17 +116,19 @@ function StatBlock({ value, label }: { value: number; label: string }) {
 
 function TrackabilityBadge({ score }: { score: number }) {
   const getLevel = (s: number) => {
-    if (s >= 70) return { label: "High", color: "bg-danger" };
-    if (s >= 40) return { label: "Med", color: "bg-warning" };
-    return { label: "Low", color: "bg-success" };
+    if (s >= 70) return { label: "high", color: "text-danger", bg: "bg-danger/10" };
+    if (s >= 40) return { label: "medium", color: "text-warning", bg: "bg-warning/10" };
+    return { label: "low", color: "text-success", bg: "bg-success/10" };
   };
 
   const level = getLevel(score);
 
   return (
-    <div className="flex items-center gap-1.5">
-      <div className={`w-1 h-1 rounded-full ${level.color}`} />
-      <span className="text-white text-xs font-mono">{score}%</span>
+    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${level.bg}`}>
+      <span className="text-white font-bold">{score}%</span>
+      <span className={`text-xs font-medium ${level.color}`}>
+        {level.label} trackability
+      </span>
     </div>
   );
 }

@@ -49,45 +49,37 @@ export default function Home() {
   return (
     <main className="min-h-dvh flex flex-col">
       {/* Header */}
-      <header className="px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-1 h-1 bg-white rounded-full" />
-          <span className="text-[11px] font-medium tracking-[0.25em] uppercase text-white/90">
-            Aftertrace
-          </span>
-        </div>
+      <header className="px-6 py-6 flex items-center justify-between">
+        <span className="text-lg font-semibold tracking-tight">
+          <span className="text-accent">a</span>ftertrace
+        </span>
+        <span className="text-text-muted text-sm font-mono">v1.0</span>
       </header>
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col justify-center px-6 pb-16">
-        <div className="w-full max-w-sm mx-auto">
-          {/* Hero */}
-          <div 
-            className="mb-8 opacity-0 animate-fade-in"
-            style={{ animationDelay: "0.05s", animationFillMode: "forwards" }}
-          >
-            <h1 className="text-2xl font-light text-white leading-tight tracking-tight">
-              See what cameras
+      {/* Main content */}
+      <div className="flex-1 flex flex-col justify-center px-6 pb-12">
+        <div className="w-full max-w-lg mx-auto">
+          {/* Hero text */}
+          <div className="mb-10 text-center md:text-left animate-fade-in">
+            <h1 className="text-4xl md:text-5xl font-bold leading-tight tracking-tight">
+              see what
               <br />
-              <span className="font-medium">see about you</span>
+              <span className="text-accent">cameras see</span>
             </h1>
-            <p className="text-text-secondary text-xs mt-4 leading-relaxed max-w-xs">
-              Transform clips into motion visualizations and understand your digital footprint.
+            <p className="text-text-secondary mt-4 text-lg max-w-md">
+              transform your clips into surveillance art. understand your digital footprint.
             </p>
           </div>
 
           {/* Card */}
-          <div 
-            className="card p-4 space-y-4 opacity-0 animate-slide-up"
-            style={{ animationDelay: "0.1s", animationFillMode: "forwards" }}
-          >
+          <div className="card p-6 space-y-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
             <UploadZone
               onFileSelect={handleFileSelect}
               disabled={isLoading}
               error={validationError}
             />
 
-            <div className="border-t border-white/[0.03] pt-4">
+            <div className="border-t border-white/5 pt-6">
               <PresetPicker
                 value={preset}
                 onChange={setPreset}
@@ -102,26 +94,23 @@ export default function Home() {
                 className="btn-primary w-full"
               >
                 {isLoading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="w-2.5 h-2.5 border border-black/20 border-t-black rounded-full animate-spin" />
-                    <span>Analyzing</span>
+                  <span className="flex items-center justify-center gap-3">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    analyzing...
                   </span>
                 ) : (
-                  "Create"
+                  "create aftertrace"
                 )}
               </button>
-              <p className="text-text-muted text-[9px] text-center mt-2.5 font-mono">
-                ~30 seconds
+              <p className="text-text-muted text-xs text-center mt-3">
+                frame-by-frame analysis. takes a moment.
               </p>
             </div>
           </div>
 
           {/* Results */}
           {(result || error || isLoading) && (
-            <div 
-              className="mt-5 opacity-0 animate-fade-in"
-              style={{ animationDelay: "0.05s", animationFillMode: "forwards" }}
-            >
+            <div className="mt-8 animate-fade-in">
               <ResultPanel
                 result={result}
                 error={error}
@@ -134,18 +123,19 @@ export default function Home() {
       </div>
 
       {/* Footer */}
-      <footer className="px-6 py-5 text-center">
-        <p className="text-text-muted text-[9px] font-mono uppercase tracking-[0.2em] mb-1.5">
-          No data stored
+      <footer className="px-6 py-8 text-center space-y-3">
+        <p className="text-text-muted text-xs font-mono">
+          nothing stored · nothing tracked · your data stays yours
         </p>
-        <p className="text-text-secondary text-[11px]">
+        <p className="text-text-secondary text-sm">
+          made by{" "}
           <a 
             href="https://instagram.com/thechildofvenus" 
             target="_blank" 
             rel="noopener noreferrer"
-            className="hover:text-white transition-colors duration-150"
+            className="text-accent hover:text-accent-soft transition-colors"
           >
-            @thechildofvenus
+            Karim
           </a>
         </p>
       </footer>
