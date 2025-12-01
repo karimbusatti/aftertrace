@@ -1,0 +1,17 @@
+---
+alwaysApply: true
+---
+Project: Aftertrace
+
+- Web-first, mobile-first app that turns user videos into trace/blob/optical-flow visuals and shows how trackable they are.
+- Design: very minimal, lots of space, one accent color, feels like a calm lab, not a marketing site.
+- Tone of voice: thoughtful 20–30 y/o, online, a bit poetic but clear. No corporate buzzwords.
+- Backend stack: Python 3.11+, FastAPI, OpenCV, Librosa (later MediaPipe).
+- Frontend stack: Next.js (App Router), TypeScript, minimal CSS/Tailwind, no heavy UI frameworks.
+
+Rules:
+- Always read PROJECT_OVERVIEW.md and tasks.json before big changes.
+- Prefer a few strong presets over many weak options.
+- Keep components small and well-named (StatsBlock, ResultPanel, PresetSelector, etc.).
+- Do not introduce new libs without explaining why they’re necessary.
+- Privacy by default: no accounts, delete videos after processing, no silent telemetry.

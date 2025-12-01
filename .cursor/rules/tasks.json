@@ -1,0 +1,212 @@
+{
+    "project": "Aftertrace",
+    "phases": [
+      "effects-engine",
+      "presets",
+      "surveillance-layer",
+      "education-layer",
+      "pwa-polish"
+    ],
+    "tasks": [
+      {
+        "id": "E1",
+        "phase": "effects-engine",
+        "title": "Implement core process_video pipeline",
+        "status": "done",
+        "files": [
+          "backend/app/services/process_video.py",
+          "backend/app/api/routes.py"
+        ],
+        "notes": "OpenCV + Librosa, optical flow + drawing."
+      },
+      {
+        "id": "P1",
+        "phase": "presets",
+        "title": "Add presets system",
+        "status": "done",
+        "files": [
+          "backend/app/services/presets.py",
+          "backend/app/services/process_video.py",
+          "backend/app/api/routes.py"
+        ],
+        "notes": "grid_trace, soft_blobs, surveillance_glow."
+      },
+      {
+        "id": "S1",
+        "phase": "surveillance-layer",
+        "title": "Extend ProcessingMetadata with surveillance stats",
+        "status": "done",
+        "files": [
+          "backend/app/services/types.py"
+        ],
+        "notes": "Add max_continuous_tracking_frames, longest_track_seconds, trackability_score (0-100), people_detected (stub)."
+      },
+      {
+        "id": "S2",
+        "phase": "surveillance-layer",
+        "title": "Add overlay_mode parameter to process_video",
+        "status": "done",
+        "files": [
+          "backend/app/services/process_video.py",
+          "backend/app/services/effects.py"
+        ],
+        "notes": "When overlay_mode = True, blend effect at 40% over original frame instead of replacing."
+      },
+      {
+        "id": "S3",
+        "phase": "surveillance-layer",
+        "title": "Collect tracking stats during processing loop",
+        "status": "done",
+        "files": [
+          "backend/app/services/process_video.py",
+          "backend/app/services/tracking.py"
+        ],
+        "notes": "Track per-point max age and compute trackability_score from density/longevity."
+      },
+      {
+        "id": "S4",
+        "phase": "surveillance-layer",
+        "title": "Add overlay_mode to /process endpoint",
+        "status": "done",
+        "files": [
+          "backend/app/api/routes.py"
+        ],
+        "notes": "Accept overlay_mode: bool = False in Form and pass it to process_video."
+      },
+      {
+        "id": "S5",
+        "phase": "surveillance-layer",
+        "title": "Display surveillance stats in ResultPanel",
+        "status": "done",
+        "files": [
+          "web/components/ResultPanel.tsx",
+          "web/lib/api.ts"
+        ],
+        "notes": "Add 'Surveillance Insight' section with trackability score bar and human-readable tracking duration."
+      },
+      {
+        "id": "ED1",
+        "phase": "education-layer",
+        "title": "Create structured copy config for stats and tips",
+        "status": "done",
+        "files": [
+          "web/lib/copy.ts"
+        ],
+        "notes": "Define labels, explainers, summary lines and 'less trackable' tips in a single TypeScript config file."
+      },
+      {
+        "id": "ED2",
+        "phase": "education-layer",
+        "title": "Wire stats copy into ResultPanel",
+        "status": "done",
+        "files": [
+          "web/components/ResultPanel.tsx",
+          "web/lib/copy.ts"
+        ],
+        "notes": "Use copy config to show labels + explainers under stats and a summary sentence based on trackability_score."
+      },
+      {
+        "id": "ED3",
+        "phase": "education-layer",
+        "title": "Build 'how to be less trackable' bottom sheet",
+        "status": "done",
+        "files": [
+          "web/components/TipsSheet.tsx",
+          "web/app/page.tsx",
+          "web/lib/copy.ts"
+        ],
+        "notes": "Bottom sheet/modal with the small survival guide; triggered by a link on the result screen."
+      },
+      {
+        "id": "PERF1",
+        "phase": "pwa-polish",
+        "title": "Limit video duration and resolution with friendly errors",
+        "status": "done",
+        "files": [
+          "backend/app/api/routes.py",
+          "backend/app/services/process_video.py",
+          "web/components/UploadZone.tsx"
+        ],
+        "notes": "Cap uploads to ~20s and 1080p, show a human message if too large."
+      },
+      {
+        "id": "PWA1",
+        "phase": "pwa-polish",
+        "title": "Add basic PWA support (manifest + icons)",
+        "status": "done",
+        "files": [
+          "web/public/manifest.json",
+          "web/public/icons/*",
+          "web/next.config.mjs",
+          "web/app/layout.tsx"
+        ],
+        "notes": "Enable 'Add to Home Screen' on mobile with app name Aftertrace."
+      },
+      {
+        "id": "DEPLOY1",
+        "phase": "pwa-polish",
+        "title": "Prepare app for deployment (env + build scripts)",
+        "status": "done",
+        "files": [
+          "backend/requirements.txt",
+          "backend/app/main.py",
+          "web/package.json",
+          "PROJECT_OVERVIEW.md"
+        ],
+        "notes": "Make sure backend and web can be built separately on typical hosts (Render/Vercel)."
+      },
+      {
+        "id": "VFX_TEXT1",
+        "phase": "effects-engine",
+        "title": "Add 'Data Body' text-particle preset",
+        "status": "done",
+        "files": [
+          "backend/app/services/presets.py",
+          "backend/app/services/effects.py",
+          "web/components/PresetPicker.tsx"
+        ],
+        "notes": "Preset that samples brightness on a grid and places A-F/0-9 glyphs to form the subject silhouette."
+      },
+      {
+        "id": "VFX_TEXT2",
+        "phase": "effects-engine",
+        "title": "Add 'Numeric Aura' glowing 0/1 preset",
+        "status": "done",
+        "files": [
+          "backend/app/services/presets.py",
+          "backend/app/services/effects.py",
+          "web/components/PresetPicker.tsx"
+        ],
+        "notes": "Preset that places 0/1 glyphs at edge locations with glow/halo effect for a digital aura."
+      },
+      {
+        "id": "VFX_CUBE",
+        "phase": "effects-engine",
+        "title": "Add 'Catodic Cube' depth preset",
+        "status": "done",
+        "files": [
+          "backend/app/services/presets.py",
+          "backend/app/services/effects.py",
+          "web/components/PresetPicker.tsx"
+        ],
+        "notes": "Perspective wireframe grid receding to vanishing point, RGB split, horizontal glitch effects, motion-driven intensity."
+      },
+      {
+        "id": "UX_ALT1",
+        "phase": "education-layer",
+        "title": "Add normal/effect alternating playback + toggle",
+        "status": "done",
+        "files": [
+          "backend/app/services/process_video.py",
+          "backend/app/api/routes.py",
+          "backend/app/services/types.py",
+          "web/components/ResultPanel.tsx",
+          "web/lib/api.ts",
+          "web/lib/copy.ts"
+        ],
+        "notes": "Two-video approach: backend saves original alongside processed, frontend toggles between effect-only and alternate mode (1.5s original / 3s effect loop)."
+      }
+  
+    ]
+  }
+  

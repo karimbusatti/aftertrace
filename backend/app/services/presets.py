@@ -101,6 +101,39 @@ COLOR_PALETTES = {
 # =============================================================================
 
 PRESETS: dict[str, dict[str, Any]] = {
+    "face_scanner": {
+        "name": "Face Scanner",
+        "description": "AI detection with CCTV-style tracking boxes",
+        
+        "spawn_per_beat": 30,
+        "max_points": 100,
+        
+        "life_frames": 30,
+        "trail_length": 20,
+        "trail_fade": True,
+        
+        "shape": "cross",
+        "point_size": 4,
+        "trace_thickness": 1,
+        
+        "connect_points": True,
+        "max_connect_distance": 80,
+        "connection_thickness": 1,
+        
+        "color_mode": "alert",
+        "blur_radius": 0,
+        "glow_intensity": 0.3,
+        "scanlines": True,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 0.90,
+        
+        # Face detection options
+        "detect_faces": True,
+        "face_boxes": True,
+        "face_glow": True,
+    },
+    
     "grid_trace": {
         # Metadata
         "name": "Grid Trace",
@@ -275,39 +308,6 @@ PRESETS: dict[str, dict[str, Any]] = {
         "high_contrast_bw": False,
         
         "darken_factor": 0.96,
-    },
-    
-    "face_scanner": {
-        "name": "Face Scanner",
-        "description": "AI face detection with tracking boxes",
-        
-        "spawn_per_beat": 30,
-        "max_points": 100,
-        
-        "life_frames": 30,
-        "trail_length": 20,
-        "trail_fade": True,
-        
-        "shape": "cross",
-        "point_size": 4,
-        "trace_thickness": 1,
-        
-        "connect_points": True,
-        "max_connect_distance": 80,
-        "connection_thickness": 1,
-        
-        "color_mode": "alert",
-        "blur_radius": 0,
-        "glow_intensity": 0.3,
-        "scanlines": True,
-        "high_contrast_bw": False,
-        
-        "darken_factor": 0.90,
-        
-        # Face detection options
-        "detect_faces": True,
-        "face_boxes": True,
-        "face_glow": True,
     },
     
     "face_mesh": {

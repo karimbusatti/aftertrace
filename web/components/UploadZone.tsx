@@ -57,8 +57,7 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
       <input
         ref={inputRef}
         type="file"
-        accept="video/*"
-        capture="environment"
+        accept="video/*,video/mp4,video/quicktime,video/webm"
         onChange={handleChange}
         className="hidden"
         disabled={disabled}

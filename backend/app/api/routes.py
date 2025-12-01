@@ -20,8 +20,8 @@ TEMP_DIR = Path(tempfile.gettempdir()) / "aftertrace"
 TEMP_DIR.mkdir(exist_ok=True)
 
 # Upload limits
-MAX_DURATION_SECONDS = 20.0
-MAX_DIMENSION = 1920  # Longest edge (works for both portrait and landscape)
+MAX_DURATION_SECONDS = 30.0
+MAX_DIMENSION = 2160  # Longest edge - 4K (works for both portrait and landscape)
 
 
 def check_video_limits(video_path: str) -> dict | None:

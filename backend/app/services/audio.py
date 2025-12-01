@@ -7,6 +7,7 @@ import os
 import tempfile
 import numpy as np
 import librosa
+import cv2
 
 # moviepy is noisy on import, suppress it
 import logging
@@ -21,6 +22,16 @@ except ImportError:
     VideoFileClip = None
 
 
+def _get_duration_opencv(video_path: str) -> float:
+    """Get video duration using OpenCV as fallback."""
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    duration = frame_count / fps if fps > 0 and frame_count > 0 else 0.0
+    cap.release()
+    return duration
+
+
 def extract_audio(video_path: str) -> tuple[str | None, float]:
     """
     Extract audio track from video file.
@@ -31,14 +42,7 @@ def extract_audio(video_path: str) -> tuple[str | None, float]:
     """
     if not MOVIEPY_AVAILABLE:
         print("[audio] MoviePy not available, cannot extract audio")
-        # Try to get duration from OpenCV as fallback
-        import cv2
-        cap = cv2.VideoCapture(video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-        duration = frame_count / fps if fps > 0 and frame_count > 0 else 0.0
-        cap.release()
-        return None, duration
+        return None, _get_duration_opencv(video_path)
     
     try:
         clip = VideoFileClip(video_path)
@@ -56,14 +60,7 @@ def extract_audio(video_path: str) -> tuple[str | None, float]:
         return audio_path, duration
     except Exception as e:
         print(f"[audio] Failed to extract audio: {e}")
-        # Fallback: get duration from OpenCV
-        import cv2
-        cap = cv2.VideoCapture(video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-        duration = frame_count / fps if fps > 0 and frame_count > 0 else 0.0
-        cap.release()
-        return None, duration
+        return None, _get_duration_opencv(video_path)
 
 
 def analyze_audio(audio_path: str | None, fps: float) -> dict:

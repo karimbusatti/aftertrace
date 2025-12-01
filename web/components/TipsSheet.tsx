@@ -101,20 +101,17 @@ function TipsSection({ section }: { section: typeof tipsSections[number] }) {
     <div>
       {/* Section header */}
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-lg" role="img" aria-hidden="true">
-          {section.icon}
-        </span>
-        <h3 className="font-display font-semibold text-text-primary">
+        <div className="w-1.5 h-1.5 rounded-full bg-accent" />
+        <h3 className="font-display font-semibold text-text-primary uppercase tracking-wider text-xs">
           {section.title}
         </h3>
       </div>
 
       {/* Tips list */}
-      <ul className="space-y-2.5">
+      <ul className="space-y-2 pl-3 border-l border-white/5">
         {section.tips.map((tip, index) => (
-          <li key={index} className="flex gap-3 text-sm">
-            <span className="text-accent mt-0.5 flex-shrink-0">•</span>
-            <span className="text-text-secondary leading-relaxed">{tip}</span>
+          <li key={index} className="text-sm text-text-secondary leading-relaxed">
+            {tip}
           </li>
         ))}
       </ul>

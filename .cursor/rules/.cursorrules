@@ -1,0 +1,13 @@
+# Aftertrace project rules
+
+- You are working on Aftertrace, a web-first camera lab.
+- It turns short user videos into trace/blob/optical-flow art and reveals how trackable the user is.
+- Audience: 18–30, online, into visual experiments and slightly worried about surveillance.
+- Design: Rick Rubin minimalism – remove everything non-essential, one big decision per screen.
+
+When editing this repo:
+- Read PROJECT_OVERVIEW.md and tasks.json if they exist.
+- Keep backend in Python + FastAPI + OpenCV + Librosa.
+- Keep frontend in Next.js + TypeScript, mobile-first.
+- Prioritise clarity and simplicity over clever abstractions.
+- Don’t introduce new libraries unless they significantly reduce complexity.

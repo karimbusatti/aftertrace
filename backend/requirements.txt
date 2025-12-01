@@ -9,8 +9,12 @@ pydantic-settings>=2.1.0
 opencv-python-headless>=4.8.0
 numpy>=1.24.0
 librosa>=0.10.0
-# moviepy>=1.0.3  # Optional - may fail on some platforms, using OpenCV fallback
+moviepy>=1.0.3
 imageio-ffmpeg>=0.4.9
+soundfile>=0.12.1
+
+# Face/Pose detection
+mediapipe>=0.10.9
 
 # Utilities
 aiofiles>=23.2.1

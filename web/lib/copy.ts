@@ -96,36 +96,39 @@ export function getTrackingSummary(score: number) {
 
 export const tipsSections = [
   {
-    id: "phone",
-    title: "phone camera & apps",
-    icon: "📱",
+    id: "devices",
+    title: "your devices",
+    icon: null,
     tips: [
-      "if an app doesn't need your camera or mic, revoke that permission. it's usually in settings > privacy.",
-      "cloud backup is comfy, but it also means every photo lives on someone else's computer forever.",
-      "use approximate location instead of precise when you can—most apps work fine without knowing your exact spot.",
-      "front-facing cameras are often lower res. that's not always a bad thing.",
+      "revoke camera/mic permissions from apps that don't need them. settings > privacy.",
+      "cloud backup means your photos live on corporate servers indefinitely.",
+      "approximate location works for 90% of apps. precise location is a gift you don't owe anyone.",
+      "front cameras have lower resolution. sometimes that's a feature, not a bug.",
+      "clear your photo metadata before uploading. exiftool or shortcut automations work.",
     ],
   },
   {
-    id: "public",
-    title: "public cameras",
-    icon: "🎥",
+    id: "physical",
+    title: "physical space",
+    icon: null,
     tips: [
-      "bright, even lighting makes you super easy to track. shadows, hats, and glasses add friction.",
-      "being the only moving thing in a space puts you at the center of every algorithm's attention.",
-      "patterns and reflective materials add visual noise that some trackers struggle with.",
-      "look down or away from cameras when you can. direct face angles are gold for recognition.",
+      "flat, even lighting is optimal for facial recognition. shadows break the pattern.",
+      "glasses, hats, hair across your face—anything that fragments the oval helps.",
+      "move with crowds, not through empty spaces. being the only motion source is a spotlight.",
+      "patterned clothing and asymmetric accessories create visual noise.",
+      "infrared LEDs are invisible to you but can blind cameras at night.",
     ],
   },
   {
-    id: "social",
-    title: "social + mindset",
-    icon: "🌐",
+    id: "digital",
+    title: "digital hygiene",
+    icon: null,
     tips: [
-      "don't post the same angle and background forever—repetition makes linking you across platforms trivial.",
-      "blur or crop friends who didn't ask to be online. you're protecting more than just yourself.",
-      "metadata (time, location, device) often says more than the image itself. some apps strip it, some don't.",
-      "you'll never be fully untrackable, but every bit of friction makes lazy systems struggle.",
+      "same angle, same background, same pose = trivial to link across platforms.",
+      "metadata (timestamp, GPS, device ID) often reveals more than the image itself.",
+      "reverse image search yourself occasionally. see what's already out there.",
+      "friends in your photos inherit your privacy choices. blur faces without consent.",
+      "100% untrackable isn't the goal. friction is. make it expensive to follow you.",
     ],
   },
 ] as const;
@@ -139,11 +142,11 @@ export type TipsSection = typeof tipsSections[number];
 
 export const miscCopy = {
   privacyNote: "no data stored. your video stays on your device.",
-  processingHint: "counting how many ways your face can be recognized…",
+  processingHint: "mapping your biometric surface…",
   downloadNote: "video will be deleted from our servers after download.",
   learnMoreLink: "what does this mean?",
-  tipsSheetTitle: "how to be less trackable",
-  tipsSheetSubtitle: "a small survival guide for the camera age",
+  tipsSheetTitle: "counter-surveillance basics",
+  tipsSheetSubtitle: "practical friction for the camera age",
   
   // Alternate playback mode
   alternateModeLabel: "alternate with original",
