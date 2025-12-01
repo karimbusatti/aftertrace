@@ -1,21 +1,17 @@
 # Web framework
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-python-multipart==0.0.6
-pydantic==2.5.3
-pydantic-settings==2.1.0
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
 
 # Video + Audio processing
-opencv-python-headless==4.9.0.80
-numpy==1.26.3
-librosa==0.10.1
-# soundfile==0.12.1  # May need system libs - try without first
-moviepy==1.0.3
-imageio-ffmpeg==0.4.9
-
-# Face/Pose detection (optional - installs if available)
-# mediapipe==0.10.9  # Commented out - incompatible with some Python versions
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+librosa>=0.10.0
+moviepy>=1.0.3
+imageio-ffmpeg>=0.4.9
 
 # Utilities
-aiofiles==23.2.1
-pillow==10.2.0
+aiofiles>=23.2.1
+pillow>=10.0.0
