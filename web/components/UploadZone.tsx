@@ -59,11 +59,11 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         className={`
-          relative h-36 flex flex-col items-center justify-center
-          border border-dashed transition-all duration-300 cursor-pointer
-          ${disabled ? "opacity-40 cursor-not-allowed" : ""}
-          ${isDragging ? "border-white bg-white/5" : "border-white/20 hover:border-white/40"}
-          ${error ? "border-danger/50" : ""}
+          relative h-32 flex flex-col items-center justify-center
+          border border-dashed transition-all duration-200 cursor-pointer
+          ${disabled ? "opacity-35 cursor-not-allowed" : ""}
+          ${isDragging ? "border-white bg-white/[0.02]" : "border-white/15 hover:border-white/25"}
+          ${error ? "border-danger/40" : ""}
         `}
       >
         <input
@@ -77,32 +77,42 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
         
         {fileName ? (
           <div className="text-center px-4">
-            <p className="text-white text-sm font-mono truncate max-w-[280px]">
+            <p className="text-white text-xs font-mono truncate max-w-[260px]">
               {fileName}
             </p>
-            <p className="text-text-muted text-[11px] mt-1">
+            <p className="text-text-muted text-[10px] mt-1.5">
               Tap to change
             </p>
           </div>
         ) : (
           <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <div className="w-5 h-5 border border-white/30 flex items-center justify-center">
-                <span className="text-xs">↑</span>
-              </div>
+            <div className="w-8 h-8 border border-white/20 flex items-center justify-center mx-auto mb-3">
+              <svg 
+                className="w-4 h-4 text-white/60" 
+                fill="none" 
+                viewBox="0 0 24 24" 
+                stroke="currentColor"
+              >
+                <path 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                  strokeWidth={1.5} 
+                  d="M5 10l7-7m0 0l7 7m-7-7v18" 
+                />
+              </svg>
             </div>
-            <p className="text-text-secondary text-sm">
+            <p className="text-text-secondary text-xs">
               Drop video or tap to select
             </p>
-            <p className="text-text-muted text-[11px] mt-1">
-              MP4, MOV, WebM · Under 20s
+            <p className="text-text-muted text-[10px] mt-1 font-mono">
+              MP4 · MOV · WebM · Under 20s
             </p>
           </div>
         )}
       </div>
       
       {error && (
-        <p className="text-danger text-[11px] mt-2 font-mono">
+        <p className="text-danger text-[10px] mt-2 font-mono">
           {error}
         </p>
       )}
