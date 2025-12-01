@@ -6,16 +6,16 @@
 
 :root {
   --surface: #000000;
-  --surface-raised: #0a0a0a;
-  --surface-overlay: #111111;
+  --surface-raised: #080808;
+  --surface-overlay: #0f0f0f;
   --accent: #ffffff;
-  --accent-soft: #e0e0e0;
+  --accent-soft: #d0d0d0;
   --text-primary: #ffffff;
-  --text-secondary: #888888;
-  --text-muted: #444444;
-  --danger: #ff4444;
-  --success: #44ff88;
-  --warning: #ffaa44;
+  --text-secondary: #808080;
+  --text-muted: #404040;
+  --danger: #ff3b3b;
+  --success: #00ff6a;
+  --warning: #ffb800;
 }
 
 * {
@@ -35,27 +35,35 @@ body {
   margin: 0;
   min-height: 100dvh;
   background: var(--surface);
+  overflow-x: hidden;
 }
 
-/* Subtle vignette */
-body::after {
+/* Subtle gradient overlay */
+body::before {
   content: "";
   position: fixed;
-  inset: 0;
-  background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.4) 100%);
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50vh;
+  background: radial-gradient(
+    ellipse 80% 50% at 50% 0%,
+    rgba(255, 255, 255, 0.02) 0%,
+    transparent 50%
+  );
   pointer-events: none;
   z-index: 9998;
 }
 
 /* Custom selection */
 ::selection {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
   color: var(--text-primary);
 }
 
 /* Focus styles */
 :focus-visible {
-  outline: 1px solid rgba(255, 255, 255, 0.3);
+  outline: 1px solid rgba(255, 255, 255, 0.25);
   outline-offset: 2px;
 }
 
@@ -66,9 +74,9 @@ body::after {
   }
 }
 
-/* Custom scrollbar - minimal */
+/* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 4px;
+  width: 3px;
 }
 
 ::-webkit-scrollbar-track {
@@ -76,41 +84,41 @@ body::after {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 1.5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
 }
 
-/* Monospace for data */
+/* Monospace */
 .font-mono {
-  font-family: "Geist Mono", ui-monospace, monospace;
-  letter-spacing: -0.02em;
+  font-family: "Geist Mono", ui-monospace, "SF Mono", monospace;
+  letter-spacing: -0.01em;
 }
 
 /* Button base */
 @layer components {
   .btn-primary {
-    @apply relative px-8 py-4 bg-white text-black font-medium text-sm
-           tracking-wide uppercase
-           transition-all duration-300 ease-out
-           hover:bg-opacity-90
-           active:scale-[0.98]
-           disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-white;
+    @apply relative px-7 py-3.5 bg-white text-black font-medium text-xs
+           tracking-[0.15em] uppercase
+           transition-all duration-200 ease-out
+           hover:bg-opacity-90 hover:scale-[0.99]
+           active:scale-[0.97]
+           disabled:opacity-25 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:scale-100;
   }
 
   .btn-secondary {
-    @apply relative px-6 py-3 bg-transparent text-white font-medium text-sm
-           border border-white/20 tracking-wide uppercase
-           transition-all duration-300 ease-out
-           hover:border-white/40 hover:bg-white/5
+    @apply relative px-5 py-3 bg-transparent text-white font-medium text-xs
+           border border-white/15 tracking-[0.1em] uppercase
+           transition-all duration-200 ease-out
+           hover:border-white/30 hover:bg-white/[0.03]
            active:scale-[0.98];
   }
 
   .card {
-    @apply border border-white/[0.08] rounded-none bg-black/40;
+    @apply border border-white/[0.06] bg-[rgba(8,8,8,0.6)] backdrop-blur-sm;
   }
 }
 
@@ -123,7 +131,7 @@ body::after {
 @keyframes slide-up {
   from { 
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateY(12px);
   }
   to { 
     opacity: 1;
@@ -131,15 +139,28 @@ body::after {
   }
 }
 
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .animate-fade-in {
-  animation: fade-in 0.6s ease-out forwards;
+  animation: fade-in 0.5s ease-out forwards;
 }
 
 .animate-slide-up {
-  animation: slide-up 0.6s ease-out forwards;
+  animation: slide-up 0.5s ease-out forwards;
 }
 
-/* Staggered animations */
-.stagger-1 { animation-delay: 0.1s; }
-.stagger-2 { animation-delay: 0.2s; }
-.stagger-3 { animation-delay: 0.3s; }
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Video player styling */
+video::-webkit-media-controls-panel {
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+}
+
+video::-webkit-media-controls-play-button {
+  filter: invert(1);
+}

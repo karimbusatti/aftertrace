@@ -680,6 +680,8 @@ def apply_text_effect(
         return draw_particle_silhouette(frame, preset, colors)
     elif text_mode == "number_cloud":
         return draw_number_cloud(frame, preset, colors)
+    elif text_mode == "contour_trace":
+        return draw_contour_trace(frame, preset, colors)
     
     return None
 
@@ -992,6 +994,117 @@ def draw_number_cloud(
     # Subtle glow for cohesion
     glow = cv2.GaussianBlur(output, (3, 3), 0)
     output = cv2.addWeighted(output, 1.0, glow, 0.2, 0)
+    
+    return output
+
+
+# =============================================================================
+# MOTION TRACE EFFECT (Clean optical flow lines)
+# =============================================================================
+
+def draw_motion_trace(
+    frame: np.ndarray,
+    points: list[TrackedPoint],
+    preset: dict[str, Any],
+    colors: dict,
+) -> np.ndarray:
+    """
+    Motion Trace effect: Clean flowing lines following optical flow.
+    
+    Creates elegant curved traces that visualize motion vectors,
+    similar to TouchDesigner's trail-based particle systems.
+    """
+    h, w = frame.shape[:2]
+    
+    # Create output - dark background with subtle original
+    bg_alpha = preset.get("bg_alpha", 0.1)
+    output = (frame * bg_alpha).astype(np.uint8)
+    
+    # Get trace params
+    trace_color = colors.get("trail", (255, 255, 255))
+    point_color = colors.get("point", (255, 255, 255))
+    line_thickness = preset.get("trace_thickness", 1)
+    point_size = preset.get("point_size", 2)
+    trail_length = preset.get("trail_length", 20)
+    
+    # Draw motion traces
+    for point in points:
+        if len(point.trace) < 2:
+            continue
+        
+        # Get visible portion of trail
+        visible_trace = point.trace[-trail_length:]
+        
+        # Draw trail with fading opacity
+        for i in range(len(visible_trace) - 1):
+            alpha = (i + 1) / len(visible_trace)
+            color = tuple(int(c * alpha * 0.8) for c in trace_color)
+            
+            pt1 = (int(visible_trace[i][0]), int(visible_trace[i][1]))
+            pt2 = (int(visible_trace[i + 1][0]), int(visible_trace[i + 1][1]))
+            
+            cv2.line(output, pt1, pt2, color, line_thickness, cv2.LINE_AA)
+        
+        # Draw endpoint
+        if visible_trace:
+            endpoint = visible_trace[-1]
+            cv2.circle(
+                output, 
+                (int(endpoint[0]), int(endpoint[1])), 
+                point_size, 
+                point_color, 
+                -1, 
+                cv2.LINE_AA
+            )
+    
+    # Add subtle glow
+    glow_intensity = preset.get("glow_intensity", 0.2)
+    if glow_intensity > 0:
+        glow = cv2.GaussianBlur(output, (11, 11), 0)
+        output = cv2.addWeighted(output, 1.0, glow, glow_intensity, 0)
+    
+    return output
+
+
+# =============================================================================
+# CONTOUR TRACE EFFECT (Edge-based visualization)
+# =============================================================================
+
+def draw_contour_trace(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+) -> np.ndarray:
+    """
+    Contour Trace: Clean edge visualization with optional fill.
+    
+    Extracts and visualizes edges with a minimalist aesthetic.
+    """
+    h, w = frame.shape[:2]
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Apply edge detection
+    edges = cv2.Canny(gray, 30, 100)
+    
+    # Optional: dilate for thicker lines
+    if preset.get("thick_edges", False):
+        kernel = np.ones((2, 2), np.uint8)
+        edges = cv2.dilate(edges, kernel, iterations=1)
+    
+    # Create output
+    line_color = colors.get("point", (255, 255, 255))
+    output = np.zeros((h, w, 3), dtype=np.uint8)
+    
+    # Apply edge mask
+    output[edges > 0] = line_color
+    
+    # Add glow
+    glow_intensity = preset.get("glow_intensity", 0.3)
+    if glow_intensity > 0:
+        glow = cv2.GaussianBlur(output, (7, 7), 0)
+        output = cv2.addWeighted(output, 1.0, glow, glow_intensity, 0)
     
     return output
 

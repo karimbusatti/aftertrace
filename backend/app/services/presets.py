@@ -405,35 +405,105 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     
     # =========================================================================
+    # MOTION TRACE (Clean flowing lines)
+    # =========================================================================
+    
+    "motion_trace": {
+        "name": "Motion Trace",
+        "description": "Clean flowing motion trails",
+        
+        "spawn_per_beat": 35,
+        "max_points": 120,
+        
+        "life_frames": 32,
+        "trail_length": 24,
+        "trail_fade": True,
+        
+        "shape": "circle",
+        "point_size": 3,
+        "trace_thickness": 1,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0.25,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 0.88,
+        "bg_alpha": 0.08,
+        
+        "text_mode": "motion_trace",
+    },
+    
+    # =========================================================================
+    # CONTOUR TRACE (Edge visualization)
+    # =========================================================================
+    
+    "contour_trace": {
+        "name": "Contour",
+        "description": "Minimalist edge detection",
+        
+        "spawn_per_beat": 15,
+        "max_points": 50,
+        
+        "life_frames": 20,
+        "trail_length": 10,
+        "trail_fade": True,
+        
+        "shape": "circle",
+        "point_size": 2,
+        "trace_thickness": 1,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0.35,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        "thick_edges": False,
+        
+        "text_mode": "contour_trace",
+    },
+    
+    # =========================================================================
     # GRID TRACE (Geometric network)
     # =========================================================================
     
     "grid_trace": {
         "name": "Grid Trace",
-        "description": "Sharp geometric network following motion",
+        "description": "Geometric network following motion",
         
-        "spawn_per_beat": 30,
-        "max_points": 150,
+        "spawn_per_beat": 25,
+        "max_points": 100,
         
-        "life_frames": 28,
-        "trail_length": 20,
+        "life_frames": 26,
+        "trail_length": 18,
         "trail_fade": True,
         
         "shape": "square",
-        "point_size": 4,
+        "point_size": 3,
         "trace_thickness": 1,
         
         "connect_points": True,
-        "max_connect_distance": 80,
+        "max_connect_distance": 70,
         "connection_thickness": 1,
         
         "color_mode": "neon_grid",
         "blur_radius": 0,
-        "glow_intensity": 0.15,
+        "glow_intensity": 0.2,
         "scanlines": False,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.85,
+        "darken_factor": 0.88,
     },
     
     # =========================================================================
