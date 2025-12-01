@@ -49,41 +49,37 @@ export default function Home() {
   return (
     <main className="min-h-dvh flex flex-col">
       {/* Header */}
-      <header className="px-6 py-5 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-          <span className="text-xs font-medium tracking-[0.2em] uppercase">
+      <header className="px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-1 h-1 bg-white rounded-full" />
+          <span className="text-[11px] font-medium tracking-[0.25em] uppercase text-white/90">
             Aftertrace
           </span>
         </div>
-        <span className="text-text-muted text-[10px] font-mono tracking-wider">
-          v1.0
-        </span>
       </header>
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col justify-center px-6 pb-12">
-        <div className="w-full max-w-md mx-auto">
+      {/* Main */}
+      <div className="flex-1 flex flex-col justify-center px-6 pb-16">
+        <div className="w-full max-w-sm mx-auto">
           {/* Hero */}
-          <div className="mb-10 opacity-0 animate-fade-in" style={{ animationDelay: "0.1s", animationFillMode: "forwards" }}>
-            <p className="text-text-muted text-[10px] font-mono uppercase tracking-[0.3em] mb-3">
-              Visual Analysis
-            </p>
-            <h1 className="text-3xl md:text-4xl font-light text-white leading-[1.15] tracking-tight">
+          <div 
+            className="mb-8 opacity-0 animate-fade-in"
+            style={{ animationDelay: "0.05s", animationFillMode: "forwards" }}
+          >
+            <h1 className="text-2xl font-light text-white leading-tight tracking-tight">
               See what cameras
               <br />
               <span className="font-medium">see about you</span>
             </h1>
-            <p className="text-text-secondary text-sm mt-5 leading-relaxed max-w-sm">
-              Transform clips into motion visualizations. 
-              Understand your digital footprint through tracking analysis.
+            <p className="text-text-secondary text-xs mt-4 leading-relaxed max-w-xs">
+              Transform clips into motion visualizations and understand your digital footprint.
             </p>
           </div>
 
           {/* Card */}
           <div 
-            className="card p-5 space-y-5 opacity-0 animate-slide-up"
-            style={{ animationDelay: "0.2s", animationFillMode: "forwards" }}
+            className="card p-4 space-y-4 opacity-0 animate-slide-up"
+            style={{ animationDelay: "0.1s", animationFillMode: "forwards" }}
           >
             <UploadZone
               onFileSelect={handleFileSelect}
@@ -91,7 +87,7 @@ export default function Home() {
               error={validationError}
             />
 
-            <div className="border-t border-white/[0.04] pt-5">
+            <div className="border-t border-white/[0.03] pt-4">
               <PresetPicker
                 value={preset}
                 onChange={setPreset}
@@ -99,23 +95,23 @@ export default function Home() {
               />
             </div>
 
-            <div className="pt-3">
+            <div className="pt-2">
               <button
                 onClick={handleSubmit}
                 disabled={!canSubmit}
-                className="btn-primary w-full relative overflow-hidden"
+                className="btn-primary w-full"
               >
                 {isLoading ? (
-                  <span className="flex items-center justify-center gap-2.5">
-                    <span className="w-3 h-3 border border-black/20 border-t-black rounded-full animate-spin" />
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-2.5 h-2.5 border border-black/20 border-t-black rounded-full animate-spin" />
                     <span>Analyzing</span>
                   </span>
                 ) : (
-                  "Create Aftertrace"
+                  "Create"
                 )}
               </button>
-              <p className="text-text-muted text-[10px] text-center mt-3 font-mono tracking-wide">
-                Frame-by-frame · ~30 sec
+              <p className="text-text-muted text-[9px] text-center mt-2.5 font-mono">
+                ~30 seconds
               </p>
             </div>
           </div>
@@ -123,8 +119,8 @@ export default function Home() {
           {/* Results */}
           {(result || error || isLoading) && (
             <div 
-              className="mt-6 opacity-0 animate-fade-in"
-              style={{ animationDelay: "0.1s", animationFillMode: "forwards" }}
+              className="mt-5 opacity-0 animate-fade-in"
+              style={{ animationDelay: "0.05s", animationFillMode: "forwards" }}
             >
               <ResultPanel
                 result={result}
@@ -138,24 +134,22 @@ export default function Home() {
       </div>
 
       {/* Footer */}
-      <footer className="px-6 py-6 text-center">
-        <p className="text-text-muted text-[10px] font-mono uppercase tracking-[0.2em] mb-2">
-          No data stored · Deleted after download
+      <footer className="px-6 py-5 text-center">
+        <p className="text-text-muted text-[9px] font-mono uppercase tracking-[0.2em] mb-1.5">
+          No data stored
         </p>
-        <p className="text-text-secondary text-xs">
-          Made by{" "}
+        <p className="text-text-secondary text-[11px]">
           <a 
             href="https://instagram.com/thechildofvenus" 
             target="_blank" 
             rel="noopener noreferrer"
-            className="text-white hover:opacity-60 transition-opacity duration-200"
+            className="hover:text-white transition-colors duration-150"
           >
-            Karim
+            @thechildofvenus
           </a>
         </p>
       </footer>
 
-      {/* Tips Sheet */}
       <TipsSheet 
         isOpen={isTipsOpen} 
         onClose={() => setIsTipsOpen(false)} 

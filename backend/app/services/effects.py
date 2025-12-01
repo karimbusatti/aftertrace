@@ -696,13 +696,14 @@ def draw_blob_track(
     colors: dict,
 ) -> np.ndarray:
     """
-    Blob Track effect: Clean white bounding boxes with IDs and connection lines.
+    Blob Track effect: Pure TouchDesigner-style tracking visualization.
     
-    TouchDesigner-style tracking visualization with:
-    - Outline-only rectangles (no fill)
-    - ID numbers on each blob
+    Features:
+    - Corner bracket boxes (not full rectangles)
+    - Centroid crosshairs
+    - ID numbers with sequential tracking
     - Connection lines between nearby blobs
-    - Coordinate labels
+    - Normalized coordinate readouts
     """
     h, w = frame.shape[:2]
     
@@ -710,8 +711,8 @@ def draw_blob_track(
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Apply threshold to find regions of interest
-    threshold = preset.get("blob_threshold", 25)
-    blur_size = preset.get("blob_blur", 7)
+    threshold = preset.get("blob_threshold", 18)
+    blur_size = preset.get("blob_blur", 11)
     
     # Blur to reduce noise
     blurred = cv2.GaussianBlur(gray, (blur_size, blur_size), 0)
@@ -725,13 +726,16 @@ def draw_blob_track(
     # Find contours
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Create output - very dark background with hint of original
-    bg_alpha = preset.get("bg_alpha", 0.08)
-    output = (frame * bg_alpha).astype(np.uint8)
+    # Create output - pure black or very subtle original
+    bg_alpha = preset.get("bg_alpha", 0.02)
+    if bg_alpha > 0:
+        output = (frame * bg_alpha).astype(np.uint8)
+    else:
+        output = np.zeros((h, w, 3), dtype=np.uint8)
     
     # Filter and sort contours by area
-    min_area = preset.get("min_blob_area", 400)
-    max_blobs = preset.get("max_blobs", 80)
+    min_area = preset.get("min_blob_area", 300)
+    max_blobs = preset.get("max_blobs", 150)
     
     valid_contours = [(cv2.contourArea(c), c) for c in contours if cv2.contourArea(c) > min_area]
     valid_contours.sort(key=lambda x: x[0], reverse=True)
@@ -741,12 +745,13 @@ def draw_blob_track(
         return output
     
     # Colors
-    box_color = (255, 255, 255)  # White
-    line_color = (180, 180, 180)  # Light gray for connections
+    box_color = (255, 255, 255)  # Pure white
+    dim_color = (120, 120, 120)  # Dim gray for secondary elements
+    line_color = (80, 80, 80)    # Dark gray for connections
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = preset.get("label_scale", 0.30)
+    font_scale = preset.get("label_scale", 0.25)
     
-    # Store blob centers for connection lines
+    # Store blob data
     blob_centers = []
     blob_boxes = []
     
@@ -755,9 +760,9 @@ def draw_blob_track(
         center_x = x + bw // 2
         center_y = y + bh // 2
         blob_centers.append((center_x, center_y))
-        blob_boxes.append((x, y, bw, bh, idx))
+        blob_boxes.append((x, y, bw, bh, idx, area))
     
-    # Draw connection lines between nearby blobs FIRST (so boxes draw on top)
+    # Draw connection lines FIRST (underneath everything)
     max_connection_dist = preset.get("max_connection_dist", 200)
     for i in range(len(blob_centers)):
         for j in range(i + 1, len(blob_centers)):
@@ -766,30 +771,51 @@ def draw_blob_track(
             dist = np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
             if dist < max_connection_dist:
                 # Fade line based on distance
-                alpha = 1.0 - (dist / max_connection_dist)
+                alpha = 0.6 * (1.0 - (dist / max_connection_dist))
                 color = tuple(int(c * alpha) for c in line_color)
                 cv2.line(output, p1, p2, color, 1, cv2.LINE_AA)
     
-    # Draw each blob box and labels
+    # Draw each blob
     start_id = preset.get("start_id", 100)
     
-    for (x, y, bw, bh, idx) in blob_boxes:
-        # Draw clean white rectangle outline
-        cv2.rectangle(output, (x, y), (x + bw, y + bh), box_color, 1, cv2.LINE_AA)
-        
-        # Calculate normalized coordinates (0-1 range)
-        cx = (x + bw / 2) / w
-        cy = (y + bh / 2) / h
-        
-        # Draw ID number inside box (top-left corner)
+    for (x, y, bw, bh, idx, area) in blob_boxes:
         blob_id = start_id + idx
-        id_label = f"ID:{blob_id}"
-        cv2.putText(output, id_label, (x + 3, y + 12), font, font_scale, box_color, 1, cv2.LINE_AA)
+        cx_norm = (x + bw / 2) / w
+        cy_norm = (y + bh / 2) / h
+        center_x = x + bw // 2
+        center_y = y + bh // 2
         
-        # Draw coordinate label above box
-        coord_label = f"x:{cx:.3f} y:{cy:.3f}"
-        label_y = max(y - 4, 10)
-        cv2.putText(output, coord_label, (x, label_y), font, font_scale - 0.02, (200, 200, 200), 1, cv2.LINE_AA)
+        # Corner bracket length (proportional to box size)
+        corner_len = max(min(bw, bh) // 5, 8)
+        
+        # Draw corner brackets instead of full rectangle
+        # Top-left
+        cv2.line(output, (x, y), (x + corner_len, y), box_color, 1, cv2.LINE_AA)
+        cv2.line(output, (x, y), (x, y + corner_len), box_color, 1, cv2.LINE_AA)
+        # Top-right
+        cv2.line(output, (x + bw, y), (x + bw - corner_len, y), box_color, 1, cv2.LINE_AA)
+        cv2.line(output, (x + bw, y), (x + bw, y + corner_len), box_color, 1, cv2.LINE_AA)
+        # Bottom-left
+        cv2.line(output, (x, y + bh), (x + corner_len, y + bh), box_color, 1, cv2.LINE_AA)
+        cv2.line(output, (x, y + bh), (x, y + bh - corner_len), box_color, 1, cv2.LINE_AA)
+        # Bottom-right
+        cv2.line(output, (x + bw, y + bh), (x + bw - corner_len, y + bh), box_color, 1, cv2.LINE_AA)
+        cv2.line(output, (x + bw, y + bh), (x + bw, y + bh - corner_len), box_color, 1, cv2.LINE_AA)
+        
+        # Draw centroid crosshair
+        cross_size = 4
+        cv2.line(output, (center_x - cross_size, center_y), (center_x + cross_size, center_y), box_color, 1, cv2.LINE_AA)
+        cv2.line(output, (center_x, center_y - cross_size), (center_x, center_y + cross_size), box_color, 1, cv2.LINE_AA)
+        
+        # ID label (above box)
+        id_label = f"{blob_id}"
+        label_y = max(y - 6, 12)
+        cv2.putText(output, id_label, (x, label_y), font, font_scale, box_color, 1, cv2.LINE_AA)
+        
+        # Coordinate label (below box, smaller)
+        coord_label = f"({cx_norm:.2f},{cy_norm:.2f})"
+        coord_y = min(y + bh + 12, h - 4)
+        cv2.putText(output, coord_label, (x, coord_y), font, font_scale - 0.03, dim_color, 1, cv2.LINE_AA)
     
     return output
 
@@ -804,10 +830,11 @@ def draw_particle_silhouette(
     colors: dict,
 ) -> np.ndarray:
     """
-    Particle Silhouette effect: Dense point cloud forming body shape.
+    Particle Silhouette effect: Dense point cloud forming ethereal body shape.
     
     Creates thousands of tiny particles clustered around the subject,
     forming a glowing ethereal silhouette - inspired by bb.dere's work.
+    Multiple particle layers for depth.
     """
     h, w = frame.shape[:2]
     
@@ -815,35 +842,42 @@ def draw_particle_silhouette(
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Get preset params
-    particle_density = preset.get("particle_density", 0.035)
-    brightness_threshold = preset.get("brightness_threshold", 35)
+    particle_density = preset.get("particle_density", 0.05)
+    brightness_threshold = preset.get("brightness_threshold", 25)
     scatter_range = preset.get("scatter_range", 2)
-    glow_intensity = preset.get("particle_glow", 0.7)
+    glow_intensity = preset.get("particle_glow", 0.8)
     
     # Create output - pure black background
     output = np.zeros((h, w, 3), dtype=np.uint8)
     
-    # Particle color - warm white/cream for that ethereal look
-    particle_color = (235, 240, 255)  # Slightly warm white
+    # Particle color - warm cream white
+    particle_color = (240, 245, 255)
     
-    # Find subject pixels (bright regions)
+    # Find subject pixels using multiple methods
+    # 1. Brightness-based
     bright_mask = gray > brightness_threshold
     
-    # Also use edge detection for more detail on subject boundaries
-    edges = cv2.Canny(gray, 30, 100)
+    # 2. Edge detection for crisp boundaries
+    edges = cv2.Canny(gray, 25, 80)
     edge_mask = edges > 0
     
-    # Combine: subject body + edge details
-    combined_mask = np.logical_or(bright_mask, edge_mask)
+    # 3. Gradient magnitude for texture detail
+    grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+    grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+    gradient = np.sqrt(grad_x**2 + grad_y**2)
+    gradient_mask = gradient > 20
+    
+    # Combine all masks
+    combined_mask = np.logical_or(bright_mask, np.logical_or(edge_mask, gradient_mask))
     all_coords = np.column_stack(np.where(combined_mask))
     
     if len(all_coords) == 0:
         return output
     
-    # Sample particles - more density for richer effect
+    # Sample particles - high density for rich effect
     num_particles = int(len(all_coords) * particle_density)
-    num_particles = min(num_particles, 25000)  # Higher cap for dense effect
-    num_particles = max(num_particles, 1000)
+    num_particles = min(num_particles, 35000)  # High cap for dense effect
+    num_particles = max(num_particles, 2000)
     
     if num_particles > 0 and len(all_coords) > 0:
         if len(all_coords) > num_particles:
@@ -852,18 +886,19 @@ def draw_particle_silhouette(
         else:
             sampled = all_coords
         
-        # Draw particles
+        # Draw particles in layers for depth
         for (row, col) in sampled:
             # Scatter for organic feel
-            px = col + random.randint(-scatter_range, scatter_range)
-            py = row + random.randint(-scatter_range, scatter_range)
+            scatter = scatter_range
+            px = col + random.randint(-scatter, scatter)
+            py = row + random.randint(-scatter, scatter)
             
             px = max(0, min(px, w - 1))
             py = max(0, min(py, h - 1))
             
-            # Brightness variation based on original + random
+            # Brightness based on original pixel value
             base_brightness = gray[row, col] / 255.0
-            random_var = 0.7 + random.random() * 0.3
+            random_var = 0.6 + random.random() * 0.4
             brightness = base_brightness * random_var
             
             color = tuple(int(c * brightness) for c in particle_color)
@@ -1070,35 +1105,45 @@ def draw_contour_trace(
     colors: dict,
 ) -> np.ndarray:
     """
-    Contour Trace: Clean edge visualization with optional fill.
+    Contour Trace: Pure minimalist edge visualization.
     
-    Extracts and visualizes edges with a minimalist aesthetic.
+    Creates clean white edges on black background with subtle glow.
     """
     h, w = frame.shape[:2]
     
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # Apply edge detection
-    edges = cv2.Canny(gray, 30, 100)
+    # Apply bilateral filter to reduce noise while keeping edges
+    filtered = cv2.bilateralFilter(gray, 9, 75, 75)
     
-    # Optional: dilate for thicker lines
-    if preset.get("thick_edges", False):
+    # Multi-scale edge detection for cleaner lines
+    edges1 = cv2.Canny(filtered, 20, 60)
+    edges2 = cv2.Canny(filtered, 40, 120)
+    
+    # Combine edges
+    edges = cv2.bitwise_or(edges1, edges2)
+    
+    # Optional: thin edges using morphological operations
+    if not preset.get("thick_edges", False):
         kernel = np.ones((2, 2), np.uint8)
-        edges = cv2.dilate(edges, kernel, iterations=1)
+        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
     
-    # Create output
-    line_color = colors.get("point", (255, 255, 255))
+    # Create output - pure black background
     output = np.zeros((h, w, 3), dtype=np.uint8)
     
-    # Apply edge mask
+    # Pure white edges
+    line_color = (255, 255, 255)
     output[edges > 0] = line_color
     
-    # Add glow
-    glow_intensity = preset.get("glow_intensity", 0.3)
+    # Add glow for ethereal effect
+    glow_intensity = preset.get("glow_intensity", 0.4)
     if glow_intensity > 0:
-        glow = cv2.GaussianBlur(output, (7, 7), 0)
-        output = cv2.addWeighted(output, 1.0, glow, glow_intensity, 0)
+        # Multi-layer glow for depth
+        glow1 = cv2.GaussianBlur(output, (5, 5), 0)
+        glow2 = cv2.GaussianBlur(output, (15, 15), 0)
+        output = cv2.addWeighted(output, 1.0, glow1, glow_intensity * 0.6, 0)
+        output = cv2.addWeighted(output, 1.0, glow2, glow_intensity * 0.3, 0)
     
     return output
 
