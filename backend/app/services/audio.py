@@ -12,7 +12,13 @@ import librosa
 import logging
 logging.getLogger("moviepy").setLevel(logging.ERROR)
 
-from moviepy.editor import VideoFileClip
+# Handle moviepy import gracefully - may not be available on all platforms
+try:
+    from moviepy.editor import VideoFileClip
+    MOVIEPY_AVAILABLE = True
+except ImportError:
+    MOVIEPY_AVAILABLE = False
+    VideoFileClip = None
 
 
 def extract_audio(video_path: str) -> tuple[str | None, float]:
@@ -23,6 +29,17 @@ def extract_audio(video_path: str) -> tuple[str | None, float]:
         (audio_path, duration) - path to temp WAV file, video duration in seconds.
         audio_path is None if video has no audio.
     """
+    if not MOVIEPY_AVAILABLE:
+        print("[audio] MoviePy not available, cannot extract audio")
+        # Try to get duration from OpenCV as fallback
+        import cv2
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        duration = frame_count / fps if fps > 0 and frame_count > 0 else 0.0
+        cap.release()
+        return None, duration
+    
     try:
         clip = VideoFileClip(video_path)
         duration = clip.duration
@@ -39,7 +56,14 @@ def extract_audio(video_path: str) -> tuple[str | None, float]:
         return audio_path, duration
     except Exception as e:
         print(f"[audio] Failed to extract audio: {e}")
-        return None, 0.0
+        # Fallback: get duration from OpenCV
+        import cv2
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        duration = frame_count / fps if fps > 0 and frame_count > 0 else 0.0
+        cap.release()
+        return None, duration
 
 
 def analyze_audio(audio_path: str | None, fps: float) -> dict:
