@@ -4,78 +4,75 @@ interface Preset {
   id: string;
   name: string;
   description: string;
-  category: "detection" | "visual" | "abstract";
+  featured?: boolean;
 }
 
 const PRESETS: Preset[] = [
-  // Detection presets first
+  // Featured presets first
+  {
+    id: "blob_track",
+    name: "Blob Track",
+    description: "coordinate boxes",
+    featured: true,
+  },
+  {
+    id: "particle_silhouette",
+    name: "Particle Cloud",
+    description: "point silhouette",
+    featured: true,
+  },
+  {
+    id: "number_cloud",
+    name: "Number Cloud",
+    description: "scattered IDs",
+    featured: true,
+  },
   {
     id: "face_scanner",
     name: "Face Scanner",
-    description: "CCTV-style detection",
-    category: "detection",
+    description: "detection boxes",
+    featured: true,
   },
+  // Other presets
   {
     id: "biometric",
     name: "Biometric",
-    description: "full identity analysis",
-    category: "detection",
+    description: "full analysis",
   },
   {
     id: "face_mesh",
     name: "Face Mesh",
-    description: "468-point mapping",
-    category: "detection",
+    description: "468 points",
   },
-  {
-    id: "surveillance_glow",
-    name: "Surveillance",
-    description: "cold tracking overlay",
-    category: "detection",
-  },
-  // Visual presets
   {
     id: "data_body",
     name: "Data Body",
-    description: "silhouette from code",
-    category: "visual",
+    description: "text silhouette",
   },
   {
-    id: "numeric_aura",
-    name: "Numeric Aura",
-    description: "binary edge detection",
-    category: "visual",
-  },
-  {
-    id: "catodic_cube",
-    name: "Catodic",
-    description: "CRT depth glitch",
-    category: "visual",
+    id: "grid_trace",
+    name: "Grid Trace",
+    description: "geometric net",
   },
   {
     id: "heat_map",
     name: "Thermal",
-    description: "heat signature scan",
-    category: "visual",
-  },
-  // Abstract presets
-  {
-    id: "grid_trace",
-    name: "Grid Trace",
-    description: "geometric network",
-    category: "abstract",
+    description: "heat signature",
   },
   {
-    id: "soft_blobs",
-    name: "Soft Blobs",
-    description: "organic flow",
-    category: "abstract",
+    id: "catodic_cube",
+    name: "Catodic",
+    description: "CRT glitch",
   },
   {
     id: "ember_trails",
     name: "Ember",
     description: "particle trails",
-    category: "abstract",
+  },
+  {
+    id: "soft_blobs",
+    name: "Soft Blobs",
+    description: "organic flow",
   },
 ];
 
@@ -86,110 +83,67 @@ interface PresetPickerProps {
 }
 
 export function PresetPicker({ value, onChange, disabled }: PresetPickerProps) {
-  const detectionPresets = PRESETS.filter(p => p.category === "detection");
-  const visualPresets = PRESETS.filter(p => p.category === "visual");
-  const abstractPresets = PRESETS.filter(p => p.category === "abstract");
+  const featured = PRESETS.filter(p => p.featured);
+  const others = PRESETS.filter(p => !p.featured);
 
   return (
     <div className="w-full space-y-4">
-      <p className="text-text-secondary text-sm font-medium">
-        choose your lens
+      <p className="text-text-muted text-xs uppercase tracking-wider font-mono">
+        choose effect
       </p>
       
-      {/* Detection presets - featured */}
-      <div className="space-y-2">
-        <p className="text-text-muted text-xs uppercase tracking-wider font-mono">
-          detection
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {detectionPresets.map((preset) => (
-            <PresetButton
-              key={preset.id}
-              preset={preset}
-              isSelected={value === preset.id}
-              onClick={() => onChange(preset.id)}
-              disabled={disabled}
-            />
-          ))}
-        </div>
+      {/* Featured presets - larger */}
+      <div className="grid grid-cols-2 gap-2">
+        {featured.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={() => onChange(preset.id)}
+            disabled={disabled}
+            className={`
+              w-full p-3 rounded-xl text-left transition-all duration-200 ease-out
+              border outline-none
+              ${value === preset.id
+                ? "bg-white/10 border-white/40"
+                : "bg-white/[0.03] border-white/[0.06] hover:border-white/20 hover:bg-white/[0.06]"
+              }
+              ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
+            `}
+          >
+            <p className={`font-medium text-sm ${value === preset.id ? "text-white" : "text-text-primary"}`}>
+              {preset.name}
+            </p>
+            <p className="text-[11px] text-text-muted mt-0.5 font-mono">
+              {preset.description}
+            </p>
+          </button>
+        ))}
       </div>
 
-      {/* Visual presets */}
-      <div className="space-y-2">
-        <p className="text-text-muted text-xs uppercase tracking-wider font-mono">
-          visual
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {visualPresets.map((preset) => (
-            <PresetButton
-              key={preset.id}
-              preset={preset}
-              isSelected={value === preset.id}
-              onClick={() => onChange(preset.id)}
-              disabled={disabled}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Abstract presets */}
-      <div className="space-y-2">
-        <p className="text-text-muted text-xs uppercase tracking-wider font-mono">
-          abstract
-        </p>
-        <div className="grid grid-cols-3 gap-2">
-          {abstractPresets.map((preset) => (
-            <PresetButton
-              key={preset.id}
-              preset={preset}
-              isSelected={value === preset.id}
-              onClick={() => onChange(preset.id)}
-              disabled={disabled}
-              compact
-            />
-          ))}
-        </div>
+      {/* Other presets - smaller grid */}
+      <div className="grid grid-cols-4 gap-1.5">
+        {others.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={() => onChange(preset.id)}
+            disabled={disabled}
+            className={`
+              w-full py-2 px-2 rounded-lg text-center transition-all duration-200 ease-out
+              border outline-none
+              ${value === preset.id
+                ? "bg-white/10 border-white/40"
+                : "bg-white/[0.02] border-white/[0.04] hover:border-white/15 hover:bg-white/[0.05]"
+              }
+              ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
+            `}
+          >
+            <p className={`font-medium text-[11px] ${value === preset.id ? "text-white" : "text-text-secondary"}`}>
+              {preset.name}
+            </p>
+          </button>
+        ))}
       </div>
     </div>
-  );
-}
-
-function PresetButton({ 
-  preset, 
-  isSelected, 
-  onClick, 
-  disabled,
-  compact = false,
-}: { 
-  preset: Preset; 
-  isSelected: boolean; 
-  onClick: () => void;
-  disabled?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`
-        w-full ${compact ? 'p-2' : 'p-3'} rounded-xl text-left transition-all duration-200 ease-out
-        border outline-none
-        ${isSelected
-          ? "bg-accent/15 border-accent/50 shadow-[0_0_20px_rgba(255,77,0,0.15)]"
-          : "bg-surface-overlay/30 border-white/5 hover:border-white/15 hover:bg-surface-overlay/60"
-        }
-        ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
-      `}
-    >
-      <p className={`font-semibold ${compact ? 'text-xs' : 'text-sm'} ${isSelected ? "text-accent" : "text-text-primary"}`}>
-        {preset.name}
-      </p>
-      {!compact && (
-        <p className="text-xs text-text-muted mt-0.5 leading-tight font-mono">
-          {preset.description}
-        </p>
-      )}
-    </button>
   );
 }

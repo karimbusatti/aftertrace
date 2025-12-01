@@ -93,11 +93,12 @@ def _apply_face_overlays(
     if preset.get("detect_mesh", False) and mesh_points:
         draw_face_mesh(output, mesh_points, face_color, draw_contours=True, glow=True)
     
-    # Draw face boxes with CCTV style
+    # Draw face boxes - use minimal style by default
     if preset.get("face_boxes", False) and faces:
+        box_style = "cctv" if preset.get("cctv_overlay", False) else "minimal"
         draw_face_boxes(
-            output, faces, face_color, thickness=2,
-            show_confidence=True, frame_idx=frame_idx, style="cctv"
+            output, faces, (255, 255, 255), thickness=1,
+            show_confidence=True, frame_idx=frame_idx, style=box_style
         )
     
     # Draw biometric data panels
@@ -673,8 +674,252 @@ def apply_text_effect(
         return draw_data_body(frame, preset, colors)
     elif text_mode == "numeric_aura":
         return draw_numeric_aura(frame, preset, colors)
+    elif text_mode == "blob_track":
+        return draw_blob_track(frame, preset, colors)
+    elif text_mode == "particle_silhouette":
+        return draw_particle_silhouette(frame, preset, colors)
+    elif text_mode == "number_cloud":
+        return draw_number_cloud(frame, preset, colors)
     
     return None
+
+
+# =============================================================================
+# BLOB TRACKING EFFECT (TouchDesigner style)
+# =============================================================================
+
+def draw_blob_track(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+) -> np.ndarray:
+    """
+    Blob Track effect: Clean white bounding boxes with coordinate labels.
+    
+    Detects contours/blobs in the frame and draws minimal white rectangles
+    with x:0.xxx y:0.xxx coordinate labels - TouchDesigner style.
+    """
+    h, w = frame.shape[:2]
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Apply threshold to find bright regions
+    threshold = preset.get("blob_threshold", 30)
+    blur_size = preset.get("blob_blur", 5)
+    
+    # Blur to reduce noise
+    blurred = cv2.GaussianBlur(gray, (blur_size, blur_size), 0)
+    
+    # Use adaptive threshold for better blob detection
+    binary = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY, 11, -threshold
+    )
+    
+    # Find contours
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Create output - dark background with subtle original
+    bg_alpha = preset.get("bg_alpha", 0.15)
+    output = (frame * bg_alpha).astype(np.uint8)
+    
+    # Filter and sort contours by area
+    min_area = preset.get("min_blob_area", 500)
+    max_blobs = preset.get("max_blobs", 50)
+    
+    valid_contours = [(cv2.contourArea(c), c) for c in contours if cv2.contourArea(c) > min_area]
+    valid_contours.sort(key=lambda x: x[0], reverse=True)
+    valid_contours = valid_contours[:max_blobs]
+    
+    # Draw each blob
+    box_color = (255, 255, 255)  # White
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = preset.get("label_scale", 0.35)
+    
+    for idx, (area, contour) in enumerate(valid_contours):
+        # Get bounding rectangle
+        x, y, bw, bh = cv2.boundingRect(contour)
+        
+        # Draw clean white rectangle
+        cv2.rectangle(output, (x, y), (x + bw, y + bh), box_color, 1, cv2.LINE_AA)
+        
+        # Calculate normalized coordinates (0-1 range)
+        cx = (x + bw / 2) / w
+        cy = (y + bh / 2) / h
+        
+        # Draw coordinate label
+        label = f"x:{cx:.3f} y:{cy:.3f}"
+        label_y = max(y - 5, 12)
+        cv2.putText(output, label, (x, label_y), font, font_scale, box_color, 1, cv2.LINE_AA)
+        
+        # Optional: draw center point
+        center_x = x + bw // 2
+        center_y = y + bh // 2
+        cv2.drawMarker(output, (center_x, center_y), box_color, cv2.MARKER_CROSS, 6, 1)
+    
+    return output
+
+
+# =============================================================================
+# PARTICLE SILHOUETTE EFFECT (bb.dere style)
+# =============================================================================
+
+def draw_particle_silhouette(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+) -> np.ndarray:
+    """
+    Particle Silhouette effect: Dense point cloud forming body shape.
+    
+    Creates thousands of tiny particles that cluster around bright/moving
+    regions, forming a glowing silhouette effect like bb.dere's work.
+    """
+    h, w = frame.shape[:2]
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Get preset params
+    particle_density = preset.get("particle_density", 0.02)
+    brightness_threshold = preset.get("brightness_threshold", 40)
+    particle_size = preset.get("particle_size", 1)
+    scatter_range = preset.get("scatter_range", 3)
+    glow_intensity = preset.get("particle_glow", 0.5)
+    
+    # Create output - pure black background
+    output = np.zeros((h, w, 3), dtype=np.uint8)
+    
+    # Get particle color (default white/cream)
+    particle_color = colors.get("point", (230, 230, 255))
+    
+    # Find bright pixels
+    bright_mask = gray > brightness_threshold
+    bright_coords = np.column_stack(np.where(bright_mask))
+    
+    if len(bright_coords) == 0:
+        return output
+    
+    # Sample particles based on density
+    num_particles = int(len(bright_coords) * particle_density)
+    num_particles = min(num_particles, 15000)  # Cap for performance
+    
+    if num_particles > 0:
+        indices = np.random.choice(len(bright_coords), size=num_particles, replace=False)
+        sampled = bright_coords[indices]
+        
+        # Draw particles with scatter
+        for (row, col) in sampled:
+            # Add random scatter for organic feel
+            px = col + random.randint(-scatter_range, scatter_range)
+            py = row + random.randint(-scatter_range, scatter_range)
+            
+            px = max(0, min(px, w - 1))
+            py = max(0, min(py, h - 1))
+            
+            # Vary brightness based on original pixel brightness
+            brightness_factor = gray[row, col] / 255.0
+            color = tuple(int(c * brightness_factor) for c in particle_color)
+            
+            if particle_size <= 1:
+                output[py, px] = color
+            else:
+                cv2.circle(output, (px, py), particle_size, color, -1, cv2.LINE_AA)
+    
+    # Add glow effect
+    if glow_intensity > 0:
+        glow = cv2.GaussianBlur(output, (21, 21), 0)
+        output = cv2.addWeighted(output, 1.0, glow, glow_intensity, 0)
+    
+    # Add subtle connection lines between nearby particles (optional)
+    if preset.get("connect_particles", False) and num_particles > 10:
+        # Draw sparse connection lines for visual interest
+        num_connections = min(50, num_particles // 10)
+        for _ in range(num_connections):
+            i, j = random.sample(range(len(sampled)), 2)
+            p1 = (int(sampled[i][1]), int(sampled[i][0]))
+            p2 = (int(sampled[j][1]), int(sampled[j][0]))
+            dist = np.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
+            if dist < 100:  # Only connect nearby points
+                cv2.line(output, p1, p2, (80, 80, 80), 1, cv2.LINE_AA)
+    
+    return output
+
+
+# =============================================================================
+# NUMBER CLOUD EFFECT
+# =============================================================================
+
+def draw_number_cloud(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+) -> np.ndarray:
+    """
+    Number Cloud effect: Frame IDs and coordinates scattered across motion.
+    
+    Places sequential numbers and coordinate text at detected feature points,
+    creating a data-visualization aesthetic.
+    """
+    h, w = frame.shape[:2]
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Edge detection for feature points
+    edges = cv2.Canny(gray, 50, 150)
+    
+    # Get params
+    number_density = preset.get("number_density", 0.3)
+    font_scale = preset.get("number_font_scale", 0.3)
+    show_coords = preset.get("show_coordinates", True)
+    start_number = preset.get("start_number", 19000)
+    
+    # Create output
+    bg_alpha = preset.get("bg_alpha", 0.2)
+    output = (frame * bg_alpha).astype(np.uint8)
+    
+    # Find edge points
+    edge_points = np.column_stack(np.where(edges > 0))
+    
+    if len(edge_points) == 0:
+        return output
+    
+    # Sample points
+    max_numbers = preset.get("max_numbers", 800)
+    step = max(1, int(len(edge_points) * number_density / max_numbers))
+    sampled = edge_points[::step][:max_numbers]
+    
+    # Draw numbers
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    text_color = colors.get("point", (255, 255, 255))
+    
+    for idx, (row, col) in enumerate(sampled):
+        number = start_number + idx
+        
+        if show_coords:
+            # Show coordinate format: x:0.xxx y:0.xxx
+            nx = col / w
+            ny = row / h
+            text = f"{number}"
+        else:
+            text = str(number)
+        
+        # Random small offset
+        ox = random.randint(-2, 2)
+        oy = random.randint(-2, 2)
+        
+        px = max(0, min(col + ox, w - 40))
+        py = max(10, min(row + oy, h - 5))
+        
+        cv2.putText(output, text, (px, py), font, font_scale, text_color, 1, cv2.LINE_AA)
+    
+    # Add subtle glow
+    glow = cv2.GaussianBlur(output, (5, 5), 0)
+    output = cv2.addWeighted(output, 1.0, glow, 0.3, 0)
+    
+    return output
 
 
 # =============================================================================

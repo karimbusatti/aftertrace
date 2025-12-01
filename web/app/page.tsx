@@ -9,7 +9,7 @@ import { processVideo, type ProcessResponse } from "@/lib/api";
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
-  const [preset, setPreset] = useState("face_scanner");
+  const [preset, setPreset] = useState("blob_track");
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ProcessResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -167,7 +167,7 @@ export default function Home() {
         <p className="text-text-secondary text-sm">
           made by{" "}
           <a 
-            href="https://twitter.com/karimbusatti" 
+            href="https://instagram.com/thechildofvenus" 
             target="_blank" 
             rel="noopener noreferrer"
             className="text-accent hover:text-accent-soft transition-colors"

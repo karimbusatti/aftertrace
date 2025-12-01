@@ -196,23 +196,23 @@ def draw_cctv_overlay(
 def draw_face_boxes(
     frame: np.ndarray,
     faces: list,
-    color: tuple = (0, 255, 0),
-    thickness: int = 2,
+    color: tuple = (255, 255, 255),
+    thickness: int = 1,
     show_confidence: bool = True,
     frame_idx: int = 0,
-    style: str = "cctv",
+    style: str = "minimal",
 ):
     """
-    Draw face bounding boxes with surveillance-style corners.
+    Draw face bounding boxes - minimal clean style.
     
     Args:
         frame: Frame to draw on (modified in-place)
         faces: List of (x, y, w, h, confidence) tuples
-        color: BGR color for boxes
+        color: BGR color for boxes (default white)
         thickness: Line thickness
         show_confidence: Show confidence percentage
         frame_idx: Current frame for animations
-        style: "cctv" for corner brackets, "full" for full rectangle
+        style: "minimal" for clean boxes, "cctv" for corner brackets
     """
     h_frame, w_frame = frame.shape[:2]
     
@@ -223,65 +223,49 @@ def draw_face_boxes(
         w = min(w, w_frame - x)
         h = min(h, h_frame - y)
         
-        if style == "cctv":
-            # Draw corner brackets with animated scanning effect
-            corner_len = max(min(w, h) // 4, 15)
+        if style == "minimal":
+            # Clean white rectangle - TouchDesigner style
+            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 1, cv2.LINE_AA)
             
-            # Scanning animation - corners pulse
-            pulse = 1.0 + 0.2 * np.sin(frame_idx * 0.15 + idx)
-            animated_thickness = max(1, int(thickness * pulse))
+            # Calculate normalized coordinates
+            cx = (x + w / 2) / w_frame
+            cy = (y + h / 2) / h_frame
             
-            # Outer glow effect
-            glow_color = tuple(max(0, min(255, int(c * 0.5))) for c in color)
-            _draw_corner_brackets(frame, x, y, w, h, corner_len, glow_color, animated_thickness + 2)
-            
-            # Main brackets
-            _draw_corner_brackets(frame, x, y, w, h, corner_len, color, animated_thickness)
-            
-            # Center crosshair
-            cx, cy = x + w // 2, y + h // 2
-            cross_size = 8
-            cv2.line(frame, (cx - cross_size, cy), (cx + cross_size, cy), color, 1, cv2.LINE_AA)
-            cv2.line(frame, (cx, cy - cross_size), (cx, cy + cross_size), color, 1, cv2.LINE_AA)
-            
-            # Scanning line effect (horizontal line sweeping down)
-            scan_y = y + int((frame_idx * 3) % h)
-            if scan_y < y + h:
-                cv2.line(frame, (x, scan_y), (x + w, scan_y), 
-                        (color[0], color[1], color[2]), 1, cv2.LINE_AA)
-            
-        else:
-            # Full rectangle with rounded corners effect
-            cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness)
-        
-        # Subject label
-        subject_label = f"SUBJ-{idx + 1:02d}"
-        cv2.putText(
-            frame, subject_label, (x, y - 25),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA
-        )
-        
-        # Confidence with progress bar
-        if show_confidence:
-            conf_text = f"{int(conf * 100)}%"
+            # Minimal coordinate label
+            label = f"x:{cx:.3f} y:{cy:.3f}"
             cv2.putText(
-                frame, conf_text, (x, y - 8),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA
+                frame, label, (x, y - 6),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.32, color, 1, cv2.LINE_AA
             )
             
-            # Confidence bar
-            bar_width = min(60, w)
-            bar_height = 4
-            bar_x = x + len(conf_text) * 8 + 10
-            bar_y = y - 12
+            # Small center marker
+            center_x = x + w // 2
+            center_y = y + h // 2
+            cv2.drawMarker(frame, (center_x, center_y), color, cv2.MARKER_CROSS, 8, 1)
             
-            # Background bar
-            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), 
-                         (50, 50, 50), -1)
-            # Filled portion
-            filled_width = int(bar_width * conf)
-            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + filled_width, bar_y + bar_height), 
-                         color, -1)
+        elif style == "cctv":
+            # Corner brackets style
+            corner_len = max(min(w, h) // 4, 12)
+            _draw_corner_brackets(frame, x, y, w, h, corner_len, color, thickness)
+            
+            # Subject label
+            subject_label = f"SUBJ-{idx + 1:02d}"
+            cv2.putText(
+                frame, subject_label, (x, y - 8),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA
+            )
+            
+        else:
+            # Full rectangle
+            cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness, cv2.LINE_AA)
+            
+            # Confidence label
+            if show_confidence:
+                conf_text = f"{int(conf * 100)}%"
+                cv2.putText(
+                    frame, conf_text, (x, y - 6),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1, cv2.LINE_AA
+                )
 
 
 def _draw_corner_brackets(frame, x, y, w, h, corner_len, color, thickness):
