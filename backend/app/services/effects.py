@@ -892,7 +892,7 @@ def draw_particle_silhouette(
 
 
 # =============================================================================
-# NUMBER CLOUD EFFECT (Subject isolation)
+# NUMBER CLOUD EFFECT (Subject isolation with visible background)
 # =============================================================================
 
 def draw_number_cloud(
@@ -901,68 +901,70 @@ def draw_number_cloud(
     colors: dict,
 ) -> np.ndarray:
     """
-    Number Cloud effect: Sequential IDs scattered ONLY on the subject.
+    Number Cloud effect: Subject becomes numbers, background stays visible.
     
-    Uses foreground detection to isolate the subject, then places
-    numbers only on the person/object, not the background.
+    Isolates the main subject and replaces it with scattered numbers
+    while keeping the original background visible for striking contrast.
     """
     h, w = frame.shape[:2]
     
-    # Convert to grayscale and HSV for better subject detection
+    # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Get params
-    font_scale = preset.get("number_font_scale", 0.28)
+    font_scale = preset.get("number_font_scale", 0.26)
     start_number = preset.get("start_number", 19000)
-    brightness_threshold = preset.get("subject_threshold", 60)
+    brightness_threshold = preset.get("subject_threshold", 50)
     
     # === SUBJECT ISOLATION ===
-    # Use multiple techniques to find the subject
+    # Find the brightest/most prominent region (the subject)
     
-    # 1. Brightness-based detection (subjects are usually brighter than dark bg)
+    # 1. Brightness-based detection
     bright_mask = gray > brightness_threshold
     
-    # 2. Edge detection to find subject boundaries
-    edges = cv2.Canny(gray, 40, 120)
+    # 2. Edge detection for subject boundaries
+    edges = cv2.Canny(gray, 30, 100)
     
-    # 3. Dilate edges to create subject region
-    kernel = np.ones((5, 5), np.uint8)
-    dilated_edges = cv2.dilate(edges, kernel, iterations=2)
+    # 3. Dilate edges and find largest connected region
+    kernel = np.ones((7, 7), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=3)
     
-    # 4. Find contours and create subject mask
-    contours, _ = cv2.findContours(dilated_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # 4. Find contours - get the largest one (main subject)
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Create subject mask from largest contours (likely the person)
+    # Create subject mask from largest contour only
     subject_mask = np.zeros((h, w), dtype=np.uint8)
     if contours:
-        # Sort by area, keep largest ones (the subject)
-        sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
-        # Fill the top contours (likely the subject)
-        for contour in sorted_contours[:10]:
-            if cv2.contourArea(contour) > 500:  # Minimum size
-                cv2.fillPoly(subject_mask, [contour], 255)
+        # Get the single largest contour (the main subject)
+        largest_contour = max(contours, key=cv2.contourArea)
+        if cv2.contourArea(largest_contour) > 1000:
+            cv2.fillPoly(subject_mask, [largest_contour], 255)
+            # Smooth the mask edges
+            subject_mask = cv2.GaussianBlur(subject_mask, (5, 5), 0)
+            _, subject_mask = cv2.threshold(subject_mask, 127, 255, cv2.THRESH_BINARY)
     
-    # Combine masks: subject must be bright AND within detected contours
+    # Combine with brightness for better subject detection
     combined_mask = cv2.bitwise_and(bright_mask.astype(np.uint8) * 255, subject_mask)
     
-    # Create output - pure black background
-    output = np.zeros((h, w, 3), dtype=np.uint8)
+    # === CREATE OUTPUT: Background visible, subject replaced with numbers ===
+    # Start with slightly darkened original frame as background
+    bg_darken = preset.get("bg_darken", 0.7)
+    output = (frame * bg_darken).astype(np.uint8)
     
-    # Find points ONLY within subject mask
+    # Black out the subject area (will be replaced with numbers)
+    output[combined_mask > 0] = [0, 0, 0]
+    
+    # Find points within the subject for number placement
     subject_points = np.column_stack(np.where(combined_mask > 0))
     
     if len(subject_points) == 0:
-        # Fallback to just bright areas
-        subject_points = np.column_stack(np.where(bright_mask))
+        return frame  # No subject found, return original
     
-    if len(subject_points) == 0:
-        return output
-    
-    # Sample points for numbers
-    max_numbers = preset.get("max_numbers", 1200)
-    density = preset.get("number_density", 0.02)
+    # Sample points for numbers - denser for better coverage
+    max_numbers = preset.get("max_numbers", 2000)
+    density = preset.get("number_density", 0.03)
     num_to_sample = min(max_numbers, int(len(subject_points) * density))
-    num_to_sample = max(100, num_to_sample)
+    num_to_sample = max(200, num_to_sample)
     
     if len(subject_points) > num_to_sample:
         indices = np.random.choice(len(subject_points), size=num_to_sample, replace=False)
@@ -970,30 +972,22 @@ def draw_number_cloud(
     else:
         sampled = subject_points
     
-    # Draw numbers
+    # Draw numbers on the subject area
     font = cv2.FONT_HERSHEY_SIMPLEX
-    text_color = (255, 255, 255)  # Pure white
+    text_color = (255, 255, 255)
     
     for idx, (row, col) in enumerate(sampled):
         number = start_number + idx
         text = str(number)
         
-        # Small random offset for organic feel
-        ox = random.randint(-1, 1)
-        oy = random.randint(-1, 1)
+        px = max(0, min(col, w - 30))
+        py = max(8, min(row, h - 2))
         
-        px = max(0, min(col + ox, w - 35))
-        py = max(8, min(row + oy, h - 2))
-        
-        # Vary opacity based on position for depth
-        brightness = 0.6 + 0.4 * (row / h)  # Brighter at bottom
+        # Vary brightness for depth effect
+        brightness = 0.5 + 0.5 * (gray[row, col] / 255.0)
         color = tuple(int(c * brightness) for c in text_color)
         
         cv2.putText(output, text, (px, py), font, font_scale, color, 1, cv2.LINE_AA)
-    
-    # Subtle glow for cohesion
-    glow = cv2.GaussianBlur(output, (3, 3), 0)
-    output = cv2.addWeighted(output, 1.0, glow, 0.2, 0)
     
     return output
 

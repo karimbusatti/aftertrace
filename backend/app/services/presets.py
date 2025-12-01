@@ -127,23 +127,24 @@ COLOR_PALETTES = {
 
 PRESETS: dict[str, dict[str, Any]] = {
     # =========================================================================
-    # BLOB TRACKING (TouchDesigner style - FIRST)
+    # BLOB TRACKING (TouchDesigner style - NO TRAILS)
     # =========================================================================
     
     "blob_track": {
         "name": "Blob Track",
-        "description": "Boxes with IDs and connection lines",
+        "description": "Clean boxes with IDs and connections",
         
-        "spawn_per_beat": 12,
-        "max_points": 40,
+        # No point spawning - this effect uses contour detection
+        "spawn_per_beat": 0,
+        "max_points": 0,
         
-        "life_frames": 18,
-        "trail_length": 8,
-        "trail_fade": True,
+        "life_frames": 1,
+        "trail_length": 0,  # NO TRAILS
+        "trail_fade": False,
         
-        "shape": "square",
-        "point_size": 2,
-        "trace_thickness": 1,
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
         
         "connect_points": False,
         "max_connect_distance": 0,
@@ -155,38 +156,79 @@ PRESETS: dict[str, dict[str, Any]] = {
         "scanlines": False,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.92,
+        "darken_factor": 1.0,
         
-        # Blob tracking options
+        # Blob tracking - pure TouchDesigner style
         "text_mode": "blob_track",
-        "blob_threshold": 20,
-        "blob_blur": 9,
-        "min_blob_area": 350,
-        "max_blobs": 100,
-        "max_connection_dist": 180,
-        "label_scale": 0.28,
+        "blob_threshold": 18,
+        "blob_blur": 11,
+        "min_blob_area": 300,
+        "max_blobs": 120,
+        "max_connection_dist": 200,
+        "label_scale": 0.25,
         "start_id": 100,
-        "bg_alpha": 0.06,
+        "bg_alpha": 0.03,  # Very dark background
     },
     
     # =========================================================================
-    # PARTICLE SILHOUETTE (bb.dere style)
+    # NUMBER CLOUD (Subject isolation - visible background)
+    # =========================================================================
+    
+    "number_cloud": {
+        "name": "Number Cloud",
+        "description": "Subject becomes numbers, background visible",
+        
+        "spawn_per_beat": 0,
+        "max_points": 0,
+        
+        "life_frames": 1,
+        "trail_length": 0,  # NO TRAILS
+        "trail_fade": False,
+        
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        
+        # Number cloud - subject isolation
+        "text_mode": "number_cloud",
+        "number_density": 0.035,
+        "number_font_scale": 0.24,
+        "start_number": 19000,
+        "max_numbers": 2500,
+        "subject_threshold": 45,
+        "bg_darken": 0.65,  # Keep background visible but darker
+    },
+    
+    # =========================================================================
+    # PARTICLE SILHOUETTE (bb.dere style - NO TRAILS)
     # =========================================================================
     
     "particle_silhouette": {
         "name": "Particle Cloud",
         "description": "Ethereal point silhouette",
         
-        "spawn_per_beat": 8,
-        "max_points": 30,
+        "spawn_per_beat": 0,
+        "max_points": 0,
         
-        "life_frames": 20,
-        "trail_length": 10,
-        "trail_fade": True,
+        "life_frames": 1,
+        "trail_length": 0,  # NO TRAILS
+        "trail_fade": False,
         
-        "shape": "circle",
-        "point_size": 1,
-        "trace_thickness": 1,
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
         
         "connect_points": False,
         "max_connect_distance": 0,
@@ -200,29 +242,64 @@ PRESETS: dict[str, dict[str, Any]] = {
         
         "darken_factor": 1.0,
         
-        # Particle silhouette options - bb.dere style
+        # Particle silhouette - denser, more ethereal
         "text_mode": "particle_silhouette",
-        "particle_density": 0.04,
-        "brightness_threshold": 30,
+        "particle_density": 0.05,
+        "brightness_threshold": 25,
         "scatter_range": 2,
-        "particle_glow": 0.75,
+        "particle_glow": 0.8,
         "connect_particles": False,
     },
     
     # =========================================================================
-    # FACE SCANNER (Clean minimal)
+    # CONTOUR TRACE (Edge detection - NO TRAILS)
+    # =========================================================================
+    
+    "contour_trace": {
+        "name": "Contour",
+        "description": "Pure edge visualization",
+        
+        "spawn_per_beat": 0,
+        "max_points": 0,
+        
+        "life_frames": 1,
+        "trail_length": 0,  # NO TRAILS
+        "trail_fade": False,
+        
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0.4,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        "thick_edges": False,
+        
+        "text_mode": "contour_trace",
+    },
+    
+    # =========================================================================
+    # FACE SCANNER (Clean minimal - MINIMAL TRAILS)
     # =========================================================================
     
     "face_scanner": {
         "name": "Face Scanner",
-        "description": "Minimal detection boxes with labels",
+        "description": "Minimal detection boxes",
         
-        "spawn_per_beat": 20,
-        "max_points": 60,
+        "spawn_per_beat": 15,
+        "max_points": 40,
         
-        "life_frames": 20,
-        "trail_length": 12,
-        "trail_fade": True,
+        "life_frames": 12,
+        "trail_length": 0,  # NO TRAILS for cleaner look
+        "trail_fade": False,
         
         "shape": "cross",
         "point_size": 3,
@@ -249,75 +326,35 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     
     # =========================================================================
-    # NUMBER CLOUD
-    # =========================================================================
-    
-    "number_cloud": {
-        "name": "Number Cloud",
-        "description": "IDs scattered on subject only",
-        
-        "spawn_per_beat": 8,
-        "max_points": 30,
-        
-        "life_frames": 16,
-        "trail_length": 8,
-        "trail_fade": True,
-        
-        "shape": "circle",
-        "point_size": 1,
-        "trace_thickness": 1,
-        
-        "connect_points": False,
-        "max_connect_distance": 0,
-        "connection_thickness": 0,
-        
-        "color_mode": "clean_white",
-        "blur_radius": 0,
-        "glow_intensity": 0,
-        "scanlines": False,
-        "high_contrast_bw": False,
-        
-        "darken_factor": 1.0,
-        
-        # Number cloud options - subject isolation
-        "text_mode": "number_cloud",
-        "number_density": 0.025,
-        "number_font_scale": 0.26,
-        "start_number": 19000,
-        "max_numbers": 1500,
-        "subject_threshold": 50,
-    },
-    
-    # =========================================================================
-    # BIOMETRIC (Full analysis)
+    # BIOMETRIC (Full analysis - with trails for data feel)
     # =========================================================================
     
     "biometric": {
         "name": "Biometric",
-        "description": "Full identity analysis mode",
+        "description": "Full CCTV analysis mode",
         
-        "spawn_per_beat": 30,
-        "max_points": 100,
+        "spawn_per_beat": 25,
+        "max_points": 80,
         
-        "life_frames": 18,
-        "trail_length": 10,
+        "life_frames": 14,
+        "trail_length": 6,  # Short trails for data feel
         "trail_fade": True,
         
         "shape": "square",
-        "point_size": 3,
+        "point_size": 2,
         "trace_thickness": 1,
         
         "connect_points": True,
-        "max_connect_distance": 45,
+        "max_connect_distance": 40,
         "connection_thickness": 1,
         
-        "color_mode": "biometric",
+        "color_mode": "cctv_green",
         "blur_radius": 0,
-        "glow_intensity": 0.25,
+        "glow_intensity": 0.2,
         "scanlines": True,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.85,
+        "darken_factor": 0.88,
         
         # Full detection
         "detect_faces": True,
@@ -329,22 +366,22 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     
     # =========================================================================
-    # FACE MESH (468 points)
+    # FACE MESH (468 points - NO TRAILS)
     # =========================================================================
     
     "face_mesh": {
         "name": "Face Mesh",
-        "description": "468-point face landmark visualization",
+        "description": "468-point face landmarks",
         
-        "spawn_per_beat": 12,
-        "max_points": 50,
+        "spawn_per_beat": 10,
+        "max_points": 40,
         
-        "life_frames": 28,
-        "trail_length": 18,
-        "trail_fade": True,
+        "life_frames": 16,
+        "trail_length": 0,  # NO TRAILS for cleaner mesh
+        "trail_fade": False,
         
         "shape": "circle",
-        "point_size": 2,
+        "point_size": 1,
         "trace_thickness": 1,
         
         "connect_points": False,
@@ -353,11 +390,11 @@ PRESETS: dict[str, dict[str, Any]] = {
         
         "color_mode": "ice",
         "blur_radius": 0,
-        "glow_intensity": 0.5,
+        "glow_intensity": 0.4,
         "scanlines": False,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.80,
+        "darken_factor": 0.85,
         
         "detect_faces": True,
         "detect_mesh": True,
@@ -365,21 +402,21 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     
     # =========================================================================
-    # DATA BODY (Silhouette from text)
+    # DATA BODY (Silhouette from text - NO TRAILS)
     # =========================================================================
     
     "data_body": {
         "name": "Data Body",
-        "description": "Your silhouette rebuilt from code",
+        "description": "Silhouette rebuilt from code",
         
-        "spawn_per_beat": 8,
-        "max_points": 25,
+        "spawn_per_beat": 0,
+        "max_points": 0,
         
-        "life_frames": 16,
-        "trail_length": 8,
-        "trail_fade": True,
+        "life_frames": 1,
+        "trail_length": 0,  # NO TRAILS
+        "trail_fade": False,
         
-        "shape": "circle",
+        "shape": "none",
         "point_size": 2,
         "trace_thickness": 1,
         
@@ -405,53 +442,18 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     
     # =========================================================================
-    # MOTION TRACE (Clean flowing lines)
+    # MOTION TRACE (Clean flowing lines - KEEP TRAILS)
     # =========================================================================
     
     "motion_trace": {
         "name": "Motion Trace",
-        "description": "Clean flowing motion trails",
+        "description": "Elegant flowing motion trails",
         
-        "spawn_per_beat": 35,
-        "max_points": 120,
+        "spawn_per_beat": 30,
+        "max_points": 100,
         
-        "life_frames": 32,
-        "trail_length": 24,
-        "trail_fade": True,
-        
-        "shape": "circle",
-        "point_size": 3,
-        "trace_thickness": 1,
-        
-        "connect_points": False,
-        "max_connect_distance": 0,
-        "connection_thickness": 0,
-        
-        "color_mode": "clean_white",
-        "blur_radius": 0,
-        "glow_intensity": 0.25,
-        "scanlines": False,
-        "high_contrast_bw": False,
-        
-        "darken_factor": 0.88,
-        "bg_alpha": 0.08,
-        
-        "text_mode": "motion_trace",
-    },
-    
-    # =========================================================================
-    # CONTOUR TRACE (Edge visualization)
-    # =========================================================================
-    
-    "contour_trace": {
-        "name": "Contour",
-        "description": "Minimalist edge detection",
-        
-        "spawn_per_beat": 15,
-        "max_points": 50,
-        
-        "life_frames": 20,
-        "trail_length": 10,
+        "life_frames": 28,
+        "trail_length": 20,  # TRAILS make sense here
         "trail_fade": True,
         
         "shape": "circle",
@@ -464,79 +466,77 @@ PRESETS: dict[str, dict[str, Any]] = {
         
         "color_mode": "clean_white",
         "blur_radius": 0,
-        "glow_intensity": 0.35,
-        "scanlines": False,
-        "high_contrast_bw": False,
-        
-        "darken_factor": 1.0,
-        "thick_edges": False,
-        
-        "text_mode": "contour_trace",
-    },
-    
-    # =========================================================================
-    # GRID TRACE (Geometric network)
-    # =========================================================================
-    
-    "grid_trace": {
-        "name": "Grid Trace",
-        "description": "Geometric network following motion",
-        
-        "spawn_per_beat": 25,
-        "max_points": 100,
-        
-        "life_frames": 26,
-        "trail_length": 18,
-        "trail_fade": True,
-        
-        "shape": "square",
-        "point_size": 3,
-        "trace_thickness": 1,
-        
-        "connect_points": True,
-        "max_connect_distance": 70,
-        "connection_thickness": 1,
-        
-        "color_mode": "neon_grid",
-        "blur_radius": 0,
         "glow_intensity": 0.2,
         "scanlines": False,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.88,
+        "darken_factor": 0.9,
+        "bg_alpha": 0.06,
     },
     
     # =========================================================================
-    # THERMAL (Heat map)
+    # GRID TRACE (Geometric network - SHORT TRAILS)
+    # =========================================================================
+    
+    "grid_trace": {
+        "name": "Grid",
+        "description": "Geometric network",
+        
+        "spawn_per_beat": 20,
+        "max_points": 80,
+        
+        "life_frames": 20,
+        "trail_length": 8,  # Short trails for grid effect
+        "trail_fade": True,
+        
+        "shape": "square",
+        "point_size": 2,
+        "trace_thickness": 1,
+        
+        "connect_points": True,
+        "max_connect_distance": 60,
+        "connection_thickness": 1,
+        
+        "color_mode": "neon_grid",
+        "blur_radius": 0,
+        "glow_intensity": 0.15,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 0.9,
+    },
+    
+    # =========================================================================
+    # THERMAL (Heat map - TRAILS for heat dissipation look)
     # =========================================================================
     
     "heat_map": {
         "name": "Thermal",
         "description": "Heat signature visualization",
         
-        "spawn_per_beat": 40,
-        "max_points": 140,
+        "spawn_per_beat": 35,
+        "max_points": 120,
         
-        "life_frames": 32,
-        "trail_length": 22,
+        "life_frames": 28,
+        "trail_length": 16,  # Trails for heat dissipation
         "trail_fade": True,
         
         "shape": "circle",
-        "point_size": 14,
-        "trace_thickness": 6,
+        "point_size": 10,
+        "trace_thickness": 5,
         
         "connect_points": False,
         "max_connect_distance": 0,
         "connection_thickness": 0,
         
         "color_mode": "thermal",
-        "blur_radius": 14,
-        "glow_intensity": 0.6,
+        "blur_radius": 12,
+        "glow_intensity": 0.5,
         "scanlines": False,
         "high_contrast_bw": False,
         "use_colormap": True,
         
-        "darken_factor": 0.82,
+        "darken_factor": 0.85,
     },
     
     # =========================================================================
@@ -581,22 +581,22 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     
     # =========================================================================
-    # EMBER TRAILS (Particle sparks)
+    # EMBER TRAILS (Particle sparks - TRAILS for spark effect)
     # =========================================================================
     
     "ember_trails": {
         "name": "Ember",
-        "description": "Sparks tracing your movement",
+        "description": "Spark trails following motion",
         
-        "spawn_per_beat": 50,
-        "max_points": 200,
+        "spawn_per_beat": 40,
+        "max_points": 150,
         
-        "life_frames": 20,
-        "trail_length": 32,
+        "life_frames": 18,
+        "trail_length": 24,  # Trails for spark streaks
         "trail_fade": True,
         
         "shape": "diamond",
-        "point_size": 4,
+        "point_size": 3,
         "trace_thickness": 2,
         
         "connect_points": False,
@@ -604,44 +604,44 @@ PRESETS: dict[str, dict[str, Any]] = {
         "connection_thickness": 0,
         
         "color_mode": "ember",
-        "blur_radius": 5,
-        "glow_intensity": 0.75,
+        "blur_radius": 4,
+        "glow_intensity": 0.6,
         "scanlines": False,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.78,
+        "darken_factor": 0.82,
     },
     
     # =========================================================================
-    # SOFT BLOBS (Organic shapes)
+    # SOFT BLOBS (Organic shapes - TRAILS for dreamy flow)
     # =========================================================================
     
     "soft_blobs": {
         "name": "Soft Blobs",
         "description": "Dreamy organic flow",
         
-        "spawn_per_beat": 18,
-        "max_points": 80,
+        "spawn_per_beat": 15,
+        "max_points": 60,
         
-        "life_frames": 42,
-        "trail_length": 28,
+        "life_frames": 36,
+        "trail_length": 22,  # Trails for dreamy effect
         "trail_fade": True,
         
         "shape": "circle",
-        "point_size": 18,
-        "trace_thickness": 10,
+        "point_size": 14,
+        "trace_thickness": 8,
         
         "connect_points": False,
         "max_connect_distance": 0,
         "connection_thickness": 0,
         
         "color_mode": "soft_pastel",
-        "blur_radius": 20,
-        "glow_intensity": 0.45,
+        "blur_radius": 16,
+        "glow_intensity": 0.4,
         "scanlines": False,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.82,
+        "darken_factor": 0.85,
     },
 }
 
