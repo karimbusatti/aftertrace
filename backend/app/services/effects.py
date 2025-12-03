@@ -1053,25 +1053,27 @@ def draw_blob_track(
                 cv2.line(output, p1, p2, (255, 255, 255), 1, cv2.LINE_AA)
     
     # Draw each blob - SIMPLE THIN RECTANGLES with coordinates
-    small_font = 0.25  # Smaller font for coordinates
-    
     for (x, y, bw, bh, idx, area) in blob_boxes:
         # Simple thin rectangle outline
         cv2.rectangle(output, (x, y), (x + bw, y + bh), box_color, 1, cv2.LINE_AA)
         
+        # Font size proportional to box size (smaller box = smaller text)
+        box_size = min(bw, bh)
+        dynamic_font = max(0.15, min(0.3, box_size / 200.0))  # Scale between 0.15-0.3
+        
         # Coordinate label: x:123;y:456 (ABOVE the box, top-left corner)
         coord_label = f"x:{x};y:{y}"
         label_x = x
-        label_y = y - 4  # Above the box
+        label_y = y - 3  # Above the box
         
         # Make sure label doesn't go off screen
-        if label_y < 10:
-            label_y = y + 10  # Put inside if too close to top
+        if label_y < 8:
+            label_y = y + int(box_size * 0.15) + 5  # Put inside if too close to top
         
         # Draw with shadow for readability
-        cv2.putText(output, coord_label, (label_x + 1, label_y + 1), font, small_font, 
+        cv2.putText(output, coord_label, (label_x + 1, label_y + 1), font, dynamic_font, 
                    (0, 0, 0), 1, cv2.LINE_AA)
-        cv2.putText(output, coord_label, (label_x, label_y), font, small_font, 
+        cv2.putText(output, coord_label, (label_x, label_y), font, dynamic_font, 
                    box_color, 1, cv2.LINE_AA)
     
     return output
