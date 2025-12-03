@@ -710,18 +710,27 @@ def draw_blob_track(
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # Apply threshold to find regions of interest
-    threshold = preset.get("blob_threshold", 18)
+    # Get parameters
     blur_size = preset.get("blob_blur", 11)
+    blur_size = blur_size if blur_size % 2 == 1 else blur_size + 1
     
     # Blur to reduce noise
     blurred = cv2.GaussianBlur(gray, (blur_size, blur_size), 0)
     
-    # Use adaptive threshold for better blob detection
-    binary = cv2.adaptiveThreshold(
-        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY, 11, -threshold
-    )
+    # Use MULTIPLE detection methods for robustness:
+    # 1. Edge detection (works for any contrast)
+    edges = cv2.Canny(blurred, 30, 100)
+    edges = cv2.dilate(edges, None, iterations=2)
+    
+    # 2. Otsu threshold (auto-adjusts to video content)
+    _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Combine both methods
+    binary = cv2.bitwise_or(edges, otsu)
+    
+    # Morphological cleanup to merge nearby regions
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
     
     # Find contours
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)

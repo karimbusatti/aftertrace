@@ -162,8 +162,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "text_mode": "blob_track",
         "blob_threshold": 18,
         "blob_blur": 11,
-        "min_blob_area": 300,
-        "max_blobs": 120,
+        "min_blob_area": 100,  # Lower threshold for better detection
+        "max_blobs": 200,
         "max_connection_dist": 200,
         "label_scale": 0.25,
         "start_id": 100,
