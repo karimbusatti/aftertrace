@@ -755,41 +755,73 @@ def draw_thermal_scan_fast(
     colors: dict,
 ) -> np.ndarray:
     """
-    Thermal Scan effect - vectorized version for speed.
+    Thermal Scan effect - Skepta style.
+    
+    Faces/skin = warm (orange/yellow)
+    Background = cold (cyan/teal)
     """
     h, w = frame.shape[:2]
     
+    # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
-    gray = cv2.equalizeHist(gray)
     
-    # Use OpenCV's built-in colormap and modify it
-    # COLORMAP_JET is close but we want more cyan in cold areas
-    thermal = cv2.applyColorMap(gray, cv2.COLORMAP_JET)
+    # CLAHE for better contrast on faces
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
     
-    # Shift colors to be more cyan-to-orange (Skepta style)
-    # Swap blue channel with enhanced cyan
-    b, g, r = cv2.split(thermal)
+    # Create output
+    output = np.zeros((h, w, 3), dtype=np.uint8)
     
-    # Boost cyan in cold areas (where original gray is low)
-    cold_mask = gray < 100
-    g[cold_mask] = np.minimum(255, g[cold_mask].astype(np.int32) + 40).astype(np.uint8)
-    b[cold_mask] = np.minimum(255, b[cold_mask].astype(np.int32) + 20).astype(np.uint8)
+    # Normalize to 0-1
+    norm = gray.astype(np.float32) / 255.0
     
-    # Boost orange/yellow in hot areas
-    hot_mask = gray > 150
-    r[hot_mask] = np.minimum(255, r[hot_mask].astype(np.int32) + 30).astype(np.uint8)
+    # Adjusted thermal mapping - make mid-tones (skin) warmer
+    # Shift threshold down so more of the image becomes "warm"
     
-    output = cv2.merge([b, g, r])
+    # Cold (cyan/teal) - only the darkest 35%
+    cold_mask = norm < 0.35
+    output[cold_mask, 0] = (180 + norm[cold_mask] * 75).astype(np.uint8)  # B
+    output[cold_mask, 1] = (150 + norm[cold_mask] * 100).astype(np.uint8)  # G  
+    output[cold_mask, 2] = (30 + norm[cold_mask] * 50).astype(np.uint8)   # R
     
-    # Add glow to hottest areas
-    very_hot = gray > 200
-    if np.any(very_hot):
-        glow = cv2.GaussianBlur(output, (15, 15), 0)
-        mask = very_hot.astype(np.float32)
-        mask = cv2.GaussianBlur(mask, (21, 21), 0)
+    # Transition (teal to yellow) - 35% to 50%
+    trans_mask = (norm >= 0.35) & (norm < 0.50)
+    blend = (norm[trans_mask] - 0.35) / 0.15
+    output[trans_mask, 0] = (180 - blend * 150).astype(np.uint8)  # B decreases
+    output[trans_mask, 1] = (200 + blend * 40).astype(np.uint8)   # G high
+    output[trans_mask, 2] = (80 + blend * 120).astype(np.uint8)   # R increases
+    
+    # Warm (yellow/orange) - 50% to 70%
+    warm_mask = (norm >= 0.50) & (norm < 0.70)
+    blend = (norm[warm_mask] - 0.50) / 0.20
+    output[warm_mask, 0] = (30 - blend * 30).astype(np.uint8)     # B low
+    output[warm_mask, 1] = (240 - blend * 80).astype(np.uint8)    # G decreases
+    output[warm_mask, 2] = (200 + blend * 55).astype(np.uint8)    # R high
+    
+    # Hot (orange/red) - 70% to 85%
+    hot_mask = (norm >= 0.70) & (norm < 0.85)
+    blend = (norm[hot_mask] - 0.70) / 0.15
+    output[hot_mask, 0] = 0                                        # B none
+    output[hot_mask, 1] = (160 - blend * 100).astype(np.uint8)    # G decreases
+    output[hot_mask, 2] = 255                                      # R max
+    
+    # Very hot (red/white) - top 15%
+    very_hot_mask = norm >= 0.85
+    blend = (norm[very_hot_mask] - 0.85) / 0.15
+    blend = np.clip(blend, 0, 1)
+    output[very_hot_mask, 0] = (blend * 80).astype(np.uint8)      # B slight
+    output[very_hot_mask, 1] = (60 + blend * 150).astype(np.uint8) # G increases
+    output[very_hot_mask, 2] = 255                                 # R max
+    
+    # Add glow to warm/hot areas
+    hot_areas = norm > 0.5
+    if np.any(hot_areas):
+        glow = cv2.GaussianBlur(output, (21, 21), 0)
+        mask = hot_areas.astype(np.float32)
+        mask = cv2.GaussianBlur(mask, (31, 31), 0)
         mask_3d = np.stack([mask] * 3, axis=-1)
-        output = cv2.addWeighted(output, 1.0, (glow * mask_3d * 0.4).astype(np.uint8), 1.0, 0)
+        output = cv2.addWeighted(output, 1.0, (glow * mask_3d * 0.3).astype(np.uint8), 1.0, 0)
     
     return output
 
@@ -921,12 +953,14 @@ def draw_blob_track(
     Blob Track effect: Clean minimal tracking - TouchDesigner style.
     
     Simple thin white rectangles with:
-    - Clean thin box outlines (no corner brackets)
-    - Crosshairs on only ~30% of boxes
+    - Clean thin box outlines (no crosshairs)
     - White connection lines between nearby blobs
-    - Minimal ID labels
+    - NO boxes touching frame edges (removes corner artifacts)
     """
     h, w = frame.shape[:2]
+    
+    # Edge margin - ignore detections touching frame borders
+    edge_margin = 10
     
     # Convert to grayscale for detection
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -955,11 +989,23 @@ def draw_blob_track(
     bg_alpha = preset.get("bg_alpha", 0.75)
     output = (frame * bg_alpha).astype(np.uint8)
     
-    # Filter contours
-    min_area = preset.get("min_blob_area", 150)
-    max_blobs = preset.get("max_blobs", 100)
+    # Filter contours - exclude ones touching frame edges
+    min_area = preset.get("min_blob_area", 200)
+    max_blobs = preset.get("max_blobs", 80)
     
-    valid_contours = [(cv2.contourArea(c), c) for c in contours if cv2.contourArea(c) > min_area]
+    valid_contours = []
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area < min_area:
+            continue
+        x, y, bw, bh = cv2.boundingRect(contour)
+        # Skip if touching any edge of the frame
+        if x <= edge_margin or y <= edge_margin:
+            continue
+        if x + bw >= w - edge_margin or y + bh >= h - edge_margin:
+            continue
+        valid_contours.append((area, contour))
+    
     valid_contours.sort(key=lambda x: x[0], reverse=True)
     valid_contours = valid_contours[:max_blobs]
     
@@ -968,7 +1014,6 @@ def draw_blob_track(
     
     # Colors - clean white
     box_color = (255, 255, 255)
-    line_color = (255, 255, 255)
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.3
     
@@ -991,31 +1036,21 @@ def draw_blob_track(
             p2 = blob_centers[j]
             dist = np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
             if dist < max_connection_dist:
-                alpha = 0.6 * (1.0 - (dist / max_connection_dist))
-                color = tuple(int(255 * alpha) for _ in range(3))
+                # Pure white lines
+                cv2.line(output, p1, p2, (255, 255, 255), 1, cv2.LINE_AA)
                 cv2.line(output, p1, p2, color, 1, cv2.LINE_AA)
     
-    # Draw each blob - SIMPLE THIN RECTANGLES
+    # Draw each blob - SIMPLE THIN RECTANGLES ONLY (no crosshairs)
     start_id = preset.get("start_id", 100)
     
     for (x, y, bw, bh, idx, area) in blob_boxes:
         blob_id = start_id + idx
-        center_x = x + bw // 2
-        center_y = y + bh // 2
         
-        # Simple thin rectangle outline (NO corner brackets)
+        # Simple thin rectangle outline only
         cv2.rectangle(output, (x, y), (x + bw, y + bh), box_color, 1, cv2.LINE_AA)
         
-        # Crosshair on only ~30% of boxes (randomly selected by idx)
-        if idx % 3 == 0:
-            cross_size = 5
-            cv2.line(output, (center_x - cross_size, center_y), 
-                    (center_x + cross_size, center_y), box_color, 1, cv2.LINE_AA)
-            cv2.line(output, (center_x, center_y - cross_size), 
-                    (center_x, center_y + cross_size), box_color, 1, cv2.LINE_AA)
-        
         # Small ID label - only on larger blobs
-        if area > 500:
+        if area > 800:
             id_label = f"{blob_id}"
             cv2.putText(output, id_label, (x + 2, y - 4), font, font_scale, 
                        (0, 0, 0), 2, cv2.LINE_AA)
@@ -1166,10 +1201,9 @@ def draw_number_cloud(
     colors: dict,
 ) -> np.ndarray:
     """
-    Numeric Aura effect: Subject becomes numbers, background stays as video.
+    Numeric Aura effect: Subject becomes BLUE numbers, background stays as video.
     
-    Isolates the main subject and overlays numbers ONLY on the subject,
-    while keeping the background as pristine original video.
+    Better subject isolation using GrabCut-like approach.
     """
     h, w = frame.shape[:2]
     
@@ -1179,57 +1213,77 @@ def draw_number_cloud(
     font_scale = preset.get("number_font_scale", 0.28)
     start_number = preset.get("start_number", 19000)
     
-    # === SUBJECT ISOLATION ===
-    blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+    # === IMPROVED SUBJECT ISOLATION ===
+    # Use center-weighted approach - assume subject is more central
     
-    # Edge detection for subject boundaries  
-    edges = cv2.Canny(blurred, 25, 70)
+    # Create a center-biased mask
+    center_x, center_y = w // 2, h // 2
+    y_coords, x_coords = np.ogrid[:h, :w]
+    center_dist = np.sqrt((x_coords - center_x)**2 + (y_coords - center_y)**2)
+    center_weight = 1.0 - np.clip(center_dist / (max(h, w) * 0.6), 0, 1)
     
-    # Dilate to create connected regions
-    kernel = np.ones((15, 15), np.uint8)
-    dilated = cv2.dilate(edges, kernel, iterations=5)
+    # Edge detection
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 20, 60)
+    
+    # Dilate edges to create regions
+    kernel = np.ones((20, 20), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=3)
     dilated = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel)
     
-    # Find contours - ONLY THE LARGEST ONE
+    # Find contours
     contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     subject_mask = np.zeros((h, w), dtype=np.uint8)
     
     if contours:
-        sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
-        min_area = h * w * 0.03  # At least 3% of frame
+        # Score contours by size AND centrality
+        scored_contours = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < h * w * 0.02:  # Skip tiny contours
+                continue
+            M = cv2.moments(contour)
+            if M["m00"] > 0:
+                cx = int(M["m10"] / M["m00"])
+                cy = int(M["m01"] / M["m00"])
+                # Score = area * centrality
+                centrality = center_weight[cy, cx] if 0 <= cy < h and 0 <= cx < w else 0.5
+                score = area * (0.5 + centrality)
+                scored_contours.append((score, contour))
         
-        for contour in sorted_contours[:1]:
-            if cv2.contourArea(contour) > min_area:
-                hull = cv2.convexHull(contour)
-                cv2.fillPoly(subject_mask, [hull], 255)
-                break
+        if scored_contours:
+            # Take the highest scoring contour
+            scored_contours.sort(key=lambda x: x[0], reverse=True)
+            best_contour = scored_contours[0][1]
+            hull = cv2.convexHull(best_contour)
+            cv2.fillPoly(subject_mask, [hull], 255)
     
-    # Smooth mask edges
-    subject_mask = cv2.GaussianBlur(subject_mask, (15, 15), 0)
-    _, subject_mask = cv2.threshold(subject_mask, 80, 255, cv2.THRESH_BINARY)
+    # Smooth mask
+    subject_mask = cv2.GaussianBlur(subject_mask, (21, 21), 0)
+    _, subject_mask = cv2.threshold(subject_mask, 60, 255, cv2.THRESH_BINARY)
     
-    # === OUTPUT: Background = original video, Subject = dark + numbers ===
+    # === OUTPUT: Background = original video, Subject = dark + BLUE numbers ===
     output = frame.copy()
     
-    # Darken ONLY the subject area (for number contrast)
-    subject_darken = 0.15  # Subject becomes quite dark
+    # Darken subject area
+    subject_darken = 0.1
     for c in range(3):
         output[:, :, c] = np.where(
             subject_mask > 0,
             (frame[:, :, c] * subject_darken).astype(np.uint8),
-            frame[:, :, c]  # Background stays FULL brightness
+            frame[:, :, c]
         )
     
     # Find points within subject
     subject_points = np.column_stack(np.where(subject_mask > 0))
     
     if len(subject_points) == 0:
-        return frame  # No subject, return original
+        return frame
     
     # Sample for numbers
-    max_numbers = preset.get("max_numbers", 4000)
-    density = preset.get("number_density", 0.05)
+    max_numbers = preset.get("max_numbers", 5000)
+    density = preset.get("number_density", 0.06)
     num_to_sample = min(max_numbers, int(len(subject_points) * density))
     num_to_sample = max(500, num_to_sample)
     
@@ -1239,9 +1293,10 @@ def draw_number_cloud(
     else:
         sampled = subject_points
     
-    # Draw numbers ONLY on subject
+    # Draw BLUE numbers on subject
     font = cv2.FONT_HERSHEY_SIMPLEX
-    text_color = (255, 255, 255)
+    # Blue color (BGR format) - cyan/electric blue
+    base_color = (255, 200, 100)  # Light cyan-blue
     
     for idx, (row, col) in enumerate(sampled):
         number = start_number + idx
@@ -1252,8 +1307,8 @@ def draw_number_cloud(
         
         # Brightness varies with original image
         orig_brightness = gray[row, col] / 255.0
-        brightness = 0.5 + 0.5 * orig_brightness
-        color = tuple(int(c * brightness) for c in text_color)
+        brightness = 0.6 + 0.4 * orig_brightness
+        color = tuple(int(c * brightness) for c in base_color)
         
         cv2.putText(output, text, (px, py), font, font_scale, color, 1, cv2.LINE_AA)
     

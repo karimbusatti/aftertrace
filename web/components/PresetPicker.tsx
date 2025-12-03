@@ -9,15 +9,14 @@ type Preset = {
 const MAIN_PRESETS: Preset[] = [
   { id: "blob_track", name: "Blob Track", description: "coordinate tracking" },
   { id: "particle_silhouette", name: "Particle Cloud", description: "ethereal silhouette" },
-  { id: "numeric_aura", name: "Numeric Aura", description: "subject isolation" },
+  { id: "numeric_aura", name: "Numeric Aura", description: "blue number cloud" },
   { id: "thermal_scan", name: "Thermal Scan", description: "heat vision" },
 ];
 
 const SECONDARY_PRESETS: Preset[] = [
-  { id: "matrix_mode", name: "Matrix", description: "" },
+  { id: "data_body", name: "Matrix Mode", description: "" },
   { id: "face_mesh", name: "Face Mesh", description: "" },
   { id: "face_scanner", name: "Face Scan", description: "" },
-  { id: "data_body", name: "Data Body", description: "" },
   { id: "grid_trace", name: "Grid Trace", description: "" },
   { id: "contour_trace", name: "Contour", description: "" },
 ];
@@ -59,16 +58,16 @@ export function PresetPicker({ value, onChange, disabled }: PresetPickerProps) {
         ))}
       </div>
       
-      {/* Secondary presets - 2 rows of 4 */}
-      <div className="grid grid-cols-4 gap-1.5">
+      {/* Secondary presets - flexible row */}
+      <div className="flex flex-wrap gap-1.5 justify-center">
         {SECONDARY_PRESETS.map((preset) => (
           <button
             key={preset.id}
             onClick={() => onChange(preset.id)}
             disabled={disabled}
             className={`
-              py-2 px-1.5 rounded-lg text-center text-xs transition-all duration-200
-              disabled:opacity-50 disabled:cursor-not-allowed
+              py-2 px-3 rounded-lg text-center text-xs transition-all duration-200
+              disabled:opacity-50 disabled:cursor-not-allowed flex-1 min-w-[70px] max-w-[100px]
               ${value === preset.id 
                 ? "bg-white/10 border border-white/30 text-white" 
                 : "bg-white/5 border border-transparent text-text-secondary hover:bg-white/8 hover:text-white"
