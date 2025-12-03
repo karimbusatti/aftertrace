@@ -1,6 +1,7 @@
 "use client";
 
 import type { ProcessResponse } from "@/lib/api";
+import { getDownloadUrl } from "@/lib/api";
 
 interface ResultPanelProps {
   result: ProcessResponse | null;
@@ -42,13 +43,14 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
 
   const metadata = result.metadata;
   const trackability = metadata?.trackability_score ?? 0;
+  const videoUrl = getDownloadUrl(result.job_id);
 
   return (
     <div className="space-y-4">
       {/* Video */}
       <div className="card overflow-hidden">
         <video
-          src={result.download_url}
+          src={videoUrl}
           controls
           autoPlay
           loop
@@ -84,7 +86,7 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
       {/* Actions */}
       <div className="flex gap-3">
         <a
-          href={result.download_url}
+          href={videoUrl}
           download
           className="btn-primary flex-1 text-center"
         >
