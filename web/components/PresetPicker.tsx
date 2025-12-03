@@ -15,10 +15,10 @@ const MAIN_PRESETS: Preset[] = [
 
 const SECONDARY_PRESETS: Preset[] = [
   { id: "data_body", name: "Matrix Mode", description: "" },
-  { id: "face_mesh", name: "Face Mesh", description: "" },
+  { id: "contour_trace", name: "Contour", description: "" },
   { id: "face_scanner", name: "Face Scan", description: "" },
   { id: "grid_trace", name: "Grid Trace", description: "" },
-  { id: "contour_trace", name: "Contour", description: "" },
+  { id: "face_mesh", name: "Face Mesh", description: "" },
 ];
 
 interface PresetPickerProps {

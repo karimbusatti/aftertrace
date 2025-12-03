@@ -673,11 +673,19 @@ def draw_thermal_scan(
     colors: dict,
 ) -> np.ndarray:
     """
-    Thermal Scan effect: Skepta album cover style thermal imaging.
-    
-    Hot areas (skin, bodies) = orange/yellow/red
-    Cold areas (background) = cyan/blue/teal
-    Creates that iconic thermal camera look.
+    Thermal Scan effect: EXACT Skepta "Ignorance is Bliss" style.
+    Uses the fast vectorized version.
+    """
+    return draw_thermal_scan_fast(frame, preset, colors)
+
+
+def draw_thermal_scan_slow(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+) -> np.ndarray:
+    """
+    Thermal Scan effect (slow pixel-by-pixel version - not used).
     """
     h, w = frame.shape[:2]
     
@@ -755,19 +763,21 @@ def draw_thermal_scan_fast(
     colors: dict,
 ) -> np.ndarray:
     """
-    Thermal Scan effect - Skepta style.
+    Thermal Scan effect - EXACT Skepta "Ignorance is Bliss" colors.
     
-    Faces/skin = warm (orange/yellow)
-    Background = cold (cyan/teal)
+    Colors from the album:
+    - Cold/Background: Deep teal/cyan (#0090B0 area)
+    - Warm/Skin: Orange-yellow (#FF9000 to #FFCC00)
+    - Hot/Highlights: Bright yellow-white
     """
     h, w = frame.shape[:2]
     
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
     
-    # CLAHE for better contrast on faces
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    # CLAHE for better contrast
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
     
     # Create output
@@ -776,52 +786,56 @@ def draw_thermal_scan_fast(
     # Normalize to 0-1
     norm = gray.astype(np.float32) / 255.0
     
-    # Adjusted thermal mapping - make mid-tones (skin) warmer
-    # Shift threshold down so more of the image becomes "warm"
+    # SKEPTA EXACT COLORS (BGR format):
+    # Deep teal: RGB(0, 145, 180) = BGR(180, 145, 0)
+    # Orange: RGB(255, 140, 0) = BGR(0, 140, 255)
+    # Yellow: RGB(255, 200, 50) = BGR(50, 200, 255)
+    # Hot yellow-white: RGB(255, 230, 150) = BGR(150, 230, 255)
     
-    # Cold (cyan/teal) - only the darkest 35%
-    cold_mask = norm < 0.35
-    output[cold_mask, 0] = (180 + norm[cold_mask] * 75).astype(np.uint8)  # B
-    output[cold_mask, 1] = (150 + norm[cold_mask] * 100).astype(np.uint8)  # G  
-    output[cold_mask, 2] = (30 + norm[cold_mask] * 50).astype(np.uint8)   # R
+    # Cold (deep teal/cyan) - darkest 30%
+    cold_mask = norm < 0.30
+    t = norm[cold_mask] / 0.30  # 0 to 1 within cold range
+    output[cold_mask, 0] = (180 - t * 30).astype(np.uint8)   # B: 180->150
+    output[cold_mask, 1] = (145 + t * 20).astype(np.uint8)   # G: 145->165
+    output[cold_mask, 2] = (0 + t * 40).astype(np.uint8)     # R: 0->40
     
-    # Transition (teal to yellow) - 35% to 50%
-    trans_mask = (norm >= 0.35) & (norm < 0.50)
-    blend = (norm[trans_mask] - 0.35) / 0.15
-    output[trans_mask, 0] = (180 - blend * 150).astype(np.uint8)  # B decreases
-    output[trans_mask, 1] = (200 + blend * 40).astype(np.uint8)   # G high
-    output[trans_mask, 2] = (80 + blend * 120).astype(np.uint8)   # R increases
+    # Cool-to-warm transition - 30% to 45%
+    trans_mask = (norm >= 0.30) & (norm < 0.45)
+    t = (norm[trans_mask] - 0.30) / 0.15
+    output[trans_mask, 0] = (150 - t * 140).astype(np.uint8)  # B: 150->10
+    output[trans_mask, 1] = (165 - t * 25).astype(np.uint8)   # G: 165->140
+    output[trans_mask, 2] = (40 + t * 215).astype(np.uint8)   # R: 40->255
     
-    # Warm (yellow/orange) - 50% to 70%
-    warm_mask = (norm >= 0.50) & (norm < 0.70)
-    blend = (norm[warm_mask] - 0.50) / 0.20
-    output[warm_mask, 0] = (30 - blend * 30).astype(np.uint8)     # B low
-    output[warm_mask, 1] = (240 - blend * 80).astype(np.uint8)    # G decreases
-    output[warm_mask, 2] = (200 + blend * 55).astype(np.uint8)    # R high
+    # Warm orange - 45% to 60%
+    warm_mask = (norm >= 0.45) & (norm < 0.60)
+    t = (norm[warm_mask] - 0.45) / 0.15
+    output[warm_mask, 0] = (10 + t * 20).astype(np.uint8)     # B: 10->30
+    output[warm_mask, 1] = (140 + t * 60).astype(np.uint8)    # G: 140->200
+    output[warm_mask, 2] = 255                                 # R: max
     
-    # Hot (orange/red) - 70% to 85%
-    hot_mask = (norm >= 0.70) & (norm < 0.85)
-    blend = (norm[hot_mask] - 0.70) / 0.15
-    output[hot_mask, 0] = 0                                        # B none
-    output[hot_mask, 1] = (160 - blend * 100).astype(np.uint8)    # G decreases
-    output[hot_mask, 2] = 255                                      # R max
+    # Hot yellow - 60% to 75%
+    hot_mask = (norm >= 0.60) & (norm < 0.75)
+    t = (norm[hot_mask] - 0.60) / 0.15
+    output[hot_mask, 0] = (30 + t * 30).astype(np.uint8)      # B: 30->60
+    output[hot_mask, 1] = (200 + t * 40).astype(np.uint8)     # G: 200->240
+    output[hot_mask, 2] = 255                                  # R: max
     
-    # Very hot (red/white) - top 15%
-    very_hot_mask = norm >= 0.85
-    blend = (norm[very_hot_mask] - 0.85) / 0.15
-    blend = np.clip(blend, 0, 1)
-    output[very_hot_mask, 0] = (blend * 80).astype(np.uint8)      # B slight
-    output[very_hot_mask, 1] = (60 + blend * 150).astype(np.uint8) # G increases
-    output[very_hot_mask, 2] = 255                                 # R max
+    # Very hot (yellow-white glow) - top 25%
+    very_hot_mask = norm >= 0.75
+    t = (norm[very_hot_mask] - 0.75) / 0.25
+    t = np.clip(t, 0, 1)
+    output[very_hot_mask, 0] = (60 + t * 100).astype(np.uint8)   # B: 60->160
+    output[very_hot_mask, 1] = (240 + t * 15).astype(np.uint8)   # G: 240->255
+    output[very_hot_mask, 2] = 255                                # R: max
     
-    # Add glow to warm/hot areas
+    # Add glow effect to hot areas
     hot_areas = norm > 0.5
     if np.any(hot_areas):
-        glow = cv2.GaussianBlur(output, (21, 21), 0)
+        glow = cv2.GaussianBlur(output, (25, 25), 0)
         mask = hot_areas.astype(np.float32)
-        mask = cv2.GaussianBlur(mask, (31, 31), 0)
+        mask = cv2.GaussianBlur(mask, (35, 35), 0)
         mask_3d = np.stack([mask] * 3, axis=-1)
-        output = cv2.addWeighted(output, 1.0, (glow * mask_3d * 0.3).astype(np.uint8), 1.0, 0)
+        output = cv2.addWeighted(output, 1.0, (glow * mask_3d * 0.35).astype(np.uint8), 1.0, 0)
     
     return output
 
@@ -1201,73 +1215,102 @@ def draw_number_cloud(
     colors: dict,
 ) -> np.ndarray:
     """
-    Numeric Aura effect: Subject becomes BLUE numbers, background stays as video.
+    Numeric Aura effect: Subject becomes BSOD BLUE numbers, background stays as video.
     
-    Better subject isolation using GrabCut-like approach.
+    Uses foreground detection to isolate the main subject.
     """
     h, w = frame.shape[:2]
     
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Get params
-    font_scale = preset.get("number_font_scale", 0.28)
+    font_scale = preset.get("number_font_scale", 0.32)
     start_number = preset.get("start_number", 19000)
     
-    # === IMPROVED SUBJECT ISOLATION ===
-    # Use center-weighted approach - assume subject is more central
+    # === FOREGROUND DETECTION ===
+    # Method: Use adaptive threshold + morphology to find the main subject
     
-    # Create a center-biased mask
-    center_x, center_y = w // 2, h // 2
-    y_coords, x_coords = np.ogrid[:h, :w]
-    center_dist = np.sqrt((x_coords - center_x)**2 + (y_coords - center_y)**2)
-    center_weight = 1.0 - np.clip(center_dist / (max(h, w) * 0.6), 0, 1)
+    # Apply CLAHE for better contrast
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
     
-    # Edge detection
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blurred, 20, 60)
+    # Blur to reduce noise
+    blurred = cv2.GaussianBlur(enhanced, (7, 7), 0)
     
-    # Dilate edges to create regions
-    kernel = np.ones((20, 20), np.uint8)
-    dilated = cv2.dilate(edges, kernel, iterations=3)
-    dilated = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel)
+    # Use Otsu's threshold to separate foreground/background
+    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
-    # Find contours
-    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Also try adaptive threshold
+    adaptive = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                      cv2.THRESH_BINARY, 51, 5)
+    
+    # Combine both methods
+    combined = cv2.bitwise_and(binary, adaptive)
+    
+    # Strong morphological operations to create solid regions
+    kernel_large = np.ones((25, 25), np.uint8)
+    kernel_med = np.ones((15, 15), np.uint8)
+    
+    # Close gaps and fill holes
+    closed = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel_large, iterations=2)
+    closed = cv2.morphologyEx(closed, cv2.MORPH_DILATE, kernel_med, iterations=1)
+    
+    # Find the largest contour (main subject)
+    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     subject_mask = np.zeros((h, w), dtype=np.uint8)
     
     if contours:
-        # Score contours by size AND centrality
-        scored_contours = []
+        # Find largest contour that's reasonably sized and central
+        center_x, center_y = w // 2, h // 2
+        
+        best_contour = None
+        best_score = 0
+        
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area < h * w * 0.02:  # Skip tiny contours
+            if area < h * w * 0.05:  # At least 5% of frame
                 continue
+            
+            # Get centroid
             M = cv2.moments(contour)
             if M["m00"] > 0:
                 cx = int(M["m10"] / M["m00"])
                 cy = int(M["m01"] / M["m00"])
-                # Score = area * centrality
-                centrality = center_weight[cy, cx] if 0 <= cy < h and 0 <= cx < w else 0.5
-                score = area * (0.5 + centrality)
-                scored_contours.append((score, contour))
+                
+                # Distance from center (normalized)
+                dist = np.sqrt((cx - center_x)**2 + (cy - center_y)**2)
+                max_dist = np.sqrt(center_x**2 + center_y**2)
+                centrality = 1.0 - (dist / max_dist)
+                
+                # Score combines size and centrality
+                score = area * (0.3 + 0.7 * centrality)
+                
+                if score > best_score:
+                    best_score = score
+                    best_contour = contour
         
-        if scored_contours:
-            # Take the highest scoring contour
-            scored_contours.sort(key=lambda x: x[0], reverse=True)
-            best_contour = scored_contours[0][1]
+        if best_contour is not None:
+            # Use convex hull for cleaner shape
             hull = cv2.convexHull(best_contour)
             cv2.fillPoly(subject_mask, [hull], 255)
     
-    # Smooth mask
-    subject_mask = cv2.GaussianBlur(subject_mask, (21, 21), 0)
-    _, subject_mask = cv2.threshold(subject_mask, 60, 255, cv2.THRESH_BINARY)
+    # Smooth edges
+    subject_mask = cv2.GaussianBlur(subject_mask, (31, 31), 0)
+    _, subject_mask = cv2.threshold(subject_mask, 50, 255, cv2.THRESH_BINARY)
     
-    # === OUTPUT: Background = original video, Subject = dark + BLUE numbers ===
+    # If no subject found, try using center region
+    if np.sum(subject_mask) < h * w * 0.05 * 255:
+        # Fallback: use center ellipse
+        cv2.ellipse(subject_mask, (center_x, center_y), (w//3, h//3), 0, 0, 360, 255, -1)
+        subject_mask = cv2.GaussianBlur(subject_mask, (51, 51), 0)
+        _, subject_mask = cv2.threshold(subject_mask, 50, 255, cv2.THRESH_BINARY)
+    
+    # === OUTPUT: Background = original video, Subject = dark + BSOD BLUE numbers ===
     output = frame.copy()
     
-    # Darken subject area
-    subject_darken = 0.1
+    # Darken subject area significantly
+    subject_darken = 0.08
     for c in range(3):
         output[:, :, c] = np.where(
             subject_mask > 0,
@@ -1281,9 +1324,9 @@ def draw_number_cloud(
     if len(subject_points) == 0:
         return frame
     
-    # Sample for numbers
-    max_numbers = preset.get("max_numbers", 5000)
-    density = preset.get("number_density", 0.06)
+    # Sample for numbers - denser coverage
+    max_numbers = preset.get("max_numbers", 6000)
+    density = preset.get("number_density", 0.08)
     num_to_sample = min(max_numbers, int(len(subject_points) * density))
     num_to_sample = max(500, num_to_sample)
     
@@ -1293,10 +1336,12 @@ def draw_number_cloud(
     else:
         sampled = subject_points
     
-    # Draw BLUE numbers on subject
+    # Draw BSOD BLUE numbers on subject
     font = cv2.FONT_HERSHEY_SIMPLEX
-    # Blue color (BGR format) - cyan/electric blue
-    base_color = (255, 200, 100)  # Light cyan-blue
+    # BSOD Blue (BGR format) - classic Windows blue screen color
+    # Original BSOD blue is RGB(0, 0, 170) = BGR(170, 0, 0)
+    # Making it brighter for visibility
+    bsod_blue = (255, 50, 0)  # Bright BSOD blue in BGR
     
     for idx, (row, col) in enumerate(sampled):
         number = start_number + idx
@@ -1305,11 +1350,12 @@ def draw_number_cloud(
         px = max(0, min(col, w - 35))
         py = max(10, min(row, h - 2))
         
-        # Brightness varies with original image
+        # Slight brightness variation for depth
         orig_brightness = gray[row, col] / 255.0
-        brightness = 0.6 + 0.4 * orig_brightness
-        color = tuple(int(c * brightness) for c in base_color)
+        brightness = 0.7 + 0.3 * orig_brightness
+        color = tuple(int(c * brightness) for c in bsod_blue)
         
+        # Draw with slight thickness for visibility
         cv2.putText(output, text, (px, py), font, font_scale, color, 1, cv2.LINE_AA)
     
     return output
