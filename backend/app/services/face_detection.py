@@ -410,11 +410,12 @@ def draw_biometric_data(
     faces: list,
     mesh_points: list,
     frame_idx: int,
-    color: tuple = (0, 255, 0),
+    color: tuple = (255, 255, 255),
+    style: str = "clean",
 ):
     """
-    Draw advanced biometric analysis overlay.
-    Shows fake biometric data for surveillance aesthetic.
+    Draw professional biometric analysis overlay.
+    Clean white boxes with data readouts - TouchDesigner/professional aesthetic.
     
     Args:
         frame: Frame to draw on (modified in-place)
@@ -422,41 +423,82 @@ def draw_biometric_data(
         mesh_points: List of face mesh landmarks
         frame_idx: Current frame for animations
         color: BGR color for overlay
+        style: "clean" for minimal white, "cctv" for green surveillance
     """
     h, w = frame.shape[:2]
     
+    # Use white for clean style
+    if style == "clean":
+        color = (255, 255, 255)
+        dim_color = (180, 180, 180)
+        accent_color = (100, 255, 200)  # Cyan accent
+    else:
+        dim_color = (100, 100, 100)
+        accent_color = color
+    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    
     for idx, (x, y, bw, bh, conf) in enumerate(faces):
-        # Data panel background (right side of face)
-        panel_x = min(x + bw + 10, w - 150)
-        panel_y = max(y, 10)
+        center_x = x + bw // 2
+        center_y = y + bh // 2
         
-        # Semi-transparent background
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (panel_x, panel_y), (panel_x + 140, panel_y + 120), 
-                     (0, 0, 0), -1)
-        frame[panel_y:panel_y+120, panel_x:panel_x+140] = cv2.addWeighted(
-            frame[panel_y:panel_y+120, panel_x:panel_x+140], 0.3,
-            overlay[panel_y:panel_y+120, panel_x:panel_x+140], 0.7, 0
-        )
+        # Draw clean white bounding box
+        thickness = 2
+        cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, thickness, cv2.LINE_AA)
         
-        # Fake biometric data
+        # Corner accents (thicker)
+        corner_len = max(bw // 6, 15)
+        cv2.line(frame, (x, y), (x + corner_len, y), accent_color, 3, cv2.LINE_AA)
+        cv2.line(frame, (x, y), (x, y + corner_len), accent_color, 3, cv2.LINE_AA)
+        cv2.line(frame, (x + bw, y), (x + bw - corner_len, y), accent_color, 3, cv2.LINE_AA)
+        cv2.line(frame, (x + bw, y), (x + bw, y + corner_len), accent_color, 3, cv2.LINE_AA)
+        cv2.line(frame, (x, y + bh), (x + corner_len, y + bh), accent_color, 3, cv2.LINE_AA)
+        cv2.line(frame, (x, y + bh), (x, y + bh - corner_len), accent_color, 3, cv2.LINE_AA)
+        cv2.line(frame, (x + bw, y + bh), (x + bw - corner_len, y + bh), accent_color, 3, cv2.LINE_AA)
+        cv2.line(frame, (x + bw, y + bh), (x + bw, y + bh - corner_len), accent_color, 3, cv2.LINE_AA)
+        
+        # Crosshair at center
+        cross_size = 8
+        cv2.line(frame, (center_x - cross_size, center_y), (center_x + cross_size, center_y), color, 1, cv2.LINE_AA)
+        cv2.line(frame, (center_x, center_y - cross_size), (center_x, center_y + cross_size), color, 1, cv2.LINE_AA)
+        
+        # Subject ID label above box
+        id_label = f"SUBJECT {idx + 1:02d}"
+        label_size = cv2.getTextSize(id_label, font, 0.5, 1)[0]
+        label_x = x
+        label_y = max(y - 12, 20)
+        # Background for readability
+        cv2.rectangle(frame, (label_x - 2, label_y - 14), (label_x + label_size[0] + 4, label_y + 4), (0, 0, 0), -1)
+        cv2.putText(frame, id_label, (label_x, label_y), font, 0.5, color, 1, cv2.LINE_AA)
+        
+        # Data panel (compact, below the face box)
+        panel_y = min(y + bh + 8, h - 60)
+        
+        # Confidence bar
+        conf_pct = conf * 100
+        bar_width = int(bw * conf)
+        cv2.rectangle(frame, (x, panel_y), (x + bw, panel_y + 4), (40, 40, 40), -1)
+        cv2.rectangle(frame, (x, panel_y), (x + bar_width, panel_y + 4), accent_color, -1)
+        
+        # Metrics in a clean row
+        metrics_y = panel_y + 20
         metrics = [
-            ("FACE-ID", f"#{idx+1:04d}"),
-            ("CONF", f"{conf*100:.1f}%"),
-            ("DIST", f"{np.random.uniform(1.5, 4.5):.1f}m"),
-            ("POSE", f"{np.random.randint(-15, 15)}°"),
-            ("EYE-D", f"{np.random.uniform(55, 70):.1f}mm"),
+            f"CONF:{conf_pct:.0f}%",
+            f"W:{bw}px",
+            f"H:{bh}px",
         ]
+        cv2.putText(frame, "  ".join(metrics), (x, metrics_y), font, 0.35, dim_color, 1, cv2.LINE_AA)
         
-        for i, (label, value) in enumerate(metrics):
-            y_pos = panel_y + 15 + i * 20
-            cv2.putText(frame, label, (panel_x + 5, y_pos),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.35, (100, 100, 100), 1)
-            cv2.putText(frame, value, (panel_x + 70, y_pos),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1, cv2.LINE_AA)
+        # Scanning line animation across face
+        scan_y = y + int((frame_idx % 30) / 30.0 * bh)
+        cv2.line(frame, (x, scan_y), (x + bw, scan_y), accent_color, 1, cv2.LINE_AA)
         
-        # Scanning animation at bottom
-        scan_progress = (frame_idx % 60) / 60.0
-        bar_width = int(130 * scan_progress)
-        cv2.rectangle(frame, (panel_x + 5, panel_y + 110), 
-                     (panel_x + 5 + bar_width, panel_y + 115), color, -1)
+        # Draw facial landmark dots if mesh available
+        if idx < len(mesh_points) and mesh_points[idx]:
+            landmarks = mesh_points[idx]
+            # Draw key landmarks as small dots
+            key_points = [0, 4, 13, 14, 61, 291, 199, 175, 152]  # Key facial points
+            for pt_idx in key_points:
+                if pt_idx < len(landmarks):
+                    lx, ly = landmarks[pt_idx]
+                    cv2.circle(frame, (lx, ly), 2, accent_color, -1, cv2.LINE_AA)

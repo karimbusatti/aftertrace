@@ -82,28 +82,33 @@ def _apply_face_overlays(
     faces = face_data.get("faces", [])
     mesh_points = face_data.get("mesh_points", [])
     
-    # Get colors for face overlays
-    face_color = colors.get("point", (0, 255, 0))
+    # Get colors for face overlays - use white for clean style
+    biometric_style = preset.get("biometric_style", "cctv")
+    if biometric_style == "clean":
+        face_color = (255, 255, 255)
+    else:
+        face_color = colors.get("point", (0, 255, 0))
     
     # Draw face glow first (goes under everything)
     if preset.get("face_glow", False) and faces:
         draw_face_glow(output, faces, face_color, intensity=0.3)
     
-    # Draw face mesh
+    # Draw face mesh with appropriate color
     if preset.get("detect_mesh", False) and mesh_points:
-        draw_face_mesh(output, mesh_points, face_color, draw_contours=True, glow=True)
+        mesh_color = (255, 255, 255) if biometric_style == "clean" else face_color
+        draw_face_mesh(output, mesh_points, mesh_color, draw_contours=True, glow=biometric_style != "clean")
     
-    # Draw face boxes - use minimal style by default
-    if preset.get("face_boxes", False) and faces:
+    # Draw face boxes - skip if biometric_data handles it
+    if preset.get("face_boxes", False) and faces and not preset.get("biometric_data", False):
         box_style = "cctv" if preset.get("cctv_overlay", False) else "minimal"
         draw_face_boxes(
-            output, faces, (255, 255, 255), thickness=1,
+            output, faces, (255, 255, 255), thickness=2,
             show_confidence=True, frame_idx=frame_idx, style=box_style
         )
     
-    # Draw biometric data panels
+    # Draw biometric data panels (includes face boxes for clean style)
     if preset.get("biometric_data", False) and faces:
-        draw_biometric_data(output, faces, mesh_points, frame_idx, face_color)
+        draw_biometric_data(output, faces, mesh_points, frame_idx, face_color, style=biometric_style)
     
     return output
 
@@ -696,18 +701,18 @@ def draw_blob_track(
     colors: dict,
 ) -> np.ndarray:
     """
-    Blob Track effect: Pure TouchDesigner-style tracking visualization.
+    Blob Track effect: TouchDesigner-style tracking with visible video.
     
-    Features:
-    - Corner bracket boxes (not full rectangles)
-    - Centroid crosshairs
+    Shows original video with clean white tracking overlays:
+    - Corner bracket boxes
+    - Centroid crosshairs  
     - ID numbers with sequential tracking
     - Connection lines between nearby blobs
     - Normalized coordinate readouts
     """
     h, w = frame.shape[:2]
     
-    # Convert to grayscale
+    # Convert to grayscale for detection
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Get parameters
@@ -735,16 +740,21 @@ def draw_blob_track(
     # Find contours
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Create output - pure black or very subtle original
-    bg_alpha = preset.get("bg_alpha", 0.02)
-    if bg_alpha > 0:
-        output = (frame * bg_alpha).astype(np.uint8)
-    else:
-        output = np.zeros((h, w, 3), dtype=np.uint8)
+    # Create output - SHOW ORIGINAL VIDEO with slight darkening for contrast
+    bg_alpha = preset.get("bg_alpha", 0.7)  # Show video at 70% brightness
+    output = (frame * bg_alpha).astype(np.uint8)
+    
+    # Optional: add subtle vignette for cinematic look
+    vignette = np.zeros((h, w), dtype=np.float32)
+    cv2.circle(vignette, (w//2, h//2), int(max(w, h) * 0.7), 1.0, -1)
+    vignette = cv2.GaussianBlur(vignette, (201, 201), 0)
+    vignette = 0.7 + 0.3 * vignette  # Range from 0.7 to 1.0
+    for c in range(3):
+        output[:, :, c] = (output[:, :, c] * vignette).astype(np.uint8)
     
     # Filter and sort contours by area
-    min_area = preset.get("min_blob_area", 300)
-    max_blobs = preset.get("max_blobs", 150)
+    min_area = preset.get("min_blob_area", 100)
+    max_blobs = preset.get("max_blobs", 200)
     
     valid_contours = [(cv2.contourArea(c), c) for c in contours if cv2.contourArea(c) > min_area]
     valid_contours.sort(key=lambda x: x[0], reverse=True)
@@ -753,12 +763,12 @@ def draw_blob_track(
     if not valid_contours:
         return output
     
-    # Colors
+    # Colors - bright white for visibility on video
     box_color = (255, 255, 255)  # Pure white
-    dim_color = (120, 120, 120)  # Dim gray for secondary elements
-    line_color = (80, 80, 80)    # Dark gray for connections
+    dim_color = (180, 180, 180)  # Light gray for coordinates
+    line_color = (100, 255, 100)  # Subtle green for connections
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = preset.get("label_scale", 0.25)
+    font_scale = preset.get("label_scale", 0.35)
     
     # Store blob data
     blob_centers = []
@@ -780,7 +790,7 @@ def draw_blob_track(
             dist = np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
             if dist < max_connection_dist:
                 # Fade line based on distance
-                alpha = 0.6 * (1.0 - (dist / max_connection_dist))
+                alpha = 0.8 * (1.0 - (dist / max_connection_dist))
                 color = tuple(int(c * alpha) for c in line_color)
                 cv2.line(output, p1, p2, color, 1, cv2.LINE_AA)
     
@@ -795,36 +805,40 @@ def draw_blob_track(
         center_y = y + bh // 2
         
         # Corner bracket length (proportional to box size)
-        corner_len = max(min(bw, bh) // 5, 8)
+        corner_len = max(min(bw, bh) // 4, 10)
+        thickness = 2  # Thicker lines for visibility
         
         # Draw corner brackets instead of full rectangle
         # Top-left
-        cv2.line(output, (x, y), (x + corner_len, y), box_color, 1, cv2.LINE_AA)
-        cv2.line(output, (x, y), (x, y + corner_len), box_color, 1, cv2.LINE_AA)
+        cv2.line(output, (x, y), (x + corner_len, y), box_color, thickness, cv2.LINE_AA)
+        cv2.line(output, (x, y), (x, y + corner_len), box_color, thickness, cv2.LINE_AA)
         # Top-right
-        cv2.line(output, (x + bw, y), (x + bw - corner_len, y), box_color, 1, cv2.LINE_AA)
-        cv2.line(output, (x + bw, y), (x + bw, y + corner_len), box_color, 1, cv2.LINE_AA)
+        cv2.line(output, (x + bw, y), (x + bw - corner_len, y), box_color, thickness, cv2.LINE_AA)
+        cv2.line(output, (x + bw, y), (x + bw, y + corner_len), box_color, thickness, cv2.LINE_AA)
         # Bottom-left
-        cv2.line(output, (x, y + bh), (x + corner_len, y + bh), box_color, 1, cv2.LINE_AA)
-        cv2.line(output, (x, y + bh), (x, y + bh - corner_len), box_color, 1, cv2.LINE_AA)
+        cv2.line(output, (x, y + bh), (x + corner_len, y + bh), box_color, thickness, cv2.LINE_AA)
+        cv2.line(output, (x, y + bh), (x, y + bh - corner_len), box_color, thickness, cv2.LINE_AA)
         # Bottom-right
-        cv2.line(output, (x + bw, y + bh), (x + bw - corner_len, y + bh), box_color, 1, cv2.LINE_AA)
-        cv2.line(output, (x + bw, y + bh), (x + bw, y + bh - corner_len), box_color, 1, cv2.LINE_AA)
+        cv2.line(output, (x + bw, y + bh), (x + bw - corner_len, y + bh), box_color, thickness, cv2.LINE_AA)
+        cv2.line(output, (x + bw, y + bh), (x + bw, y + bh - corner_len), box_color, thickness, cv2.LINE_AA)
         
         # Draw centroid crosshair
-        cross_size = 4
+        cross_size = 6
         cv2.line(output, (center_x - cross_size, center_y), (center_x + cross_size, center_y), box_color, 1, cv2.LINE_AA)
         cv2.line(output, (center_x, center_y - cross_size), (center_x, center_y + cross_size), box_color, 1, cv2.LINE_AA)
         
-        # ID label (above box)
-        id_label = f"{blob_id}"
-        label_y = max(y - 6, 12)
+        # ID label with background for readability
+        id_label = f"ID:{blob_id}"
+        label_y = max(y - 8, 16)
+        # Draw text shadow/background
+        cv2.putText(output, id_label, (x+1, label_y+1), font, font_scale, (0, 0, 0), 2, cv2.LINE_AA)
         cv2.putText(output, id_label, (x, label_y), font, font_scale, box_color, 1, cv2.LINE_AA)
         
-        # Coordinate label (below box, smaller)
+        # Coordinate label (below box)
         coord_label = f"({cx_norm:.2f},{cy_norm:.2f})"
-        coord_y = min(y + bh + 12, h - 4)
-        cv2.putText(output, coord_label, (x, coord_y), font, font_scale - 0.03, dim_color, 1, cv2.LINE_AA)
+        coord_y = min(y + bh + 14, h - 4)
+        cv2.putText(output, coord_label, (x+1, coord_y+1), font, font_scale - 0.05, (0, 0, 0), 2, cv2.LINE_AA)
+        cv2.putText(output, coord_label, (x, coord_y), font, font_scale - 0.05, dim_color, 1, cv2.LINE_AA)
     
     return output
 

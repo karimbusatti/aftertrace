@@ -37,24 +37,24 @@ export function PresetPicker({ value, onChange, disabled }: PresetPickerProps) {
         Choose Effect
       </p>
       
-      {/* Main 4 presets - 2x2 grid */}
-      <div className="grid grid-cols-2 gap-3 mb-3">
+      {/* Main 4 presets - 2x2 grid, compact */}
+      <div className="grid grid-cols-2 gap-2 mb-2">
         {MAIN_PRESETS.map((preset) => (
           <button
             key={preset.id}
             onClick={() => onChange(preset.id)}
             disabled={disabled}
             className={`
-              p-4 rounded-xl text-left transition-all duration-200
+              py-2.5 px-3 rounded-lg text-left transition-all duration-200
               disabled:opacity-50 disabled:cursor-not-allowed
               ${value === preset.id
-                ? "bg-white/10 border-2 border-white/30" 
-                : "bg-white/5 border-2 border-transparent hover:bg-white/8"
+                ? "bg-white/10 border border-white/30" 
+                : "bg-white/5 border border-transparent hover:bg-white/8"
               }
             `}
           >
-            <span className="block text-white font-semibold">{preset.name}</span>
-            <span className="block text-text-muted text-sm font-mono mt-1">
+            <span className="block text-white text-sm font-medium">{preset.name}</span>
+            <span className="block text-text-muted text-xs font-mono">
               {preset.description}
             </span>
           </button>
@@ -62,18 +62,18 @@ export function PresetPicker({ value, onChange, disabled }: PresetPickerProps) {
       </div>
       
       {/* Secondary presets - 2 rows of 4 */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-4 gap-1.5">
         {SECONDARY_PRESETS.map((preset) => (
           <button
             key={preset.id}
             onClick={() => onChange(preset.id)}
             disabled={disabled}
             className={`
-              py-3 px-2 rounded-xl text-center text-sm transition-all duration-200
+              py-2 px-1.5 rounded-lg text-center text-xs transition-all duration-200
               disabled:opacity-50 disabled:cursor-not-allowed
               ${value === preset.id 
-                ? "bg-white/10 border-2 border-white/30 text-white" 
-                : "bg-white/5 border-2 border-transparent text-text-secondary hover:bg-white/8 hover:text-white"
+                ? "bg-white/10 border border-white/30 text-white" 
+                : "bg-white/5 border border-transparent text-text-secondary hover:bg-white/8 hover:text-white"
               }
             `}
           >

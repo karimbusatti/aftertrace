@@ -158,16 +158,16 @@ PRESETS: dict[str, dict[str, Any]] = {
         
         "darken_factor": 1.0,
         
-        # Blob tracking - pure TouchDesigner style
+        # Blob tracking - TouchDesigner style with visible video
         "text_mode": "blob_track",
         "blob_threshold": 18,
         "blob_blur": 11,
-        "min_blob_area": 100,  # Lower threshold for better detection
+        "min_blob_area": 100,
         "max_blobs": 200,
         "max_connection_dist": 200,
-        "label_scale": 0.25,
+        "label_scale": 0.35,
         "start_id": 100,
-        "bg_alpha": 0.03,  # Very dark background
+        "bg_alpha": 0.7,  # Show video at 70% brightness
     },
     
     # =========================================================================
@@ -292,37 +292,39 @@ PRESETS: dict[str, dict[str, Any]] = {
     
     "face_scanner": {
         "name": "Face Scanner",
-        "description": "Minimal detection boxes",
+        "description": "Clean face detection",
         
-        "spawn_per_beat": 15,
-        "max_points": 40,
+        # No point tracking - pure face detection
+        "spawn_per_beat": 0,
+        "max_points": 0,
         
-        "life_frames": 12,
-        "trail_length": 0,  # NO TRAILS for cleaner look
+        "life_frames": 1,
+        "trail_length": 0,
         "trail_fade": False,
         
-        "shape": "cross",
-        "point_size": 3,
-        "trace_thickness": 1,
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
         
-        "connect_points": True,
-        "max_connect_distance": 50,
-        "connection_thickness": 1,
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
         
         "color_mode": "clean_white",
         "blur_radius": 0,
-        "glow_intensity": 0.2,
+        "glow_intensity": 0,
         "scanlines": False,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.82,
+        "darken_factor": 0.75,  # Show video clearly
         
-        # Face detection options
+        # Clean white face detection
         "detect_faces": True,
         "face_boxes": True,
         "face_glow": False,
         "cctv_overlay": False,
-        "biometric_data": False,
+        "biometric_data": True,  # Show data readouts
+        "biometric_style": "clean",
     },
     
     # =========================================================================
@@ -331,38 +333,40 @@ PRESETS: dict[str, dict[str, Any]] = {
     
     "biometric": {
         "name": "Biometric",
-        "description": "Full CCTV analysis mode",
+        "description": "Professional facial analysis",
         
-        "spawn_per_beat": 25,
-        "max_points": 80,
+        # Minimal point tracking - focus on face detection
+        "spawn_per_beat": 0,
+        "max_points": 0,
         
-        "life_frames": 14,
-        "trail_length": 6,  # Short trails for data feel
-        "trail_fade": True,
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
         
-        "shape": "square",
-        "point_size": 2,
-        "trace_thickness": 1,
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
         
-        "connect_points": True,
-        "max_connect_distance": 40,
-        "connection_thickness": 1,
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
         
-        "color_mode": "cctv_green",
+        "color_mode": "clean_white",
         "blur_radius": 0,
-        "glow_intensity": 0.2,
-        "scanlines": True,
+        "glow_intensity": 0,
+        "scanlines": False,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.88,
+        "darken_factor": 0.75,  # Show video at 75%
         
-        # Full detection
+        # Full face detection with clean white aesthetic
         "detect_faces": True,
         "detect_mesh": True,
         "face_boxes": True,
-        "face_glow": True,
-        "cctv_overlay": True,
+        "face_glow": False,
+        "cctv_overlay": False,
         "biometric_data": True,
+        "biometric_style": "clean",  # New: clean white style
     },
     
     # =========================================================================
