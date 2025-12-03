@@ -1052,22 +1052,21 @@ def draw_blob_track(
             if dist < max_connection_dist:
                 cv2.line(output, p1, p2, (255, 255, 255), 1, cv2.LINE_AA)
     
-    # Draw each blob - SIMPLE THIN RECTANGLES ONLY (no crosshairs)
-    start_id = preset.get("start_id", 100)
-    
+    # Draw each blob - SIMPLE THIN RECTANGLES with coordinates
     for (x, y, bw, bh, idx, area) in blob_boxes:
-        blob_id = start_id + idx
-        
-        # Simple thin rectangle outline only
+        # Simple thin rectangle outline
         cv2.rectangle(output, (x, y), (x + bw, y + bh), box_color, 1, cv2.LINE_AA)
         
-        # Small ID label - only on larger blobs
-        if area > 800:
-            id_label = f"{blob_id}"
-            cv2.putText(output, id_label, (x + 2, y - 4), font, font_scale, 
-                       (0, 0, 0), 2, cv2.LINE_AA)
-            cv2.putText(output, id_label, (x + 2, y - 4), font, font_scale, 
-                       box_color, 1, cv2.LINE_AA)
+        # Coordinate label: x:123;y:456 (top-left inside the box)
+        coord_label = f"x:{x};y:{y}"
+        label_x = x + 3
+        label_y = y + 12  # Inside box, near top
+        
+        # Draw with shadow for readability
+        cv2.putText(output, coord_label, (label_x + 1, label_y + 1), font, font_scale, 
+                   (0, 0, 0), 1, cv2.LINE_AA)
+        cv2.putText(output, coord_label, (label_x, label_y), font, font_scale, 
+                   box_color, 1, cv2.LINE_AA)
     
     return output
 
