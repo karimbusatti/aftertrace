@@ -765,20 +765,22 @@ def draw_thermal_scan_fast(
     """
     Thermal Scan effect - EXACT Skepta "Ignorance is Bliss" colors.
     
-    Colors from the album:
-    - Cold/Background: Deep teal/cyan (#0090B0 area)
-    - Warm/Skin: Orange-yellow (#FF9000 to #FFCC00)
-    - Hot/Highlights: Bright yellow-white
+    Looking at the album cover:
+    - Background: Deep saturated teal/cyan (#008B8B to #006080)
+    - Skin warm: Vivid orange (#FF6600 to #FF9900)  
+    - Hot spots: Bright yellow-orange (#FFCC00 to #FFFF99)
     """
     h, w = frame.shape[:2]
     
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (3, 3), 0)
     
-    # CLAHE for better contrast
-    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    # CLAHE for dramatic contrast (like the album)
+    clahe = cv2.createCLAHE(clipLimit=3.5, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
+    
+    # Slight blur for smoother thermal look
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
     
     # Create output
     output = np.zeros((h, w, 3), dtype=np.uint8)
@@ -787,55 +789,54 @@ def draw_thermal_scan_fast(
     norm = gray.astype(np.float32) / 255.0
     
     # SKEPTA EXACT COLORS (BGR format):
-    # Deep teal: RGB(0, 145, 180) = BGR(180, 145, 0)
-    # Orange: RGB(255, 140, 0) = BGR(0, 140, 255)
-    # Yellow: RGB(255, 200, 50) = BGR(50, 200, 255)
-    # Hot yellow-white: RGB(255, 230, 150) = BGR(150, 230, 255)
+    # Deep teal background: RGB(0, 139, 139) = BGR(139, 139, 0) - dark cyan
+    # Orange skin: RGB(255, 100, 0) = BGR(0, 100, 255)
+    # Yellow hot: RGB(255, 200, 0) = BGR(0, 200, 255)
     
-    # Cold (deep teal/cyan) - darkest 30%
-    cold_mask = norm < 0.30
-    t = norm[cold_mask] / 0.30  # 0 to 1 within cold range
-    output[cold_mask, 0] = (180 - t * 30).astype(np.uint8)   # B: 180->150
-    output[cold_mask, 1] = (145 + t * 20).astype(np.uint8)   # G: 145->165
-    output[cold_mask, 2] = (0 + t * 40).astype(np.uint8)     # R: 0->40
+    # Cold (deep teal) - darkest 40% (more of the background is teal)
+    cold_mask = norm < 0.40
+    t = norm[cold_mask] / 0.40
+    output[cold_mask, 0] = (160 - t * 40).astype(np.uint8)   # B: 160->120
+    output[cold_mask, 1] = (140 + t * 30).astype(np.uint8)   # G: 140->170
+    output[cold_mask, 2] = (0 + t * 30).astype(np.uint8)     # R: 0->30
     
-    # Cool-to-warm transition - 30% to 45%
-    trans_mask = (norm >= 0.30) & (norm < 0.45)
-    t = (norm[trans_mask] - 0.30) / 0.15
-    output[trans_mask, 0] = (150 - t * 140).astype(np.uint8)  # B: 150->10
-    output[trans_mask, 1] = (165 - t * 25).astype(np.uint8)   # G: 165->140
-    output[trans_mask, 2] = (40 + t * 215).astype(np.uint8)   # R: 40->255
+    # Transition (teal to orange) - 40% to 55%
+    trans_mask = (norm >= 0.40) & (norm < 0.55)
+    t = (norm[trans_mask] - 0.40) / 0.15
+    output[trans_mask, 0] = (120 - t * 115).astype(np.uint8)  # B: 120->5
+    output[trans_mask, 1] = (170 - t * 70).astype(np.uint8)   # G: 170->100
+    output[trans_mask, 2] = (30 + t * 225).astype(np.uint8)   # R: 30->255
     
-    # Warm orange - 45% to 60%
-    warm_mask = (norm >= 0.45) & (norm < 0.60)
-    t = (norm[warm_mask] - 0.45) / 0.15
-    output[warm_mask, 0] = (10 + t * 20).astype(np.uint8)     # B: 10->30
-    output[warm_mask, 1] = (140 + t * 60).astype(np.uint8)    # G: 140->200
+    # Warm orange - 55% to 70%
+    warm_mask = (norm >= 0.55) & (norm < 0.70)
+    t = (norm[warm_mask] - 0.55) / 0.15
+    output[warm_mask, 0] = (5).astype(np.uint8)               # B: low
+    output[warm_mask, 1] = (100 + t * 80).astype(np.uint8)    # G: 100->180
     output[warm_mask, 2] = 255                                 # R: max
     
-    # Hot yellow - 60% to 75%
-    hot_mask = (norm >= 0.60) & (norm < 0.75)
-    t = (norm[hot_mask] - 0.60) / 0.15
-    output[hot_mask, 0] = (30 + t * 30).astype(np.uint8)      # B: 30->60
-    output[hot_mask, 1] = (200 + t * 40).astype(np.uint8)     # G: 200->240
+    # Hot yellow - 70% to 85%
+    hot_mask = (norm >= 0.70) & (norm < 0.85)
+    t = (norm[hot_mask] - 0.70) / 0.15
+    output[hot_mask, 0] = (5 + t * 30).astype(np.uint8)       # B: 5->35
+    output[hot_mask, 1] = (180 + t * 60).astype(np.uint8)     # G: 180->240
     output[hot_mask, 2] = 255                                  # R: max
     
-    # Very hot (yellow-white glow) - top 25%
-    very_hot_mask = norm >= 0.75
-    t = (norm[very_hot_mask] - 0.75) / 0.25
+    # Very hot (bright yellow/white) - top 15%
+    very_hot_mask = norm >= 0.85
+    t = (norm[very_hot_mask] - 0.85) / 0.15
     t = np.clip(t, 0, 1)
-    output[very_hot_mask, 0] = (60 + t * 100).astype(np.uint8)   # B: 60->160
-    output[very_hot_mask, 1] = (240 + t * 15).astype(np.uint8)   # G: 240->255
-    output[very_hot_mask, 2] = 255                                # R: max
+    output[very_hot_mask, 0] = (35 + t * 120).astype(np.uint8)  # B: 35->155
+    output[very_hot_mask, 1] = (240 + t * 15).astype(np.uint8)  # G: 240->255
+    output[very_hot_mask, 2] = 255                               # R: max
     
-    # Add glow effect to hot areas
-    hot_areas = norm > 0.5
+    # Add glow to hot areas
+    hot_areas = norm > 0.55
     if np.any(hot_areas):
-        glow = cv2.GaussianBlur(output, (25, 25), 0)
+        glow = cv2.GaussianBlur(output, (31, 31), 0)
         mask = hot_areas.astype(np.float32)
-        mask = cv2.GaussianBlur(mask, (35, 35), 0)
+        mask = cv2.GaussianBlur(mask, (41, 41), 0)
         mask_3d = np.stack([mask] * 3, axis=-1)
-        output = cv2.addWeighted(output, 1.0, (glow * mask_3d * 0.35).astype(np.uint8), 1.0, 0)
+        output = cv2.addWeighted(output, 1.0, (glow * mask_3d * 0.4).astype(np.uint8), 1.0, 0)
     
     return output
 
@@ -1300,28 +1301,33 @@ def draw_number_cloud(
             hull = cv2.convexHull(best_contour)
             cv2.fillPoly(subject_mask, [hull], 255)
     
-    # Smooth edges
-    subject_mask = cv2.GaussianBlur(subject_mask, (31, 31), 0)
-    _, subject_mask = cv2.threshold(subject_mask, 50, 255, cv2.THRESH_BINARY)
+    # Smooth edges slightly
+    subject_mask = cv2.GaussianBlur(subject_mask, (15, 15), 0)
+    _, subject_mask = cv2.threshold(subject_mask, 80, 255, cv2.THRESH_BINARY)
     
     # If no subject found, try using center region
     if np.sum(subject_mask) < h * w * 0.05 * 255:
-        # Fallback: use center ellipse
+        center_x, center_y = w // 2, h // 2
         cv2.ellipse(subject_mask, (center_x, center_y), (w//3, h//3), 0, 0, 360, 255, -1)
-        subject_mask = cv2.GaussianBlur(subject_mask, (51, 51), 0)
-        _, subject_mask = cv2.threshold(subject_mask, 50, 255, cv2.THRESH_BINARY)
+        subject_mask = cv2.GaussianBlur(subject_mask, (21, 21), 0)
+        _, subject_mask = cv2.threshold(subject_mask, 80, 255, cv2.THRESH_BINARY)
     
     # === OUTPUT: Background = original video, Subject = dark + BSOD BLUE numbers ===
     output = frame.copy()
     
-    # Darken subject area significantly
-    subject_darken = 0.08
+    # Darken subject area
+    subject_darken = 0.05
     for c in range(3):
         output[:, :, c] = np.where(
             subject_mask > 0,
             (frame[:, :, c] * subject_darken).astype(np.uint8),
             frame[:, :, c]
         )
+    
+    # Draw OUTLINE around subject (BSOD blue)
+    contours_outline, _ = cv2.findContours(subject_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours_outline:
+        cv2.drawContours(output, contours_outline, -1, (255, 100, 0), 2, cv2.LINE_AA)
     
     # Find points within subject
     subject_points = np.column_stack(np.where(subject_mask > 0))
@@ -1341,27 +1347,25 @@ def draw_number_cloud(
     else:
         sampled = subject_points
     
-    # Draw BSOD BLUE numbers on subject
+    # Draw BSOD BLUE numbers on subject - CLEAR and VISIBLE
     font = cv2.FONT_HERSHEY_SIMPLEX
-    # BSOD Blue (BGR format) - classic Windows blue screen color
-    # Original BSOD blue is RGB(0, 0, 170) = BGR(170, 0, 0)
-    # Making it brighter for visibility
-    bsod_blue = (255, 50, 0)  # Bright BSOD blue in BGR
+    # Bright BSOD blue (BGR format)
+    bsod_blue = (255, 80, 0)  # Bright blue
+    
+    # Bigger font for visibility
+    number_font = preset.get("number_font_scale", 0.4)
     
     for idx, (row, col) in enumerate(sampled):
         number = start_number + idx
         text = str(number)
         
-        px = max(0, min(col, w - 35))
-        py = max(10, min(row, h - 2))
+        px = max(0, min(col, w - 40))
+        py = max(12, min(row, h - 2))
         
-        # Slight brightness variation for depth
-        orig_brightness = gray[row, col] / 255.0
-        brightness = 0.7 + 0.3 * orig_brightness
-        color = tuple(int(c * brightness) for c in bsod_blue)
-        
-        # Draw with slight thickness for visibility
-        cv2.putText(output, text, (px, py), font, font_scale, color, 1, cv2.LINE_AA)
+        # Draw shadow first for contrast
+        cv2.putText(output, text, (px + 1, py + 1), font, number_font, (0, 0, 0), 2, cv2.LINE_AA)
+        # Draw main text
+        cv2.putText(output, text, (px, py), font, number_font, bsod_blue, 1, cv2.LINE_AA)
     
     return output
 

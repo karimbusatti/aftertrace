@@ -8,13 +8,13 @@ type Preset = {
 
 const MAIN_PRESETS: Preset[] = [
   { id: "blob_track", name: "Blob Track", description: "coordinate tracking" },
-  { id: "particle_silhouette", name: "Particle Cloud", description: "ethereal silhouette" },
-  { id: "numeric_aura", name: "Numeric Aura", description: "blue number cloud" },
   { id: "contour_trace", name: "Ghost Trace", description: "edge silhouette" },
+  { id: "data_body", name: "Matrix Mode", description: "data rain" },
+  { id: "particle_silhouette", name: "Particle Cloud", description: "ethereal silhouette" },
 ];
 
 const SECONDARY_PRESETS: Preset[] = [
-  { id: "data_body", name: "Matrix Mode", description: "" },
+  { id: "numeric_aura", name: "Numeric Aura", description: "" },
   { id: "thermal_scan", name: "Thermal Scan", description: "" },
   { id: "face_scanner", name: "Face Scan", description: "" },
   { id: "grid_trace", name: "Grid Trace", description: "" },
