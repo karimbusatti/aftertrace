@@ -500,5 +500,5 @@ def draw_biometric_data(
             key_points = [0, 4, 13, 14, 61, 291, 199, 175, 152]  # Key facial points
             for pt_idx in key_points:
                 if pt_idx < len(landmarks):
-                    lx, ly = landmarks[pt_idx]
+                    lx, ly = landmarks[pt_idx][0], landmarks[pt_idx][1]  # Get x,y (ignore z)
                     cv2.circle(frame, (lx, ly), 2, accent_color, -1, cv2.LINE_AA)
