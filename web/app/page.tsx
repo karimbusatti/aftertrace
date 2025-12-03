@@ -70,8 +70,8 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Card */}
-          <div className="card p-6 space-y-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
+          {/* Card with glowing orange border */}
+          <div className="card-glow p-6 space-y-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
             <UploadZone
               onFileSelect={handleFileSelect}
               disabled={isLoading}

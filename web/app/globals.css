@@ -95,6 +95,38 @@ body {
     @apply backdrop-blur-sm border border-white/5 rounded-3xl;
     background: rgba(10, 10, 10, 0.8);
   }
+
+  .card-glow {
+    @apply backdrop-blur-md rounded-3xl relative;
+    background: rgba(8, 8, 8, 0.95);
+    border: 1px solid rgba(255, 77, 0, 0.3);
+    box-shadow: 
+      0 0 20px rgba(255, 77, 0, 0.15),
+      0 0 40px rgba(255, 77, 0, 0.1),
+      0 0 60px rgba(255, 77, 0, 0.05),
+      inset 0 0 60px rgba(255, 77, 0, 0.03);
+  }
+
+  .card-glow::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 1.5rem;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 77, 0, 0.5) 0%,
+      rgba(255, 77, 0, 0.1) 25%,
+      rgba(255, 77, 0, 0.05) 50%,
+      rgba(255, 77, 0, 0.1) 75%,
+      rgba(255, 77, 0, 0.5) 100%
+    );
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    animation: border-glow 3s ease-in-out infinite;
+  }
 }
 
 @keyframes fade-in {
@@ -116,6 +148,17 @@ body {
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 20px rgba(255, 77, 0, 0.2); }
   50% { box-shadow: 0 0 40px rgba(255, 77, 0, 0.4); }
+}
+
+@keyframes border-glow {
+  0%, 100% { 
+    opacity: 0.6;
+    filter: blur(0px);
+  }
+  50% { 
+    opacity: 1;
+    filter: blur(0.5px);
+  }
 }
 
 .animate-fade-in {

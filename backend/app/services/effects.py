@@ -845,11 +845,12 @@ def draw_particle_silhouette(
     colors: dict,
 ) -> np.ndarray:
     """
-    Particle Silhouette effect: Dense point cloud forming ethereal body shape.
+    Particle Silhouette effect: Dense ethereal point cloud - TouchDesigner/AE quality.
     
-    Creates thousands of tiny particles clustered around the subject,
-    forming a glowing ethereal silhouette - inspired by bb.dere's work.
-    Multiple particle layers for depth.
+    Creates thousands of particles forming a glowing silhouette with:
+    - Multiple depth layers (foreground bright, background dim)
+    - Soft ethereal glow with multi-pass blur
+    - Dynamic particle sizing for depth perception
     """
     h, w = frame.shape[:2]
     
@@ -857,86 +858,110 @@ def draw_particle_silhouette(
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Get preset params
-    particle_density = preset.get("particle_density", 0.05)
-    brightness_threshold = preset.get("brightness_threshold", 25)
-    scatter_range = preset.get("scatter_range", 2)
-    glow_intensity = preset.get("particle_glow", 0.8)
+    particle_density = preset.get("particle_density", 0.06)
+    brightness_threshold = preset.get("brightness_threshold", 20)
+    glow_intensity = preset.get("particle_glow", 1.0)
     
-    # Create output - pure black background
-    output = np.zeros((h, w, 3), dtype=np.uint8)
+    # Create layers for depth effect
+    layer_back = np.zeros((h, w, 3), dtype=np.uint8)
+    layer_mid = np.zeros((h, w, 3), dtype=np.uint8)
+    layer_front = np.zeros((h, w, 3), dtype=np.uint8)
     
-    # Particle color - warm cream white
-    particle_color = (240, 245, 255)
+    # Particle colors - warm whites with slight color variation
+    color_back = (180, 190, 200)   # Cooler, dimmer - background
+    color_mid = (220, 225, 235)    # Neutral - midground
+    color_front = (255, 250, 245)  # Warm, bright - foreground
     
     # Find subject pixels using multiple methods
     # 1. Brightness-based
     bright_mask = gray > brightness_threshold
     
     # 2. Edge detection for crisp boundaries
-    edges = cv2.Canny(gray, 25, 80)
+    edges = cv2.Canny(gray, 20, 70)
     edge_mask = edges > 0
     
     # 3. Gradient magnitude for texture detail
     grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
     gradient = np.sqrt(grad_x**2 + grad_y**2)
-    gradient_mask = gradient > 20
+    gradient_mask = gradient > 15
     
     # Combine all masks
     combined_mask = np.logical_or(bright_mask, np.logical_or(edge_mask, gradient_mask))
     all_coords = np.column_stack(np.where(combined_mask))
     
     if len(all_coords) == 0:
-        return output
+        return np.zeros((h, w, 3), dtype=np.uint8)
     
-    # Sample particles - high density for rich effect
+    # Sample particles - very high density
     num_particles = int(len(all_coords) * particle_density)
-    num_particles = min(num_particles, 35000)  # High cap for dense effect
-    num_particles = max(num_particles, 2000)
+    num_particles = min(num_particles, 50000)  # Higher cap for ultra-dense
+    num_particles = max(num_particles, 3000)
     
-    if num_particles > 0 and len(all_coords) > 0:
-        if len(all_coords) > num_particles:
-            indices = np.random.choice(len(all_coords), size=num_particles, replace=False)
-            sampled = all_coords[indices]
-        else:
-            sampled = all_coords
+    if len(all_coords) > num_particles:
+        indices = np.random.choice(len(all_coords), size=num_particles, replace=False)
+        sampled = all_coords[indices]
+    else:
+        sampled = all_coords
+    
+    # Draw particles in THREE layers for parallax depth
+    for (row, col) in sampled:
+        base_brightness = gray[row, col] / 255.0
         
-        # Draw particles in layers for depth
-        for (row, col) in sampled:
-            # Scatter for organic feel
-            scatter = scatter_range
-            px = col + random.randint(-scatter, scatter)
-            py = row + random.randint(-scatter, scatter)
+        # Assign to layer based on brightness + randomness
+        layer_chance = random.random()
+        
+        if layer_chance < 0.3:
+            # Background layer - more scatter, dimmer
+            scatter = random.randint(-4, 4)
+            px = max(0, min(col + scatter, w - 1))
+            py = max(0, min(row + scatter, h - 1))
+            brightness = base_brightness * (0.3 + random.random() * 0.3)
+            color = tuple(int(c * brightness) for c in color_back)
+            layer_back[py, px] = color
             
-            px = max(0, min(px, w - 1))
-            py = max(0, min(py, h - 1))
+        elif layer_chance < 0.7:
+            # Midground layer - medium scatter
+            scatter = random.randint(-2, 2)
+            px = max(0, min(col + scatter, w - 1))
+            py = max(0, min(row + scatter, h - 1))
+            brightness = base_brightness * (0.5 + random.random() * 0.4)
+            color = tuple(int(c * brightness) for c in color_mid)
+            layer_mid[py, px] = color
             
-            # Brightness based on original pixel value
-            base_brightness = gray[row, col] / 255.0
-            random_var = 0.6 + random.random() * 0.4
-            brightness = base_brightness * random_var
-            
-            color = tuple(int(c * brightness) for c in particle_color)
-            
-            # Single pixel particles for that dense stipple effect
-            output[py, px] = color
+        else:
+            # Foreground layer - minimal scatter, brightest
+            scatter = random.randint(-1, 1)
+            px = max(0, min(col + scatter, w - 1))
+            py = max(0, min(row + scatter, h - 1))
+            brightness = base_brightness * (0.7 + random.random() * 0.3)
+            color = tuple(int(c * brightness) for c in color_front)
+            layer_front[py, px] = color
     
-    # Add glow effect
+    # Apply different blur levels per layer for depth of field
+    layer_back_glow = cv2.GaussianBlur(layer_back, (31, 31), 0)
+    layer_mid_glow = cv2.GaussianBlur(layer_mid, (15, 15), 0)
+    layer_front_glow = cv2.GaussianBlur(layer_front, (7, 7), 0)
+    
+    # Composite layers: back → mid → front
+    output = np.zeros((h, w, 3), dtype=np.uint8)
+    
+    # Add back layer with heavy glow
+    output = cv2.addWeighted(output, 1.0, layer_back_glow, 0.4, 0)
+    output = cv2.add(output, layer_back)
+    
+    # Add mid layer
+    output = cv2.addWeighted(output, 1.0, layer_mid_glow, 0.5, 0)
+    output = cv2.add(output, layer_mid)
+    
+    # Add front layer with subtle glow
+    output = cv2.addWeighted(output, 1.0, layer_front_glow, 0.3, 0)
+    output = cv2.add(output, layer_front)
+    
+    # Final ethereal glow pass
     if glow_intensity > 0:
-        glow = cv2.GaussianBlur(output, (21, 21), 0)
-        output = cv2.addWeighted(output, 1.0, glow, glow_intensity, 0)
-    
-    # Add subtle connection lines between nearby particles (optional)
-    if preset.get("connect_particles", False) and num_particles > 10:
-        # Draw sparse connection lines for visual interest
-        num_connections = min(50, num_particles // 10)
-        for _ in range(num_connections):
-            i, j = random.sample(range(len(sampled)), 2)
-            p1 = (int(sampled[i][1]), int(sampled[i][0]))
-            p2 = (int(sampled[j][1]), int(sampled[j][0]))
-            dist = np.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
-            if dist < 100:  # Only connect nearby points
-                cv2.line(output, p1, p2, (80, 80, 80), 1, cv2.LINE_AA)
+        final_glow = cv2.GaussianBlur(output, (25, 25), 0)
+        output = cv2.addWeighted(output, 1.0, final_glow, glow_intensity * 0.5, 0)
     
     return output
 
