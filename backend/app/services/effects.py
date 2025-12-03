@@ -1050,9 +1050,7 @@ def draw_blob_track(
             p2 = blob_centers[j]
             dist = np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
             if dist < max_connection_dist:
-                # Pure white lines
                 cv2.line(output, p1, p2, (255, 255, 255), 1, cv2.LINE_AA)
-                cv2.line(output, p1, p2, color, 1, cv2.LINE_AA)
     
     # Draw each blob - SIMPLE THIN RECTANGLES ONLY (no crosshairs)
     start_id = preset.get("start_id", 100)
