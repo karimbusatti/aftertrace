@@ -171,18 +171,18 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     
     # =========================================================================
-    # NUMBER CLOUD (Subject isolation - visible background)
+    # NUMERIC AURA (Subject isolation - numbers on subject, video background)
     # =========================================================================
     
-    "number_cloud": {
-        "name": "Number Cloud",
-        "description": "Subject becomes numbers, background visible",
+    "numeric_aura": {
+        "name": "Numeric Aura",
+        "description": "Subject becomes numbers, video background",
         
         "spawn_per_beat": 0,
         "max_points": 0,
         
         "life_frames": 1,
-        "trail_length": 0,  # NO TRAILS
+        "trail_length": 0,
         "trail_fade": False,
         
         "shape": "none",
@@ -201,14 +201,46 @@ PRESETS: dict[str, dict[str, Any]] = {
         
         "darken_factor": 1.0,
         
-        # Number cloud - subject isolation
-        "text_mode": "number_cloud",
-        "number_density": 0.035,
-        "number_font_scale": 0.24,
+        # Numeric aura - subject isolation with video background
+        "text_mode": "numeric_aura",
+        "number_density": 0.05,
+        "number_font_scale": 0.28,
         "start_number": 19000,
-        "max_numbers": 2500,
-        "subject_threshold": 45,
-        "bg_darken": 0.65,  # Keep background visible but darker
+        "max_numbers": 4000,
+    },
+    
+    # =========================================================================
+    # THERMAL SCAN (Skepta "Ignorance is Bliss" style)
+    # =========================================================================
+    
+    "thermal_scan": {
+        "name": "Thermal Scan",
+        "description": "Skepta-style heat vision",
+        
+        "spawn_per_beat": 0,
+        "max_points": 0,
+        
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+        
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        
+        "text_mode": "thermal_scan",
     },
     
     # =========================================================================
@@ -328,14 +360,13 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     
     # =========================================================================
-    # BIOMETRIC (Full analysis - with trails for data feel)
+    # MATRIX MODE (Green digital rain)
     # =========================================================================
     
-    "biometric": {
-        "name": "Biometric",
-        "description": "Professional facial analysis",
+    "matrix_mode": {
+        "name": "Matrix Mode",
+        "description": "Digital rain over subject",
         
-        # Minimal point tracking - focus on face detection
         "spawn_per_beat": 0,
         "max_points": 0,
         
@@ -357,16 +388,9 @@ PRESETS: dict[str, dict[str, Any]] = {
         "scanlines": False,
         "high_contrast_bw": False,
         
-        "darken_factor": 0.75,  # Show video at 75%
+        "darken_factor": 1.0,
         
-        # Full face detection with clean white aesthetic
-        "detect_faces": True,
-        "detect_mesh": True,
-        "face_boxes": True,
-        "face_glow": False,
-        "cctv_overlay": False,
-        "biometric_data": True,
-        "biometric_style": "clean",  # New: clean white style
+        "text_mode": "matrix_mode",
     },
     
     # =========================================================================

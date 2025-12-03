@@ -7,21 +7,19 @@ type Preset = {
 };
 
 const MAIN_PRESETS: Preset[] = [
-  { id: "blob_track", name: "Blob Track", description: "coordinate boxes" },
-  { id: "particle_silhouette", name: "Particle Cloud", description: "point silhouette" },
-  { id: "number_cloud", name: "Number Cloud", description: "scattered IDs" },
-  { id: "face_scanner", name: "Face Scanner", description: "detection boxes" },
+  { id: "blob_track", name: "Blob Track", description: "coordinate tracking" },
+  { id: "particle_silhouette", name: "Particle Cloud", description: "ethereal silhouette" },
+  { id: "numeric_aura", name: "Numeric Aura", description: "subject isolation" },
+  { id: "thermal_scan", name: "Thermal Scan", description: "heat vision" },
 ];
 
 const SECONDARY_PRESETS: Preset[] = [
-  { id: "biometric", name: "Biometric", description: "" },
+  { id: "matrix_mode", name: "Matrix", description: "" },
   { id: "face_mesh", name: "Face Mesh", description: "" },
+  { id: "face_scanner", name: "Face Scan", description: "" },
   { id: "data_body", name: "Data Body", description: "" },
   { id: "grid_trace", name: "Grid Trace", description: "" },
-  { id: "heat_map", name: "Thermal", description: "" },
-  { id: "catodic_cube", name: "Catodic", description: "" },
-  { id: "ember_trails", name: "Ember", description: "" },
-  { id: "soft_blobs", name: "Soft Blobs", description: "" },
+  { id: "contour_trace", name: "Contour", description: "" },
 ];
 
 interface PresetPickerProps {

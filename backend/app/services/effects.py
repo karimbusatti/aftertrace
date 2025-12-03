@@ -663,6 +663,221 @@ def draw_numeric_aura(
     return output
 
 
+# =============================================================================
+# THERMAL SCAN EFFECT (Skepta "Ignorance is Bliss" style)
+# =============================================================================
+
+def draw_thermal_scan(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+) -> np.ndarray:
+    """
+    Thermal Scan effect: Skepta album cover style thermal imaging.
+    
+    Hot areas (skin, bodies) = orange/yellow/red
+    Cold areas (background) = cyan/blue/teal
+    Creates that iconic thermal camera look.
+    """
+    h, w = frame.shape[:2]
+    
+    # Convert to grayscale (intensity = "temperature")
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Apply slight blur for smoother thermal look
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    # Enhance contrast for more dramatic thermal effect
+    gray = cv2.equalizeHist(gray)
+    
+    # Create thermal colormap
+    # We'll map grayscale to: cold (cyan/blue) -> warm (yellow/orange/red)
+    output = np.zeros((h, w, 3), dtype=np.uint8)
+    
+    # Normalize gray to 0-1
+    normalized = gray.astype(np.float32) / 255.0
+    
+    # Custom thermal colormap (Skepta style):
+    # Low values (0-0.3): Cyan/Teal (cold)
+    # Mid values (0.3-0.6): Green/Yellow transition  
+    # High values (0.6-1.0): Orange/Red (hot)
+    
+    for y in range(h):
+        for x in range(w):
+            t = normalized[y, x]
+            
+            if t < 0.25:
+                # Cold: Deep cyan/teal
+                r = int(20 + t * 80)
+                g = int(120 + t * 200)
+                b = int(180 + t * 75)
+            elif t < 0.45:
+                # Cool: Teal to green
+                blend = (t - 0.25) / 0.2
+                r = int(40 + blend * 60)
+                g = int(170 + blend * 50)
+                b = int(200 - blend * 100)
+            elif t < 0.6:
+                # Warm: Green-yellow
+                blend = (t - 0.45) / 0.15
+                r = int(100 + blend * 100)
+                g = int(220 - blend * 30)
+                b = int(100 - blend * 80)
+            elif t < 0.75:
+                # Hot: Yellow-orange
+                blend = (t - 0.6) / 0.15
+                r = int(200 + blend * 55)
+                g = int(190 - blend * 80)
+                b = int(20 - blend * 20)
+            else:
+                # Very hot: Orange-red/white
+                blend = (t - 0.75) / 0.25
+                r = int(255)
+                g = int(110 + blend * 100)
+                b = int(0 + blend * 50)
+            
+            output[y, x] = [b, g, r]  # BGR format
+    
+    # Optional: Add subtle glow to hot areas
+    hot_mask = (normalized > 0.6).astype(np.uint8) * 255
+    if np.any(hot_mask):
+        glow = cv2.GaussianBlur(output, (21, 21), 0)
+        hot_mask_3d = np.stack([hot_mask] * 3, axis=-1) / 255.0
+        output = cv2.addWeighted(output, 1.0, (glow * hot_mask_3d * 0.3).astype(np.uint8), 1.0, 0)
+    
+    return output
+
+
+# Optimized thermal using numpy vectorization
+def draw_thermal_scan_fast(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+) -> np.ndarray:
+    """
+    Thermal Scan effect - vectorized version for speed.
+    """
+    h, w = frame.shape[:2]
+    
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    gray = cv2.equalizeHist(gray)
+    
+    # Use OpenCV's built-in colormap and modify it
+    # COLORMAP_JET is close but we want more cyan in cold areas
+    thermal = cv2.applyColorMap(gray, cv2.COLORMAP_JET)
+    
+    # Shift colors to be more cyan-to-orange (Skepta style)
+    # Swap blue channel with enhanced cyan
+    b, g, r = cv2.split(thermal)
+    
+    # Boost cyan in cold areas (where original gray is low)
+    cold_mask = gray < 100
+    g[cold_mask] = np.minimum(255, g[cold_mask].astype(np.int32) + 40).astype(np.uint8)
+    b[cold_mask] = np.minimum(255, b[cold_mask].astype(np.int32) + 20).astype(np.uint8)
+    
+    # Boost orange/yellow in hot areas
+    hot_mask = gray > 150
+    r[hot_mask] = np.minimum(255, r[hot_mask].astype(np.int32) + 30).astype(np.uint8)
+    
+    output = cv2.merge([b, g, r])
+    
+    # Add glow to hottest areas
+    very_hot = gray > 200
+    if np.any(very_hot):
+        glow = cv2.GaussianBlur(output, (15, 15), 0)
+        mask = very_hot.astype(np.float32)
+        mask = cv2.GaussianBlur(mask, (21, 21), 0)
+        mask_3d = np.stack([mask] * 3, axis=-1)
+        output = cv2.addWeighted(output, 1.0, (glow * mask_3d * 0.4).astype(np.uint8), 1.0, 0)
+    
+    return output
+
+
+# =============================================================================
+# MATRIX MODE EFFECT (Green data rain)
+# =============================================================================
+
+def draw_matrix_mode(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Matrix Mode effect: Green digital rain over subject.
+    
+    Creates that iconic Matrix movie look with falling green characters
+    concentrated on the subject.
+    """
+    h, w = frame.shape[:2]
+    
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Create dark green-tinted background
+    output = np.zeros((h, w, 3), dtype=np.uint8)
+    output[:, :, 1] = (gray * 0.15).astype(np.uint8)  # Subtle green hint
+    
+    # Matrix characters
+    matrix_chars = "01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン"
+    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.35
+    char_height = 14
+    char_width = 10
+    
+    # Create columns of falling characters
+    num_cols = w // char_width
+    
+    # Use frame_idx to animate the rain
+    np.random.seed(42)  # Consistent random for each frame position
+    
+    for col in range(num_cols):
+        x = col * char_width
+        
+        # Each column has a "head" position that moves down
+        col_seed = col * 1000
+        head_y = ((frame_idx * 3 + col_seed) % (h + 200)) - 100
+        
+        # Draw trail of characters above the head
+        trail_length = random.randint(10, 25)
+        
+        for i in range(trail_length):
+            y = head_y - i * char_height
+            if 0 <= y < h:
+                # Brightness fades as we go up the trail
+                brightness = 1.0 - (i / trail_length) * 0.8
+                
+                # Check if this position is on the subject (brighter original)
+                if 0 <= y < h and 0 <= x < w:
+                    subject_brightness = gray[int(y), int(x)] / 255.0
+                    brightness *= (0.5 + subject_brightness * 0.5)
+                
+                # Green color with varying intensity
+                green = int(255 * brightness)
+                color = (0, green, int(green * 0.3))  # Slight cyan tint
+                
+                # Random character
+                char = random.choice(matrix_chars)
+                
+                # Head is brightest (white-green)
+                if i == 0:
+                    color = (200, 255, 200)
+                
+                cv2.putText(output, char, (x, int(y)), font, font_scale, 
+                           color, 1, cv2.LINE_AA)
+    
+    # Blend with original to show subject
+    subject_blend = 0.2
+    output = cv2.addWeighted(output, 1.0, frame, subject_blend, 0)
+    
+    # Add scanlines for CRT feel
+    for y in range(0, h, 3):
+        output[y, :] = (output[y, :] * 0.85).astype(np.uint8)
+    
+    return output
+
+
 def apply_text_effect(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -677,14 +892,16 @@ def apply_text_effect(
     
     if text_mode == "data_body":
         return draw_data_body(frame, preset, colors)
-    elif text_mode == "numeric_aura":
-        return draw_numeric_aura(frame, preset, colors)
+    elif text_mode == "numeric_aura" or text_mode == "number_cloud":
+        return draw_number_cloud(frame, preset, colors)
     elif text_mode == "blob_track":
         return draw_blob_track(frame, preset, colors)
     elif text_mode == "particle_silhouette":
         return draw_particle_silhouette(frame, preset, colors)
-    elif text_mode == "number_cloud":
-        return draw_number_cloud(frame, preset, colors)
+    elif text_mode == "thermal_scan":
+        return draw_thermal_scan_fast(frame, preset, colors)
+    elif text_mode == "matrix_mode":
+        return draw_matrix_mode(frame, preset, colors, frame_idx=0)
     elif text_mode == "contour_trace":
         return draw_contour_trace(frame, preset, colors)
     
@@ -701,14 +918,13 @@ def draw_blob_track(
     colors: dict,
 ) -> np.ndarray:
     """
-    Blob Track effect: TouchDesigner-style tracking with visible video.
+    Blob Track effect: Clean minimal tracking - TouchDesigner style.
     
-    Shows original video with clean white tracking overlays:
-    - Corner bracket boxes
-    - Centroid crosshairs  
-    - ID numbers with sequential tracking
-    - Connection lines between nearby blobs
-    - Normalized coordinate readouts
+    Simple thin white rectangles with:
+    - Clean thin box outlines (no corner brackets)
+    - Crosshairs on only ~30% of boxes
+    - White connection lines between nearby blobs
+    - Minimal ID labels
     """
     h, w = frame.shape[:2]
     
@@ -722,31 +938,26 @@ def draw_blob_track(
     # Blur to reduce noise
     blurred = cv2.GaussianBlur(gray, (blur_size, blur_size), 0)
     
-    # Use MULTIPLE detection methods for robustness:
-    # 1. Edge detection (works for any contrast)
+    # Use edge detection + Otsu for robust detection
     edges = cv2.Canny(blurred, 30, 100)
     edges = cv2.dilate(edges, None, iterations=2)
-    
-    # 2. Otsu threshold (auto-adjusts to video content)
     _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    
-    # Combine both methods
     binary = cv2.bitwise_or(edges, otsu)
     
-    # Morphological cleanup to merge nearby regions
+    # Morphological cleanup
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
     
     # Find contours
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Create output - SHOW ORIGINAL VIDEO with slight darkening for contrast
-    bg_alpha = preset.get("bg_alpha", 0.7)  # Show video at 70% brightness
+    # Show original video with slight darkening
+    bg_alpha = preset.get("bg_alpha", 0.75)
     output = (frame * bg_alpha).astype(np.uint8)
     
-    # Filter and sort contours by area
-    min_area = preset.get("min_blob_area", 100)
-    max_blobs = preset.get("max_blobs", 200)
+    # Filter contours
+    min_area = preset.get("min_blob_area", 150)
+    max_blobs = preset.get("max_blobs", 100)
     
     valid_contours = [(cv2.contourArea(c), c) for c in contours if cv2.contourArea(c) > min_area]
     valid_contours.sort(key=lambda x: x[0], reverse=True)
@@ -755,14 +966,13 @@ def draw_blob_track(
     if not valid_contours:
         return output
     
-    # Colors - all white for clean TouchDesigner look
-    box_color = (255, 255, 255)  # Pure white
-    dim_color = (180, 180, 180)  # Light gray for coordinates
-    line_color = (255, 255, 255)  # White connection lines
+    # Colors - clean white
+    box_color = (255, 255, 255)
+    line_color = (255, 255, 255)
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = preset.get("label_scale", 0.35)
+    font_scale = 0.3
     
-    # Store blob data
+    # Collect blob data
     blob_centers = []
     blob_boxes = []
     
@@ -773,64 +983,44 @@ def draw_blob_track(
         blob_centers.append((center_x, center_y))
         blob_boxes.append((x, y, bw, bh, idx, area))
     
-    # Draw connection lines FIRST (underneath everything)
-    max_connection_dist = preset.get("max_connection_dist", 200)
+    # Draw WHITE connection lines first
+    max_connection_dist = preset.get("max_connection_dist", 180)
     for i in range(len(blob_centers)):
         for j in range(i + 1, len(blob_centers)):
             p1 = blob_centers[i]
             p2 = blob_centers[j]
             dist = np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
             if dist < max_connection_dist:
-                # Fade line based on distance
-                alpha = 0.8 * (1.0 - (dist / max_connection_dist))
-                color = tuple(int(c * alpha) for c in line_color)
+                alpha = 0.6 * (1.0 - (dist / max_connection_dist))
+                color = tuple(int(255 * alpha) for _ in range(3))
                 cv2.line(output, p1, p2, color, 1, cv2.LINE_AA)
     
-    # Draw each blob
+    # Draw each blob - SIMPLE THIN RECTANGLES
     start_id = preset.get("start_id", 100)
     
     for (x, y, bw, bh, idx, area) in blob_boxes:
         blob_id = start_id + idx
-        cx_norm = (x + bw / 2) / w
-        cy_norm = (y + bh / 2) / h
         center_x = x + bw // 2
         center_y = y + bh // 2
         
-        # Corner bracket length (proportional to box size)
-        corner_len = max(min(bw, bh) // 4, 10)
-        thickness = 2  # Thicker lines for visibility
+        # Simple thin rectangle outline (NO corner brackets)
+        cv2.rectangle(output, (x, y), (x + bw, y + bh), box_color, 1, cv2.LINE_AA)
         
-        # Draw corner brackets instead of full rectangle
-        # Top-left
-        cv2.line(output, (x, y), (x + corner_len, y), box_color, thickness, cv2.LINE_AA)
-        cv2.line(output, (x, y), (x, y + corner_len), box_color, thickness, cv2.LINE_AA)
-        # Top-right
-        cv2.line(output, (x + bw, y), (x + bw - corner_len, y), box_color, thickness, cv2.LINE_AA)
-        cv2.line(output, (x + bw, y), (x + bw, y + corner_len), box_color, thickness, cv2.LINE_AA)
-        # Bottom-left
-        cv2.line(output, (x, y + bh), (x + corner_len, y + bh), box_color, thickness, cv2.LINE_AA)
-        cv2.line(output, (x, y + bh), (x, y + bh - corner_len), box_color, thickness, cv2.LINE_AA)
-        # Bottom-right
-        cv2.line(output, (x + bw, y + bh), (x + bw - corner_len, y + bh), box_color, thickness, cv2.LINE_AA)
-        cv2.line(output, (x + bw, y + bh), (x + bw, y + bh - corner_len), box_color, thickness, cv2.LINE_AA)
+        # Crosshair on only ~30% of boxes (randomly selected by idx)
+        if idx % 3 == 0:
+            cross_size = 5
+            cv2.line(output, (center_x - cross_size, center_y), 
+                    (center_x + cross_size, center_y), box_color, 1, cv2.LINE_AA)
+            cv2.line(output, (center_x, center_y - cross_size), 
+                    (center_x, center_y + cross_size), box_color, 1, cv2.LINE_AA)
         
-        # Draw centroid crosshair
-        cross_size = 6
-        cv2.line(output, (center_x - cross_size, center_y), (center_x + cross_size, center_y), box_color, 1, cv2.LINE_AA)
-        cv2.line(output, (center_x, center_y - cross_size), (center_x, center_y + cross_size), box_color, 1, cv2.LINE_AA)
-        
-        # ID label with background for readability
-        id_label = f"ID:{blob_id}"
-        label_y = max(y - 8, 16)
-        # Draw text shadow/background
-        cv2.putText(output, id_label, (x+1, label_y+1), font, font_scale, (0, 0, 0), 2, cv2.LINE_AA)
-        cv2.putText(output, id_label, (x, label_y), font, font_scale, box_color, 1, cv2.LINE_AA)
-        
-        # Coordinate label (below box)
-        coord_label = f"({cx_norm:.2f},{cy_norm:.2f})"
-        coord_y = min(y + bh + 14, h - 4)
-        cv2.putText(output, coord_label, (x+1, coord_y+1), font, font_scale - 0.05, (0, 0, 0), 2, cv2.LINE_AA)
-        cv2.putText(output, coord_label, (x, coord_y), font, font_scale - 0.05, dim_color, 1, cv2.LINE_AA)
+        # Small ID label - only on larger blobs
+        if area > 500:
+            id_label = f"{blob_id}"
+            cv2.putText(output, id_label, (x + 2, y - 4), font, font_scale, 
+                       (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(output, id_label, (x + 2, y - 4), font, font_scale, 
+                       box_color, 1, cv2.LINE_AA)
     
     return output
 
@@ -967,7 +1157,7 @@ def draw_particle_silhouette(
 
 
 # =============================================================================
-# NUMBER CLOUD EFFECT (Subject isolation with visible background)
+# NUMERIC AURA EFFECT (Subject isolation - numbers on subject, video background)
 # =============================================================================
 
 def draw_number_cloud(
@@ -976,92 +1166,72 @@ def draw_number_cloud(
     colors: dict,
 ) -> np.ndarray:
     """
-    Number Cloud effect: ONE main subject becomes numbers, background visible.
+    Numeric Aura effect: Subject becomes numbers, background stays as video.
     
-    Isolates the SINGLE most prominent subject and replaces only it with
-    scattered numbers while keeping background pristine.
+    Isolates the main subject and overlays numbers ONLY on the subject,
+    while keeping the background as pristine original video.
     """
     h, w = frame.shape[:2]
     
-    # Convert to grayscale and LAB for better subject detection
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Get params
     font_scale = preset.get("number_font_scale", 0.28)
     start_number = preset.get("start_number", 19000)
     
-    # === SINGLE SUBJECT ISOLATION ===
-    # Use multiple methods to find THE main subject only
-    
-    # 1. Blur to reduce noise
+    # === SUBJECT ISOLATION ===
     blurred = cv2.GaussianBlur(gray, (7, 7), 0)
     
-    # 2. Use Otsu for automatic threshold
-    _, otsu_mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Edge detection for subject boundaries  
+    edges = cv2.Canny(blurred, 25, 70)
     
-    # 3. Edge detection for subject boundaries  
-    edges = cv2.Canny(blurred, 30, 80)
-    
-    # 4. Dilate edges heavily to create connected regions
+    # Dilate to create connected regions
     kernel = np.ones((15, 15), np.uint8)
-    dilated = cv2.dilate(edges, kernel, iterations=4)
-    
-    # Close gaps
+    dilated = cv2.dilate(edges, kernel, iterations=5)
     dilated = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel)
     
-    # 5. Find contours and keep ONLY THE LARGEST ONE
+    # Find contours - ONLY THE LARGEST ONE
     contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Create mask for single main subject
     subject_mask = np.zeros((h, w), dtype=np.uint8)
     
     if contours:
-        # Sort by area, take only the largest
         sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        min_area = h * w * 0.03  # At least 3% of frame
         
-        # Only use the SINGLE largest contour that's big enough
-        min_area = h * w * 0.02  # Must be at least 2% of frame
-        
-        for contour in sorted_contours[:1]:  # Only the biggest one
-            area = cv2.contourArea(contour)
-            if area > min_area:
-                # Fill the contour with convex hull for cleaner shape
+        for contour in sorted_contours[:1]:
+            if cv2.contourArea(contour) > min_area:
                 hull = cv2.convexHull(contour)
                 cv2.fillPoly(subject_mask, [hull], 255)
                 break
     
-    # Smooth the mask edges
-    subject_mask = cv2.GaussianBlur(subject_mask, (11, 11), 0)
-    _, subject_mask = cv2.threshold(subject_mask, 100, 255, cv2.THRESH_BINARY)
+    # Smooth mask edges
+    subject_mask = cv2.GaussianBlur(subject_mask, (15, 15), 0)
+    _, subject_mask = cv2.threshold(subject_mask, 80, 255, cv2.THRESH_BINARY)
     
-    # === CREATE OUTPUT ===
-    # Full brightness background with subject area darkened for numbers
+    # === OUTPUT: Background = original video, Subject = dark + numbers ===
     output = frame.copy()
     
-    # Create darker subject area for contrast
-    subject_area = output.copy()
-    subject_area[subject_mask > 0] = [0, 0, 0]
-    
-    # Blend: keep background at 85%, subject area dark
-    bg_alpha = preset.get("bg_darken", 0.85)
+    # Darken ONLY the subject area (for number contrast)
+    subject_darken = 0.15  # Subject becomes quite dark
     for c in range(3):
         output[:, :, c] = np.where(
             subject_mask > 0,
-            0,  # Black where subject is (numbers will go here)
-            (frame[:, :, c] * bg_alpha).astype(np.uint8)  # Slightly dim background
+            (frame[:, :, c] * subject_darken).astype(np.uint8),
+            frame[:, :, c]  # Background stays FULL brightness
         )
     
-    # Find points within subject for number placement
+    # Find points within subject
     subject_points = np.column_stack(np.where(subject_mask > 0))
     
     if len(subject_points) == 0:
-        return (frame * 0.85).astype(np.uint8)  # No subject, return dimmed original
+        return frame  # No subject, return original
     
-    # Dense number sampling
-    max_numbers = preset.get("max_numbers", 3000)
-    density = preset.get("number_density", 0.04)
+    # Sample for numbers
+    max_numbers = preset.get("max_numbers", 4000)
+    density = preset.get("number_density", 0.05)
     num_to_sample = min(max_numbers, int(len(subject_points) * density))
-    num_to_sample = max(400, num_to_sample)
+    num_to_sample = max(500, num_to_sample)
     
     if len(subject_points) > num_to_sample:
         indices = np.random.choice(len(subject_points), size=num_to_sample, replace=False)
@@ -1069,7 +1239,7 @@ def draw_number_cloud(
     else:
         sampled = subject_points
     
-    # Draw numbers on subject area
+    # Draw numbers ONLY on subject
     font = cv2.FONT_HERSHEY_SIMPLEX
     text_color = (255, 255, 255)
     
@@ -1080,9 +1250,9 @@ def draw_number_cloud(
         px = max(0, min(col, w - 35))
         py = max(10, min(row, h - 2))
         
-        # Vary brightness based on original pixel value for depth
+        # Brightness varies with original image
         orig_brightness = gray[row, col] / 255.0
-        brightness = 0.4 + 0.6 * orig_brightness
+        brightness = 0.5 + 0.5 * orig_brightness
         color = tuple(int(c * brightness) for c in text_color)
         
         cv2.putText(output, text, (px, py), font, font_scale, color, 1, cv2.LINE_AA)
