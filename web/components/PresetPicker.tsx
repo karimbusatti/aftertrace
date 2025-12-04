@@ -14,6 +14,7 @@ const MAIN_PRESETS: Preset[] = [
 ];
 
 const SECONDARY_PRESETS: Preset[] = [
+  { id: "signal_map", name: "Signal Map", description: "" },
   { id: "numeric_aura", name: "Numeric Aura", description: "" },
   { id: "thermal_scan", name: "Thermal Scan", description: "" },
   { id: "face_scanner", name: "Face Scan", description: "" },

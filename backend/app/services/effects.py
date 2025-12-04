@@ -810,7 +810,7 @@ def draw_thermal_scan_fast(
     # Warm orange - 55% to 70%
     warm_mask = (norm >= 0.55) & (norm < 0.70)
     t = (norm[warm_mask] - 0.55) / 0.15
-    output[warm_mask, 0] = (5).astype(np.uint8)               # B: low
+    output[warm_mask, 0] = 5                                   # B: low
     output[warm_mask, 1] = (100 + t * 80).astype(np.uint8)    # G: 100->180
     output[warm_mask, 2] = 255                                 # R: max
     
@@ -951,8 +951,148 @@ def apply_text_effect(
         return draw_matrix_mode(frame, preset, colors, frame_idx=0)
     elif text_mode == "contour_trace":
         return draw_contour_trace(frame, preset, colors)
+    elif text_mode == "signal_map":
+        return draw_signal_map(frame, preset, colors, frame_idx=0)
     
     return None
+
+
+# =============================================================================
+# SIGNAL MAP EFFECT (Data visualization / bit mapping style)
+# =============================================================================
+
+def draw_signal_map(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Signal Map effect: Data visualization overlay inspired by surveillance/art.
+    
+    Features:
+    - Blue thin rectangle outlines on detected motion/objects
+    - Green/red filled boxes with scanline patterns
+    - Random hex/code text labels
+    - Small marker squares at tracked points
+    """
+    import random
+    h, w = frame.shape[:2]
+    
+    # Color scheme (BGR)
+    blue_outline = (255, 150, 50)   # Blue for outlines
+    green_fill = (80, 200, 80)      # Green boxes
+    red_fill = (60, 60, 200)        # Red/maroon boxes
+    cyan_marker = (255, 255, 100)   # Cyan small squares
+    white_text = (255, 255, 255)    # Text
+    
+    # Code prefixes
+    code_prefixes = ["REP", "@E", "ID:", "+EP", "@M", "RE@", "REPR", "@PROC", "E/", "@X", "///"]
+    
+    # Keep original visible
+    output = frame.copy()
+    
+    # Convert to grayscale for detection
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Edge detection to find objects
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    edges = cv2.Canny(enhanced, 50, 150)
+    
+    # Dilate edges to form regions
+    kernel = np.ones((15, 15), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=2)
+    
+    # Find contours
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Filter and sort by area
+    min_area = h * w * 0.005  # At least 0.5% of frame
+    max_area = h * w * 0.6    # At most 60% of frame
+    valid_contours = []
+    
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if min_area < area < max_area:
+            valid_contours.append((contour, area))
+    
+    valid_contours.sort(key=lambda x: x[1], reverse=True)
+    valid_contours = valid_contours[:15]  # Max 15 tracked objects
+    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    random.seed(frame_idx // 3)  # Consistent randomness
+    
+    for idx, (contour, area) in enumerate(valid_contours):
+        x, y, bw, bh = cv2.boundingRect(contour)
+        
+        # === BLUE OUTLINE ===
+        cv2.rectangle(output, (x, y), (x + bw, y + bh), blue_outline, 1, cv2.LINE_AA)
+        
+        # === CORNER MARKERS (cyan squares) ===
+        sq = 3
+        cv2.rectangle(output, (x-sq, y-sq), (x+sq, y+sq), cyan_marker, -1)
+        cv2.rectangle(output, (x+bw-sq, y-sq), (x+bw+sq, y+sq), cyan_marker, -1)
+        cv2.rectangle(output, (x-sq, y+bh-sq), (x+sq, y+bh+sq), cyan_marker, -1)
+        cv2.rectangle(output, (x+bw-sq, y+bh-sq), (x+bw+sq, y+bh+sq), cyan_marker, -1)
+        
+        # === DATA CODE LABEL ===
+        prefix = code_prefixes[(idx + frame_idx // 8) % len(code_prefixes)]
+        suffix = chr(65 + (idx + frame_idx // 15) % 26)
+        num = (idx * 17 + frame_idx) % 100
+        code = f"{prefix}{suffix}{num:02d}" if random.random() > 0.5 else f"{prefix}{suffix}"
+        cv2.putText(output, code, (x, y - 4), font, 0.32, white_text, 1, cv2.LINE_AA)
+        
+        # === SCANLINE DATA BOXES ===
+        box_w = min(max(bw // 4, 20), 50)
+        box_h = min(max(bh // 5, 12), 30)
+        
+        # Green or red box (alternating + random)
+        fill_color = green_fill if (idx + frame_idx // 20) % 3 != 0 else red_fill
+        
+        # Position inside bounding box
+        bx = x + 3 + (idx * 7) % max(1, bw - box_w - 6)
+        by = y + 3 + (idx * 11) % max(1, bh - box_h - 6)
+        
+        if bx + box_w < x + bw and by + box_h < y + bh:
+            # Draw filled box with scanlines
+            overlay = output.copy()
+            cv2.rectangle(overlay, (bx, by), (bx + box_w, by + box_h), fill_color, -1)
+            output[by:by+box_h, bx:bx+box_w] = cv2.addWeighted(
+                output[by:by+box_h, bx:bx+box_w], 0.4,
+                overlay[by:by+box_h, bx:bx+box_w], 0.6, 0
+            )
+            # Scanlines
+            for sy in range(by, by + box_h, 2):
+                cv2.line(output, (bx, sy), (bx + box_w, sy), (30, 30, 30), 1)
+            # Blue outline on box
+            cv2.rectangle(output, (bx, by), (bx + box_w, by + box_h), blue_outline, 1)
+        
+        # === SECONDARY BOX (sometimes) ===
+        if idx % 2 == 0 and bw > 60 and bh > 60:
+            bx2 = x + bw - box_w - 5
+            by2 = y + bh - box_h - 5
+            fill_color2 = red_fill if fill_color == green_fill else green_fill
+            
+            if bx2 > x + box_w:
+                overlay2 = output.copy()
+                cv2.rectangle(overlay2, (bx2, by2), (bx2 + box_w, by2 + box_h), fill_color2, -1)
+                output[by2:by2+box_h, bx2:bx2+box_w] = cv2.addWeighted(
+                    output[by2:by2+box_h, bx2:bx2+box_w], 0.4,
+                    overlay2[by2:by2+box_h, bx2:bx2+box_w], 0.6, 0
+                )
+                for sy in range(by2, by2 + box_h, 2):
+                    cv2.line(output, (bx2, sy), (bx2 + box_w, sy), (30, 30, 30), 1)
+                cv2.rectangle(output, (bx2, by2), (bx2 + box_w, by2 + box_h), blue_outline, 1)
+        
+        # === SMALL TRACKING DOTS scattered in box ===
+        num_dots = min(5, max(2, int(area / 5000)))
+        for _ in range(num_dots):
+            dx = x + random.randint(5, max(6, bw - 5))
+            dy = y + random.randint(5, max(6, bh - 5))
+            cv2.rectangle(output, (dx-1, dy-1), (dx+1, dy+1), cyan_marker, -1)
+    
+    return output
 
 
 # =============================================================================
@@ -1221,151 +1361,111 @@ def draw_number_cloud(
     colors: dict,
 ) -> np.ndarray:
     """
-    Numeric Aura effect: Subject becomes BSOD BLUE numbers, background stays as video.
+    Numeric Aura effect: Subject becomes BSOD BLUE numbers with clear visibility.
     
-    Uses foreground detection to isolate the main subject.
+    Large, crisp numbers on a dark subject silhouette with bright blue outline.
     """
     h, w = frame.shape[:2]
     
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Get params
-    font_scale = preset.get("number_font_scale", 0.32)
     start_number = preset.get("start_number", 19000)
     
-    # === FOREGROUND DETECTION ===
-    # Method: Use adaptive threshold + morphology to find the main subject
+    # === SUBJECT DETECTION - Edge-based for cleaner isolation ===
+    # Use Canny edges + dilation to find subject boundaries
     
-    # Apply CLAHE for better contrast
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    # Enhance contrast
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
     
-    # Blur to reduce noise
-    blurred = cv2.GaussianBlur(enhanced, (7, 7), 0)
+    # Edge detection
+    edges = cv2.Canny(enhanced, 30, 100)
     
-    # Use Otsu's threshold to separate foreground/background
-    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Heavy dilation to connect edges into regions
+    kernel = np.ones((35, 35), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=3)
     
-    # Also try adaptive threshold
-    adaptive = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                      cv2.THRESH_BINARY, 51, 5)
+    # Fill holes
+    dilated = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel, iterations=2)
     
-    # Combine both methods
-    combined = cv2.bitwise_and(binary, adaptive)
-    
-    # Strong morphological operations to create solid regions
-    kernel_large = np.ones((25, 25), np.uint8)
-    kernel_med = np.ones((15, 15), np.uint8)
-    
-    # Close gaps and fill holes
-    closed = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel_large, iterations=2)
-    closed = cv2.morphologyEx(closed, cv2.MORPH_DILATE, kernel_med, iterations=1)
-    
-    # Find the largest contour (main subject)
-    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Find contours
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     subject_mask = np.zeros((h, w), dtype=np.uint8)
+    center_x, center_y = w // 2, h // 2
     
     if contours:
-        # Find largest contour that's reasonably sized and central
-        center_x, center_y = w // 2, h // 2
-        
+        # Find the best contour (large + central)
         best_contour = None
         best_score = 0
         
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area < h * w * 0.05:  # At least 5% of frame
+            if area < h * w * 0.03:  # At least 3% of frame
                 continue
             
-            # Get centroid
             M = cv2.moments(contour)
             if M["m00"] > 0:
                 cx = int(M["m10"] / M["m00"])
                 cy = int(M["m01"] / M["m00"])
                 
-                # Distance from center (normalized)
+                # Favor central subjects
                 dist = np.sqrt((cx - center_x)**2 + (cy - center_y)**2)
                 max_dist = np.sqrt(center_x**2 + center_y**2)
                 centrality = 1.0 - (dist / max_dist)
                 
-                # Score combines size and centrality
-                score = area * (0.3 + 0.7 * centrality)
+                score = area * (0.4 + 0.6 * centrality)
                 
                 if score > best_score:
                     best_score = score
                     best_contour = contour
         
         if best_contour is not None:
-            # Use convex hull for cleaner shape
             hull = cv2.convexHull(best_contour)
             cv2.fillPoly(subject_mask, [hull], 255)
     
-    # Smooth edges slightly
-    subject_mask = cv2.GaussianBlur(subject_mask, (15, 15), 0)
-    _, subject_mask = cv2.threshold(subject_mask, 80, 255, cv2.THRESH_BINARY)
+    # Fallback: center ellipse
+    if np.sum(subject_mask) < h * w * 0.03 * 255:
+        cv2.ellipse(subject_mask, (center_x, center_y), (w//3, h//2), 0, 0, 360, 255, -1)
     
-    # If no subject found, try using center region
-    if np.sum(subject_mask) < h * w * 0.05 * 255:
-        center_x, center_y = w // 2, h // 2
-        cv2.ellipse(subject_mask, (center_x, center_y), (w//3, h//3), 0, 0, 360, 255, -1)
-        subject_mask = cv2.GaussianBlur(subject_mask, (21, 21), 0)
-        _, subject_mask = cv2.threshold(subject_mask, 80, 255, cv2.THRESH_BINARY)
-    
-    # === OUTPUT: Background = original video, Subject = dark + BSOD BLUE numbers ===
+    # === OUTPUT ===
     output = frame.copy()
     
-    # Darken subject area
-    subject_darken = 0.05
+    # Darken subject area to black
     for c in range(3):
-        output[:, :, c] = np.where(
-            subject_mask > 0,
-            (frame[:, :, c] * subject_darken).astype(np.uint8),
-            frame[:, :, c]
-        )
+        output[:, :, c] = np.where(subject_mask > 0, 0, frame[:, :, c])
     
-    # Draw OUTLINE around subject (BSOD blue)
+    # Draw bright blue OUTLINE around subject
     contours_outline, _ = cv2.findContours(subject_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    bsod_blue = (255, 100, 0)  # BGR - bright blue
     if contours_outline:
-        cv2.drawContours(output, contours_outline, -1, (255, 100, 0), 2, cv2.LINE_AA)
+        cv2.drawContours(output, contours_outline, -1, bsod_blue, 3, cv2.LINE_AA)
     
-    # Find points within subject
-    subject_points = np.column_stack(np.where(subject_mask > 0))
+    # === GRID-BASED NUMBER PLACEMENT for clean, readable layout ===
+    # Use a grid to avoid overlap and ensure visibility
     
-    if len(subject_points) == 0:
-        return frame
-    
-    # Sample for numbers - denser coverage
-    max_numbers = preset.get("max_numbers", 6000)
-    density = preset.get("number_density", 0.08)
-    num_to_sample = min(max_numbers, int(len(subject_points) * density))
-    num_to_sample = max(500, num_to_sample)
-    
-    if len(subject_points) > num_to_sample:
-        indices = np.random.choice(len(subject_points), size=num_to_sample, replace=False)
-        sampled = subject_points[indices]
-    else:
-        sampled = subject_points
-    
-    # Draw BSOD BLUE numbers on subject - CLEAR and VISIBLE
     font = cv2.FONT_HERSHEY_SIMPLEX
-    # Bright BSOD blue (BGR format)
-    bsod_blue = (255, 80, 0)  # Bright blue
+    font_scale = 0.55  # Large, readable
     
-    # Bigger font for visibility
-    number_font = preset.get("number_font_scale", 0.4)
+    # Grid spacing based on text size
+    grid_step_x = 55  # Horizontal spacing
+    grid_step_y = 18  # Vertical spacing
     
-    for idx, (row, col) in enumerate(sampled):
-        number = start_number + idx
-        text = str(number)
-        
-        px = max(0, min(col, w - 40))
-        py = max(12, min(row, h - 2))
-        
-        # Draw shadow first for contrast
-        cv2.putText(output, text, (px + 1, py + 1), font, number_font, (0, 0, 0), 2, cv2.LINE_AA)
-        # Draw main text
-        cv2.putText(output, text, (px, py), font, number_font, bsod_blue, 1, cv2.LINE_AA)
+    number_idx = 0
+    for gy in range(10, h - 10, grid_step_y):
+        for gx in range(5, w - 50, grid_step_x):
+            # Check if this grid point is inside subject
+            if subject_mask[gy, gx] > 0:
+                number = start_number + number_idx
+                text = str(number)
+                
+                # Draw black outline for crisp contrast
+                cv2.putText(output, text, (gx, gy), font, font_scale, (0, 0, 0), 3, cv2.LINE_AA)
+                # Draw bright blue text
+                cv2.putText(output, text, (gx, gy), font, font_scale, bsod_blue, 1, cv2.LINE_AA)
+                
+                number_idx += 1
     
     return output
 

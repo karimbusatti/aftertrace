@@ -405,6 +405,70 @@ def draw_face_glow(
     frame[:] = cv2.addWeighted(frame, 1.0, glow_layer, intensity, 0)
 
 
+def _detect_emotion(mesh_points: list) -> str:
+    """
+    Detect emotion from face mesh geometry.
+    Uses mouth curve, eyebrow position, eye openness.
+    """
+    if not mesh_points or len(mesh_points) < 300:
+        return "ANALYZING"
+    
+    try:
+        # Key landmark indices
+        # Mouth corners: 61 (left), 291 (right)
+        # Upper lip: 13, Lower lip: 14
+        # Left eyebrow: 70, Right eyebrow: 300
+        # Left eye top: 159, bottom: 145
+        # Right eye top: 386, bottom: 374
+        
+        left_mouth = mesh_points[61][1] if len(mesh_points) > 61 else 0
+        right_mouth = mesh_points[291][1] if len(mesh_points) > 291 else 0
+        upper_lip = mesh_points[13][1] if len(mesh_points) > 13 else 0
+        lower_lip = mesh_points[14][1] if len(mesh_points) > 14 else 0
+        
+        mouth_center_y = (left_mouth + right_mouth) / 2
+        lip_center_y = (upper_lip + lower_lip) / 2
+        mouth_openness = abs(lower_lip - upper_lip)
+        
+        # Smile detection: mouth corners higher than lip center
+        smile_score = lip_center_y - mouth_center_y
+        
+        # Eye openness
+        left_eye_open = abs(mesh_points[159][1] - mesh_points[145][1]) if len(mesh_points) > 159 else 10
+        right_eye_open = abs(mesh_points[386][1] - mesh_points[374][1]) if len(mesh_points) > 386 else 10
+        avg_eye_open = (left_eye_open + right_eye_open) / 2
+        
+        # Determine emotion
+        if mouth_openness > 20:
+            if smile_score > 3:
+                return "JOY"
+            return "SURPRISE"
+        elif smile_score > 5:
+            return "HAPPY"
+        elif smile_score < -3:
+            return "SAD"
+        elif avg_eye_open < 5:
+            return "TIRED"
+        else:
+            return "NEUTRAL"
+            
+    except (IndexError, KeyError):
+        return "UNKNOWN"
+
+
+def _draw_scanline_box(frame: np.ndarray, x: int, y: int, w: int, h: int, color: tuple, scanline_gap: int = 3):
+    """Draw a filled box with horizontal scanline pattern."""
+    # Fill with darker version
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x, y), (x + w, y + h), color, -1)
+    frame[y:y+h, x:x+w] = cv2.addWeighted(frame[y:y+h, x:x+w], 0.3, overlay[y:y+h, x:x+w], 0.7, 0)
+    
+    # Draw scanlines
+    dark_color = tuple(int(c * 0.5) for c in color)
+    for sy in range(y, y + h, scanline_gap):
+        cv2.line(frame, (x, sy), (x + w, sy), dark_color, 1)
+
+
 def draw_biometric_data(
     frame: np.ndarray,
     faces: list,
@@ -414,91 +478,96 @@ def draw_biometric_data(
     style: str = "clean",
 ):
     """
-    Draw professional biometric analysis overlay.
-    Clean white boxes with data readouts - TouchDesigner/professional aesthetic.
+    Data Pulse biometric overlay - inspired by surveillance/data visualization art.
     
-    Args:
-        frame: Frame to draw on (modified in-place)
-        faces: List of face bounding boxes
-        mesh_points: List of face mesh landmarks
-        frame_idx: Current frame for animations
-        color: BGR color for overlay
-        style: "clean" for minimal white, "cctv" for green surveillance
+    Features:
+    - Blue thin rectangle outlines
+    - Green/red filled boxes with scanline patterns  
+    - Random data codes and emotion detection
+    - Small cyan marker squares
     """
+    import random
     h, w = frame.shape[:2]
     
-    # Use white for clean style
-    if style == "clean":
-        color = (255, 255, 255)
-        dim_color = (180, 180, 180)
-        accent_color = (100, 255, 200)  # Cyan accent
-    else:
-        dim_color = (100, 100, 100)
-        accent_color = color
+    # Color scheme matching reference image
+    blue_outline = (255, 150, 50)   # Thin blue outline
+    green_fill = (80, 180, 80)      # Green scanline boxes
+    red_fill = (80, 80, 180)        # Red/maroon scanline boxes  
+    cyan_accent = (255, 255, 100)   # Cyan markers
+    white_text = (255, 255, 255)    # Text color
+    
+    # Data code prefixes (like the reference image)
+    code_prefixes = ["REP", "@E", "ID:", "+EP", "@M", "RE@", "REPR", "@PROC", "E/O"]
     
     font = cv2.FONT_HERSHEY_SIMPLEX
     
+    # Seed random with frame for consistent-ish randomness per face
+    random.seed(frame_idx // 5)
+    
     for idx, (x, y, bw, bh, conf) in enumerate(faces):
-        center_x = x + bw // 2
-        center_y = y + bh // 2
+        # === MAIN BLUE OUTLINE ===
+        cv2.rectangle(frame, (x, y), (x + bw, y + bh), blue_outline, 1, cv2.LINE_AA)
         
-        # Draw clean white bounding box
-        thickness = 2
-        cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, thickness, cv2.LINE_AA)
+        # === CORNER MARKER SQUARES (cyan) ===
+        sq_size = 4
+        cv2.rectangle(frame, (x - sq_size, y - sq_size), (x + sq_size, y + sq_size), cyan_accent, -1)
+        cv2.rectangle(frame, (x + bw - sq_size, y - sq_size), (x + bw + sq_size, y + sq_size), cyan_accent, -1)
+        cv2.rectangle(frame, (x - sq_size, y + bh - sq_size), (x + sq_size, y + bh + sq_size), cyan_accent, -1)
+        cv2.rectangle(frame, (x + bw - sq_size, y + bh - sq_size), (x + bw + sq_size, y + bh + sq_size), cyan_accent, -1)
         
-        # Corner accents (thicker)
-        corner_len = max(bw // 6, 15)
-        cv2.line(frame, (x, y), (x + corner_len, y), accent_color, 3, cv2.LINE_AA)
-        cv2.line(frame, (x, y), (x, y + corner_len), accent_color, 3, cv2.LINE_AA)
-        cv2.line(frame, (x + bw, y), (x + bw - corner_len, y), accent_color, 3, cv2.LINE_AA)
-        cv2.line(frame, (x + bw, y), (x + bw, y + corner_len), accent_color, 3, cv2.LINE_AA)
-        cv2.line(frame, (x, y + bh), (x + corner_len, y + bh), accent_color, 3, cv2.LINE_AA)
-        cv2.line(frame, (x, y + bh), (x, y + bh - corner_len), accent_color, 3, cv2.LINE_AA)
-        cv2.line(frame, (x + bw, y + bh), (x + bw - corner_len, y + bh), accent_color, 3, cv2.LINE_AA)
-        cv2.line(frame, (x + bw, y + bh), (x + bw, y + bh - corner_len), accent_color, 3, cv2.LINE_AA)
+        # === DATA CODE LABEL (top) ===
+        prefix = code_prefixes[idx % len(code_prefixes)]
+        suffix = chr(65 + (idx + frame_idx // 10) % 26)  # A-Z cycling
+        code_label = f"{prefix}{suffix}"
+        cv2.putText(frame, code_label, (x, y - 6), font, 0.35, white_text, 1, cv2.LINE_AA)
         
-        # Crosshair at center
-        cross_size = 8
-        cv2.line(frame, (center_x - cross_size, center_y), (center_x + cross_size, center_y), color, 1, cv2.LINE_AA)
-        cv2.line(frame, (center_x, center_y - cross_size), (center_x, center_y + cross_size), color, 1, cv2.LINE_AA)
+        # === SCANLINE DATA BOXES inside/around face ===
+        box_w = max(bw // 4, 25)
+        box_h = max(bh // 5, 15)
         
-        # Subject ID label above box
-        id_label = f"SUBJECT {idx + 1:02d}"
-        label_size = cv2.getTextSize(id_label, font, 0.5, 1)[0]
-        label_x = x
-        label_y = max(y - 12, 20)
-        # Background for readability
-        cv2.rectangle(frame, (label_x - 2, label_y - 14), (label_x + label_size[0] + 4, label_y + 4), (0, 0, 0), -1)
-        cv2.putText(frame, id_label, (label_x, label_y), font, 0.5, color, 1, cv2.LINE_AA)
+        # Green box (top-left inside face)
+        gx, gy = x + 5, y + 5
+        if gx + box_w < x + bw and gy + box_h < y + bh:
+            _draw_scanline_box(frame, gx, gy, box_w, box_h, green_fill, 2)
+            cv2.rectangle(frame, (gx, gy), (gx + box_w, gy + box_h), blue_outline, 1)
         
-        # Data panel (compact, below the face box)
-        panel_y = min(y + bh + 8, h - 60)
+        # Red box (bottom-right inside face, alternating)
+        if idx % 2 == 0:
+            rx, ry = x + bw - box_w - 5, y + bh - box_h - 5
+            if rx > x and ry > y:
+                _draw_scanline_box(frame, rx, ry, box_w, box_h, red_fill, 2)
+                cv2.rectangle(frame, (rx, ry), (rx + box_w, ry + box_h), blue_outline, 1)
         
-        # Confidence bar
-        conf_pct = conf * 100
-        bar_width = int(bw * conf)
-        cv2.rectangle(frame, (x, panel_y), (x + bw, panel_y + 4), (40, 40, 40), -1)
-        cv2.rectangle(frame, (x, panel_y), (x + bar_width, panel_y + 4), accent_color, -1)
+        # === EMOTION DETECTION ===
+        emotion = "ANALYZING"
+        if idx < len(mesh_points) and mesh_points[idx]:
+            emotion = _detect_emotion(mesh_points[idx])
         
-        # Metrics in a clean row
-        metrics_y = panel_y + 20
-        metrics = [
-            f"CONF:{conf_pct:.0f}%",
-            f"W:{bw}px",
-            f"H:{bh}px",
-        ]
-        cv2.putText(frame, "  ".join(metrics), (x, metrics_y), font, 0.35, dim_color, 1, cv2.LINE_AA)
+        # Emotion label with small colored indicator
+        emotion_y = y + bh + 18
+        if emotion_y < h - 10:
+            # Colored dot based on emotion
+            dot_color = green_fill if emotion in ["HAPPY", "JOY"] else \
+                        red_fill if emotion in ["SAD", "ANGRY"] else cyan_accent
+            cv2.circle(frame, (x + 5, emotion_y - 4), 4, dot_color, -1)
+            cv2.putText(frame, emotion, (x + 14, emotion_y), font, 0.4, white_text, 1, cv2.LINE_AA)
         
-        # Scanning line animation across face
-        scan_y = y + int((frame_idx % 30) / 30.0 * bh)
-        cv2.line(frame, (x, scan_y), (x + bw, scan_y), accent_color, 1, cv2.LINE_AA)
+        # === CONFIDENCE / METRICS ===
+        metrics_y = emotion_y + 16
+        if metrics_y < h - 10:
+            conf_str = f"CONF:{conf*100:.0f}%"
+            cv2.putText(frame, conf_str, (x, metrics_y), font, 0.3, cyan_accent, 1, cv2.LINE_AA)
         
-        # Draw facial landmark dots if mesh available
+        # === SCANNING LINE ===
+        scan_offset = (frame_idx * 3) % bh
+        scan_y = y + scan_offset
+        cv2.line(frame, (x, scan_y), (x + bw, scan_y), cyan_accent, 1, cv2.LINE_AA)
+        
+        # === FACIAL POINT MARKERS (if mesh available) ===
         if idx < len(mesh_points) and mesh_points[idx]:
             landmarks = mesh_points[idx]
-            # Draw key landmarks as small dots
-            key_points = [0, 4, 13, 14, 61, 291, 199, 175, 152]  # Key facial points
+            key_points = [0, 4, 13, 14, 61, 291, 33, 263, 152]  # Key facial features
             for pt_idx in key_points:
                 if pt_idx < len(landmarks):
-                    lx, ly = landmarks[pt_idx][0], landmarks[pt_idx][1]  # Get x,y (ignore z)
-                    cv2.circle(frame, (lx, ly), 2, accent_color, -1, cv2.LINE_AA)
+                    lx, ly = int(landmarks[pt_idx][0]), int(landmarks[pt_idx][1])
+                    cv2.rectangle(frame, (lx-2, ly-2), (lx+2, ly+2), cyan_accent, -1)

@@ -394,6 +394,40 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     
     # =========================================================================
+    # SIGNAL MAP (Data visualization / bit mapping style)
+    # =========================================================================
+    
+    "signal_map": {
+        "name": "Signal Map",
+        "description": "Data visualization overlay",
+        
+        "spawn_per_beat": 0,
+        "max_points": 0,
+        
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+        
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        
+        "text_mode": "signal_map",
+    },
+    
+    # =========================================================================
     # FACE MESH (468 points - NO TRAILS)
     # =========================================================================
     
