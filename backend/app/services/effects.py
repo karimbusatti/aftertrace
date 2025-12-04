@@ -765,78 +765,79 @@ def draw_thermal_scan_fast(
     """
     Thermal Scan effect - EXACT Skepta "Ignorance is Bliss" colors.
     
-    Looking at the album cover:
-    - Background: Deep saturated teal/cyan (#008B8B to #006080)
-    - Skin warm: Vivid orange (#FF6600 to #FF9900)  
-    - Hot spots: Bright yellow-orange (#FFCC00 to #FFFF99)
+    Precise color match from the album cover:
+    - Background: Dark saturated teal #006B6B (deep cyan-teal)
+    - Skin: Vivid orange #FF6600 to #FF8800
+    - Hot: Yellow-orange #FFAA00 to #FFCC44
     """
     h, w = frame.shape[:2]
     
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # CLAHE for dramatic contrast (like the album)
-    clahe = cv2.createCLAHE(clipLimit=3.5, tileGridSize=(8, 8))
+    # Strong CLAHE for dramatic contrast like the album
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
     
-    # Slight blur for smoother thermal look
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    # Smooth for thermal look
+    gray = cv2.GaussianBlur(gray, (7, 7), 0)
     
     # Create output
     output = np.zeros((h, w, 3), dtype=np.uint8)
     
-    # Normalize to 0-1
+    # Normalize
     norm = gray.astype(np.float32) / 255.0
     
-    # SKEPTA EXACT COLORS (BGR format):
-    # Deep teal background: RGB(0, 139, 139) = BGR(139, 139, 0) - dark cyan
-    # Orange skin: RGB(255, 100, 0) = BGR(0, 100, 255)
-    # Yellow hot: RGB(255, 200, 0) = BGR(0, 200, 255)
+    # === SKEPTA EXACT COLORS (BGR format) ===
+    # Deep teal: RGB(0, 107, 107) = BGR(107, 107, 0) - the dark cyan from album
+    # Orange: RGB(255, 102, 0) = BGR(0, 102, 255) - vivid orange skin
+    # Yellow-orange: RGB(255, 170, 0) = BGR(0, 170, 255) - hot spots
     
-    # Cold (deep teal) - darkest 40% (more of the background is teal)
-    cold_mask = norm < 0.40
-    t = norm[cold_mask] / 0.40
-    output[cold_mask, 0] = (160 - t * 40).astype(np.uint8)   # B: 160->120
-    output[cold_mask, 1] = (140 + t * 30).astype(np.uint8)   # G: 140->170
-    output[cold_mask, 2] = (0 + t * 30).astype(np.uint8)     # R: 0->30
+    # COLD: Deep teal background - bottom 45%
+    cold_mask = norm < 0.45
+    t = norm[cold_mask] / 0.45
+    # Start very dark teal, get slightly brighter
+    output[cold_mask, 0] = (100 + t * 20).astype(np.uint8)    # B: 100->120
+    output[cold_mask, 1] = (90 + t * 25).astype(np.uint8)     # G: 90->115
+    output[cold_mask, 2] = (0 + t * 15).astype(np.uint8)      # R: 0->15
     
-    # Transition (teal to orange) - 40% to 55%
-    trans_mask = (norm >= 0.40) & (norm < 0.55)
-    t = (norm[trans_mask] - 0.40) / 0.15
-    output[trans_mask, 0] = (120 - t * 115).astype(np.uint8)  # B: 120->5
-    output[trans_mask, 1] = (170 - t * 70).astype(np.uint8)   # G: 170->100
-    output[trans_mask, 2] = (30 + t * 225).astype(np.uint8)   # R: 30->255
+    # TRANSITION: Teal to orange - 45% to 55%
+    trans_mask = (norm >= 0.45) & (norm < 0.55)
+    t = (norm[trans_mask] - 0.45) / 0.10
+    output[trans_mask, 0] = (120 - t * 118).astype(np.uint8)  # B: 120->2
+    output[trans_mask, 1] = (115 - t * 15).astype(np.uint8)   # G: 115->100
+    output[trans_mask, 2] = (15 + t * 240).astype(np.uint8)   # R: 15->255
     
-    # Warm orange - 55% to 70%
+    # WARM: Vivid orange - 55% to 70%
     warm_mask = (norm >= 0.55) & (norm < 0.70)
     t = (norm[warm_mask] - 0.55) / 0.15
-    output[warm_mask, 0] = 5                                   # B: low
-    output[warm_mask, 1] = (100 + t * 80).astype(np.uint8)    # G: 100->180
-    output[warm_mask, 2] = 255                                 # R: max
+    output[warm_mask, 0] = 2                                   # B: very low
+    output[warm_mask, 1] = (100 + t * 70).astype(np.uint8)    # G: 100->170
+    output[warm_mask, 2] = 255                                 # R: max orange
     
-    # Hot yellow - 70% to 85%
+    # HOT: Yellow-orange - 70% to 85%
     hot_mask = (norm >= 0.70) & (norm < 0.85)
     t = (norm[hot_mask] - 0.70) / 0.15
-    output[hot_mask, 0] = (5 + t * 30).astype(np.uint8)       # B: 5->35
-    output[hot_mask, 1] = (180 + t * 60).astype(np.uint8)     # G: 180->240
+    output[hot_mask, 0] = (2 + t * 20).astype(np.uint8)       # B: 2->22
+    output[hot_mask, 1] = (170 + t * 50).astype(np.uint8)     # G: 170->220
     output[hot_mask, 2] = 255                                  # R: max
     
-    # Very hot (bright yellow/white) - top 15%
+    # VERY HOT: Bright yellow - top 15%
     very_hot_mask = norm >= 0.85
     t = (norm[very_hot_mask] - 0.85) / 0.15
     t = np.clip(t, 0, 1)
-    output[very_hot_mask, 0] = (35 + t * 120).astype(np.uint8)  # B: 35->155
-    output[very_hot_mask, 1] = (240 + t * 15).astype(np.uint8)  # G: 240->255
+    output[very_hot_mask, 0] = (22 + t * 50).astype(np.uint8)   # B: 22->72
+    output[very_hot_mask, 1] = (220 + t * 35).astype(np.uint8)  # G: 220->255
     output[very_hot_mask, 2] = 255                               # R: max
     
-    # Add glow to hot areas
+    # Subtle glow on hot areas
     hot_areas = norm > 0.55
     if np.any(hot_areas):
-        glow = cv2.GaussianBlur(output, (31, 31), 0)
+        glow = cv2.GaussianBlur(output, (25, 25), 0)
         mask = hot_areas.astype(np.float32)
-        mask = cv2.GaussianBlur(mask, (41, 41), 0)
+        mask = cv2.GaussianBlur(mask, (35, 35), 0)
         mask_3d = np.stack([mask] * 3, axis=-1)
-        output = cv2.addWeighted(output, 1.0, (glow * mask_3d * 0.4).astype(np.uint8), 1.0, 0)
+        output = cv2.addWeighted(output, 1.0, (glow * mask_3d * 0.3).astype(np.uint8), 1.0, 0)
     
     return output
 
@@ -1361,111 +1362,138 @@ def draw_number_cloud(
     colors: dict,
 ) -> np.ndarray:
     """
-    Numeric Aura effect: Subject becomes BSOD BLUE numbers with clear visibility.
+    Numeric Aura effect - IMPRESSIVE data visualization.
     
-    Large, crisp numbers on a dark subject silhouette with bright blue outline.
+    Multi-layer number cloud with:
+    - Glowing blue numbers in varying sizes
+    - Hex codes mixed with decimals
+    - Depth layers (foreground/background)
+    - Animated glow effect
+    - Subject isolation with clean outline
     """
+    import random
     h, w = frame.shape[:2]
     
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    # Get params
     start_number = preset.get("start_number", 19000)
     
-    # === SUBJECT DETECTION - Edge-based for cleaner isolation ===
-    # Use Canny edges + dilation to find subject boundaries
+    # Seed for consistent randomness
+    random.seed(42)
     
-    # Enhance contrast
+    # === SUBJECT DETECTION ===
     clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
-    
-    # Edge detection
     edges = cv2.Canny(enhanced, 30, 100)
     
-    # Heavy dilation to connect edges into regions
-    kernel = np.ones((35, 35), np.uint8)
+    kernel = np.ones((30, 30), np.uint8)
     dilated = cv2.dilate(edges, kernel, iterations=3)
-    
-    # Fill holes
     dilated = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel, iterations=2)
     
-    # Find contours
     contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     subject_mask = np.zeros((h, w), dtype=np.uint8)
     center_x, center_y = w // 2, h // 2
     
     if contours:
-        # Find the best contour (large + central)
         best_contour = None
         best_score = 0
-        
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area < h * w * 0.03:  # At least 3% of frame
+            if area < h * w * 0.03:
                 continue
-            
             M = cv2.moments(contour)
             if M["m00"] > 0:
                 cx = int(M["m10"] / M["m00"])
                 cy = int(M["m01"] / M["m00"])
-                
-                # Favor central subjects
                 dist = np.sqrt((cx - center_x)**2 + (cy - center_y)**2)
                 max_dist = np.sqrt(center_x**2 + center_y**2)
                 centrality = 1.0 - (dist / max_dist)
-                
                 score = area * (0.4 + 0.6 * centrality)
-                
                 if score > best_score:
                     best_score = score
                     best_contour = contour
-        
         if best_contour is not None:
             hull = cv2.convexHull(best_contour)
             cv2.fillPoly(subject_mask, [hull], 255)
     
-    # Fallback: center ellipse
     if np.sum(subject_mask) < h * w * 0.03 * 255:
         cv2.ellipse(subject_mask, (center_x, center_y), (w//3, h//2), 0, 0, 360, 255, -1)
     
-    # === OUTPUT ===
-    output = frame.copy()
+    # === CREATE DARK BASE ===
+    output = np.zeros_like(frame)
     
-    # Darken subject area to black
-    for c in range(3):
-        output[:, :, c] = np.where(subject_mask > 0, 0, frame[:, :, c])
+    # Keep background visible but dimmed
+    bg_visible = (frame * 0.15).astype(np.uint8)
+    output = np.where(subject_mask[:, :, np.newaxis] == 0, bg_visible, output)
     
-    # Draw bright blue OUTLINE around subject
-    contours_outline, _ = cv2.findContours(subject_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    bsod_blue = (255, 100, 0)  # BGR - bright blue
-    if contours_outline:
-        cv2.drawContours(output, contours_outline, -1, bsod_blue, 3, cv2.LINE_AA)
-    
-    # === GRID-BASED NUMBER PLACEMENT for clean, readable layout ===
-    # Use a grid to avoid overlap and ensure visibility
+    # === COLORS ===
+    # BSOD Blue variations
+    blue_bright = (255, 120, 0)    # Bright blue
+    blue_mid = (200, 80, 0)        # Medium blue
+    blue_dim = (140, 50, 0)        # Dim blue
+    blue_glow = (255, 150, 50)     # Glowing blue
     
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.55  # Large, readable
     
-    # Grid spacing based on text size
-    grid_step_x = 55  # Horizontal spacing
-    grid_step_y = 18  # Vertical spacing
-    
-    number_idx = 0
-    for gy in range(10, h - 10, grid_step_y):
-        for gx in range(5, w - 50, grid_step_x):
-            # Check if this grid point is inside subject
+    # === LAYER 1: Background dim numbers (small, dense) ===
+    for gy in range(8, h - 8, 12):
+        for gx in range(4, w - 30, 38):
             if subject_mask[gy, gx] > 0:
-                number = start_number + number_idx
-                text = str(number)
+                # Mix of hex and decimal
+                if random.random() > 0.7:
+                    text = f"0x{random.randint(0, 0xFFFF):04X}"
+                else:
+                    text = str(start_number + random.randint(0, 9999))
                 
-                # Draw black outline for crisp contrast
-                cv2.putText(output, text, (gx, gy), font, font_scale, (0, 0, 0), 3, cv2.LINE_AA)
-                # Draw bright blue text
-                cv2.putText(output, text, (gx, gy), font, font_scale, bsod_blue, 1, cv2.LINE_AA)
+                cv2.putText(output, text, (gx, gy), font, 0.28, blue_dim, 1, cv2.LINE_AA)
+    
+    # === LAYER 2: Mid-layer numbers (medium size) ===
+    for gy in range(15, h - 15, 22):
+        for gx in range(10, w - 45, 55):
+            if subject_mask[gy, gx] > 0:
+                if random.random() > 0.6:
+                    text = f"{random.randint(10000, 99999)}"
+                else:
+                    text = f"0x{random.randint(0, 0xFFFFFF):06X}"
                 
-                number_idx += 1
+                # Black shadow
+                cv2.putText(output, text, (gx+1, gy+1), font, 0.4, (0, 0, 0), 2, cv2.LINE_AA)
+                cv2.putText(output, text, (gx, gy), font, 0.4, blue_mid, 1, cv2.LINE_AA)
+    
+    # === LAYER 3: Foreground bright numbers (large, sparse, glowing) ===
+    glow_layer = np.zeros_like(frame)
+    for gy in range(25, h - 25, 40):
+        for gx in range(15, w - 60, 80):
+            if subject_mask[gy, gx] > 0:
+                # Prominent numbers
+                text = str(start_number + random.randint(0, 50000))
+                
+                # Draw glow (thicker, blurred later)
+                cv2.putText(glow_layer, text, (gx, gy), font, 0.6, blue_glow, 3, cv2.LINE_AA)
+                
+                # Draw crisp text
+                cv2.putText(output, text, (gx+1, gy+1), font, 0.6, (0, 0, 0), 3, cv2.LINE_AA)
+                cv2.putText(output, text, (gx, gy), font, 0.6, blue_bright, 1, cv2.LINE_AA)
+    
+    # Apply glow
+    glow_layer = cv2.GaussianBlur(glow_layer, (21, 21), 0)
+    output = cv2.addWeighted(output, 1.0, glow_layer, 0.5, 0)
+    
+    # === BRIGHT OUTLINE around subject ===
+    contours_outline, _ = cv2.findContours(subject_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours_outline:
+        # Glow outline
+        outline_glow = np.zeros_like(frame)
+        cv2.drawContours(outline_glow, contours_outline, -1, blue_glow, 8, cv2.LINE_AA)
+        outline_glow = cv2.GaussianBlur(outline_glow, (15, 15), 0)
+        output = cv2.addWeighted(output, 1.0, outline_glow, 0.6, 0)
+        
+        # Crisp outline
+        cv2.drawContours(output, contours_outline, -1, blue_bright, 2, cv2.LINE_AA)
+    
+    # === SCANLINE EFFECT ===
+    for y in range(0, h, 4):
+        output[y, :] = (output[y, :] * 0.85).astype(np.uint8)
     
     return output
 
