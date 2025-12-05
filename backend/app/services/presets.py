@@ -503,6 +503,40 @@ PRESETS: dict[str, dict[str, Any]] = {
         "invert_background": False,
     },
     
+    "motion_flow": {
+        "name": "Motion Flow",
+        "description": "Curved flowing data trails",
+        
+        "spawn_per_beat": 15,
+        "max_points": 100,
+        
+        "life_frames": 40,
+        "trail_length": 35,      # Long trails
+        "trail_fade": True,
+        
+        "shape": "circle",
+        "point_size": 2,
+        "trace_thickness": 1,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white", # Will be overridden by effect logic
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        
+        # Motion Flow specific
+        "text_mode": "motion_flow",
+        "flow_color": (255, 200, 100), # Cyan/Blue-ish (BGR)
+        "line_thickness": 1,
+        "smoothing": True,
+    },
+    
     # =========================================================================
     # MOTION TRACE (Clean flowing lines - KEEP TRAILS)
     # =========================================================================
@@ -818,12 +852,15 @@ PRESETS: dict[str, dict[str, Any]] = {
         
         # Binary Bloom specific
         "text_mode": "binary_bloom",
-        "bg_color": (255, 100, 0),        # Vivid blue BGR
+        "bg_color": (160, 40, 0),         # Deep Azure Blue (BGR)
         "digit_color": (255, 255, 255),   # White
-        "accent_color": (180, 100, 255),  # Pink/magenta
-        "grid_step": 14,
+        "edge_color": (255, 255, 255),    # Bright white edges
+        "accent_color": (200, 50, 255),   # Bright Magenta
+        "grid_step": 8,                   # Denser grid
+        "edge_grid_step": 5,              # Very dense edges
         "accent_ratio": 0.08,
-        "binary_font_scale": 0.38,
+        "binary_font_scale": 0.35,
+        "edge_font_scale": 0.40,
     },
 }
 

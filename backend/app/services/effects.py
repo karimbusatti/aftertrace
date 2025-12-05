@@ -123,7 +123,7 @@ def _draw_frame_replace(
     """Normal mode: darken background and draw effects on top."""
     
     # Check for text-based effects first (they replace the entire pipeline)
-    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx)
+    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx, points=points)
     if text_result is not None:
         output = text_result
         
@@ -230,7 +230,7 @@ def _draw_frame_overlay(
     original = frame.copy()
     
     # Check for text-based effects
-    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx)
+    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx, points=points)
     if text_result is not None:
         # For text effects in overlay mode, blend text layer over original
         effect_layer = text_result
@@ -931,6 +931,7 @@ def apply_text_effect(
     preset: dict[str, Any],
     colors: dict,
     frame_idx: int = 0,
+    points: list[TrackedPoint] | None = None,
 ) -> np.ndarray | None:
     """
     Apply text-based effect if preset has text_mode set.
@@ -953,6 +954,9 @@ def apply_text_effect(
         return draw_matrix_mode(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "contour_trace":
         return draw_contour_trace(frame, preset, colors)
+    elif text_mode == "motion_flow":
+        # Ensure points are available
+        return draw_motion_trace(frame, points or [], preset, colors)
     elif text_mode == "signal_map":
         return draw_signal_map(frame, preset, colors, frame_idx=frame_idx)
     # === NEW EFFECTS v2 ===
@@ -1517,59 +1521,69 @@ def draw_motion_trace(
     colors: dict,
 ) -> np.ndarray:
     """
-    Motion Trace effect: Clean flowing lines following optical flow.
+    Motion Flow (formerly Trace): Elegant flowing curved lines.
     
-    Creates elegant curved traces that visualize motion vectors,
-    similar to TouchDesigner's trail-based particle systems.
+    Creates organic curved trails that visualize motion, with:
+    - Chaikin-like smoothing for curves
+    - Comet-tail opacity fading (bright head, invisible tail)
+    - Glowing head for particle feel
     """
     h, w = frame.shape[:2]
     
-    # Create output - dark background with subtle original
+    # Dark background (almost black) to make lines pop
     bg_alpha = preset.get("bg_alpha", 0.1)
     output = (frame * bg_alpha).astype(np.uint8)
     
-    # Get trace params
-    trace_color = colors.get("trail", (255, 255, 255))
-    point_color = colors.get("point", (255, 255, 255))
-    line_thickness = preset.get("trace_thickness", 1)
-    point_size = preset.get("point_size", 2)
-    trail_length = preset.get("trail_length", 20)
+    # Get parameters
+    # Support both preset keys for backward compatibility
+    trace_color = preset.get("flow_color", colors.get("trail", (255, 200, 100))) 
+    thickness = preset.get("line_thickness", preset.get("trace_thickness", 1))
+    trail_len = preset.get("trail_length", 30)
+    smoothing = preset.get("smoothing", True)
     
-    # Draw motion traces
     for point in points:
-        if len(point.trace) < 2:
+        if len(point.trace) < 4:
             continue
-        
-        # Get visible portion of trail
-        visible_trace = point.trace[-trail_length:]
-        
-        # Draw trail with fading opacity
-        for i in range(len(visible_trace) - 1):
-            alpha = (i + 1) / len(visible_trace)
-            color = tuple(int(c * alpha * 0.8) for c in trace_color)
             
-            pt1 = (int(visible_trace[i][0]), int(visible_trace[i][1]))
-            pt2 = (int(visible_trace[i + 1][0]), int(visible_trace[i + 1][1]))
-            
-            cv2.line(output, pt1, pt2, color, line_thickness, cv2.LINE_AA)
+        # Get visible trail points
+        trace = point.trace[-trail_len:]
         
-        # Draw endpoint
-        if visible_trace:
-            endpoint = visible_trace[-1]
-            cv2.circle(
-                output, 
-                (int(endpoint[0]), int(endpoint[1])), 
-                point_size, 
-                point_color, 
-                -1, 
-                cv2.LINE_AA
-            )
-    
-    # Add subtle glow
-    glow_intensity = preset.get("glow_intensity", 0.2)
+        # Convert to float numpy array for smoothing
+        pts = np.array(trace, dtype=np.float32)
+        
+        # Simple smoothing (3-point moving average)
+        if smoothing and len(pts) > 2:
+            pts_smooth = pts.copy()
+            # p[i] = 0.25*p[i-1] + 0.5*p[i] + 0.25*p[i+1]
+            pts_smooth[1:-1] = 0.25 * pts[:-2] + 0.5 * pts[1:-1] + 0.25 * pts[2:]
+            pts = pts_smooth
+
+        # Draw segments with non-linear gradient opacity (comet tail)
+        # Iterate points to draw lines
+        for i in range(len(pts) - 1):
+            pt1 = tuple(pts[i].astype(int))
+            pt2 = tuple(pts[i+1].astype(int))
+            
+            # Alpha calculation: (i / total)^1.5 makes tail fade out faster
+            # i=0 is tail (alpha near 0), i=len is head (alpha 1)
+            prog = (i + 1) / len(pts)
+            alpha = prog ** 1.5
+            
+            color = tuple(int(c * alpha) for c in trace_color)
+            cv2.line(output, pt1, pt2, color, thickness, cv2.LINE_AA)
+            
+        # Draw glowing head at the very last point
+        head = tuple(pts[-1].astype(int))
+        # Inner bright core
+        cv2.circle(output, head, 1, (255, 255, 255), -1, cv2.LINE_AA)
+        # Outer glow
+        cv2.circle(output, head, 4, trace_color, -1, cv2.LINE_AA)
+
+    # Add global bloom/glow
+    glow_intensity = preset.get("glow_intensity", 0.4)
     if glow_intensity > 0:
-        glow = cv2.GaussianBlur(output, (11, 11), 0)
-        output = cv2.addWeighted(output, 1.0, glow, glow_intensity, 0)
+        blur = cv2.GaussianBlur(output, (13, 13), 0)
+        output = cv2.addWeighted(output, 1.0, blur, glow_intensity, 0)
     
     return output
 
@@ -2216,7 +2230,8 @@ def draw_binary_bloom(
     output = np.full((h, w, 3), bg_color, dtype=np.uint8)
     
     font = cv2.FONT_HERSHEY_SIMPLEX
-    random.seed(frame_idx + 42)  # Consistent per frame
+    # Stable random seed (updates every ~100ms / 3 frames) for gentle flicker
+    random.seed(frame_idx // 3 + 42)
     
     # First pass: fill subject interior with sparse 0/1
     for row in range(0, h, grid_step):
