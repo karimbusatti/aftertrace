@@ -705,6 +705,126 @@ PRESETS: dict[str, dict[str, Any]] = {
         
         "darken_factor": 0.85,
     },
+    
+    # =========================================================================
+    # CODENET OVERLAY (Feature network with Delaunay mesh + labels)
+    # =========================================================================
+    
+    "codenet_overlay": {
+        "name": "CodeNet",
+        "description": "Feature network with labeled nodes",
+        
+        "spawn_per_beat": 0,
+        "max_points": 80,  # Max feature points to detect
+        
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+        
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        
+        # CodeNet specific
+        "text_mode": "codenet_overlay",
+        "connection_max_dist": 150,
+        "node_radius": 4,
+        "label_font_scale": 0.28,
+        "blend_alpha": 0.85,
+    },
+    
+    # =========================================================================
+    # CODE SHADOW (ASCII/Matrix density effect)
+    # =========================================================================
+    
+    "code_shadow": {
+        "name": "CodeShadow",
+        "description": "ASCII code forming the image",
+        
+        "spawn_per_beat": 0,
+        "max_points": 0,
+        
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+        
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        
+        # CodeShadow specific
+        "text_mode": "code_shadow",
+        "cell_size": 8,
+        "char_palette": " .·:;=+*#@",
+        "color_dark": (0, 0, 140),      # Deep red BGR
+        "color_bright": (0, 200, 0),    # Green BGR
+        "threshold_split": 0.45,
+    },
+    
+    # =========================================================================
+    # BINARY BLOOM (0/1 digits on solid color background)
+    # =========================================================================
+    
+    "binary_bloom": {
+        "name": "Binary Bloom",
+        "description": "0/1 digits forming the subject",
+        
+        "spawn_per_beat": 0,
+        "max_points": 0,
+        
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+        
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        
+        # Binary Bloom specific
+        "text_mode": "binary_bloom",
+        "bg_color": (255, 100, 0),        # Vivid blue BGR
+        "digit_color": (255, 255, 255),   # White
+        "accent_color": (180, 100, 255),  # Pink/magenta
+        "grid_step": 14,
+        "accent_ratio": 0.08,
+        "binary_font_scale": 0.38,
+    },
 }
 
 

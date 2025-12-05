@@ -14,7 +14,18 @@ PresetName = Literal[
     "heat_map",
     "ember_trails",
     "minimal_void",
+    "codenet_overlay",
+    "code_shadow",
+    "binary_bloom",
 ]
+
+
+@dataclass
+class CompositionSegment:
+    """A segment in an effect composition sequence."""
+    effect_id: str      # Preset name or "clean" for original video
+    start: float        # Start ratio (0.0 - 1.0)
+    end: float          # End ratio (0.0 - 1.0)
 
 
 @dataclass
@@ -49,6 +60,10 @@ class ProcessingMetadata:
     trackability_score: int = 0              # 0-100, higher = more trackable
     people_detected: int = 0                 # Stub for now (future: face/pose detection)
     
+    # Composition mode (v2)
+    segments_applied: list[dict] = field(default_factory=list)  # [{effect, start_frame, end_frame}, ...]
+    composition_mode: bool = False  # True if multi-effect sequence was used
+    
     def to_dict(self) -> dict:
         return {
             # Basic stats
@@ -66,4 +81,7 @@ class ProcessingMetadata:
             "longest_track_seconds": round(self.longest_track_seconds, 2),
             "trackability_score": self.trackability_score,
             "people_detected": self.people_detected,
+            # Composition
+            "segments_applied": self.segments_applied,
+            "composition_mode": self.composition_mode,
         }

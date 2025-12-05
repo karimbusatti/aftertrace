@@ -6,16 +6,31 @@ This module orchestrates the full Aftertrace effect:
 2. Extract audio → detect beats/onsets  
 3. On each spawn frame → detect feature points
 4. Track points across frames with optical flow
-5. Draw effects based on preset
+5. Draw effects based on preset (or composition sequence)
 6. Write output video
 
 Usage:
     from app.services.process_video import process_video
     
+    # Single effect
     metadata = process_video(
         input_path="input.mp4",
         output_path="output.mp4",
         preset="grid_trace",
+    )
+    
+    # Multi-effect composition
+    composition = [
+        {"effect_id": "clean", "start": 0.0, "end": 0.2},
+        {"effect_id": "codenet_overlay", "start": 0.2, "end": 0.5},
+        {"effect_id": "code_shadow", "start": 0.5, "end": 0.8},
+        {"effect_id": "binary_bloom", "start": 0.8, "end": 1.0},
+    ]
+    metadata = process_video(
+        input_path="input.mp4",
+        output_path="output.mp4",
+        composition=composition,
+        crossfade_ratio=0.05,
     )
 """
 
@@ -25,12 +40,126 @@ import cv2
 import numpy as np
 from typing import Any
 
-from .types import ProcessingMetadata
+from .types import ProcessingMetadata, CompositionSegment
 from .presets import get_preset, validate_preset
 from .audio import extract_audio, analyze_audio, get_spawn_frames
 from .tracking import PointTracker
 from .effects import draw_frame
 from .face_detection import FaceDetector
+
+
+# =============================================================================
+# COMPOSITION HELPERS
+# =============================================================================
+
+def get_frame_effects(
+    frame_ratio: float,
+    composition: list[dict],
+    crossfade: float,
+) -> list[tuple[str, float]]:
+    """
+    Determine which effect(s) to apply at a given frame position.
+    
+    Args:
+        frame_ratio: Current frame position (0.0 - 1.0)
+        composition: List of {effect_id, start, end} segments
+        crossfade: Crossfade ratio (e.g., 0.05 = 5% overlap)
+    
+    Returns:
+        List of (effect_id, weight) tuples. Usually 1 effect at weight=1.0,
+        or 2 effects during crossfade transition.
+    """
+    results = []
+    
+    for i, seg in enumerate(composition):
+        seg_start = seg["start"]
+        seg_end = seg["end"]
+        
+        if seg_start <= frame_ratio < seg_end:
+            # We're in this segment
+            fade_in_end = seg_start + crossfade
+            
+            # Check if in crossfade zone at start
+            if frame_ratio < fade_in_end and i > 0:
+                prev_seg = composition[i - 1]
+                t = (frame_ratio - seg_start) / crossfade if crossfade > 0 else 1.0
+                results.append((prev_seg["effect_id"], 1.0 - t))
+                results.append((seg["effect_id"], t))
+            else:
+                results.append((seg["effect_id"], 1.0))
+            break
+    
+    return results or [("clean", 1.0)]
+
+
+def apply_composed_frame(
+    frame: np.ndarray,
+    effects_with_weights: list[tuple[str, float]],
+    preset_cache: dict[str, dict],
+    frame_idx: int,
+    tracker: "PointTracker",
+    face_data: dict | None,
+    overlay_mode: bool,
+) -> np.ndarray:
+    """
+    Apply one or more effects to a frame with blending.
+    
+    Args:
+        frame: Original video frame
+        effects_with_weights: List of (effect_id, weight) tuples
+        preset_cache: Dict mapping effect_id to preset config
+        frame_idx: Current frame index
+        tracker: Point tracker for effects that need tracking data
+        face_data: Face detection data if available
+        overlay_mode: Whether to use overlay blending
+    
+    Returns:
+        Blended output frame
+    """
+    if len(effects_with_weights) == 1:
+        effect_id, _ = effects_with_weights[0]
+        if effect_id == "clean":
+            return frame.copy()
+        
+        preset = preset_cache.get(effect_id)
+        if preset is None:
+            return frame.copy()
+        
+        return draw_frame(
+            frame,
+            tracker.get_all_points(),
+            preset,
+            frame_idx,
+            overlay_mode,
+            face_data=face_data,
+        )
+    
+    # Multiple effects: blend them
+    outputs = []
+    for effect_id, weight in effects_with_weights:
+        if effect_id == "clean":
+            outputs.append((frame.copy(), weight))
+        else:
+            preset = preset_cache.get(effect_id)
+            if preset is None:
+                outputs.append((frame.copy(), weight))
+            else:
+                effect_frame = draw_frame(
+                    frame,
+                    tracker.get_all_points(),
+                    preset,
+                    frame_idx,
+                    overlay_mode,
+                    face_data=face_data,
+                )
+                outputs.append((effect_frame, weight))
+    
+    # Weighted blend
+    blended = np.zeros_like(frame, dtype=np.float32)
+    for out, w in outputs:
+        blended += out.astype(np.float32) * w
+    
+    return np.clip(blended, 0, 255).astype(np.uint8)
 
 
 def process_video(
@@ -40,6 +169,8 @@ def process_video(
     overlay_mode: bool = False,
     return_metadata: bool = True,
     original_output_path: str | None = None,
+    composition: list[dict] | None = None,
+    crossfade_ratio: float = 0.05,
 ) -> ProcessingMetadata:
     """
     Process a video with Aftertrace visual effects.
@@ -47,11 +178,15 @@ def process_video(
     Args:
         input_path: Path to input video file
         output_path: Path for output video file
-        preset: Preset name (str) or custom preset dict
+        preset: Preset name (str) or custom preset dict (ignored if composition is set)
         overlay_mode: If True, blend effects at ~40% over original video
                       If False, replace background with darkened version (default)
         return_metadata: Whether to compute and return metadata
         original_output_path: If provided, save a re-encoded copy of original here
+        composition: Optional list of effect segments for multi-effect mode
+                     Each segment: {"effect_id": str, "start": float, "end": float}
+                     "clean" = original video, other values = preset names
+        crossfade_ratio: Overlap ratio at segment boundaries (default 5%)
     
     Returns:
         ProcessingMetadata with stats about the processing.
@@ -66,8 +201,14 @@ def process_video(
       5. Draw the frame: trails, points, connections, effects
       6. Write frame to output
     
-    Preset controls:
-    ----------------
+    Composition mode:
+    -----------------
+    When `composition` is provided, the video is split into segments,
+    each with a different effect. Crossfade blending occurs at segment
+    boundaries for smooth transitions.
+    
+    Preset controls (single effect mode):
+    -------------------------------------
     - spawn_per_beat: Points spawned per beat/onset
     - max_points: Cap on simultaneous tracked points
     - life_frames: How long points live before dying
@@ -81,15 +222,39 @@ def process_video(
     start_time = time.time()
     metadata = ProcessingMetadata()
     
-    # Get and validate preset config
-    if isinstance(preset, str):
-        preset_config = validate_preset(get_preset(preset))
-        preset_name = preset
-    else:
-        preset_config = validate_preset(preset)
-        preset_name = preset_config.get("name", "custom")
+    # =========================================================================
+    # COMPOSITION MODE SETUP
+    # =========================================================================
+    composition_mode = composition is not None and len(composition) > 0
+    preset_cache: dict[str, dict] = {}
     
-    metadata.preset_used = preset_name
+    if composition_mode:
+        # Build preset cache for all effects in composition
+        effect_names = []
+        for seg in composition:
+            eff_id = seg.get("effect_id", "clean")
+            if eff_id != "clean" and eff_id not in preset_cache:
+                preset_cache[eff_id] = validate_preset(get_preset(eff_id))
+            effect_names.append(eff_id)
+        
+        preset_name = f"composition({','.join(effect_names)})"
+        # Use first non-clean effect as primary config for tracking params
+        primary_effect = next((e for e in effect_names if e != "clean"), "grid_trace")
+        preset_config = preset_cache.get(primary_effect, validate_preset(get_preset("grid_trace")))
+        
+        metadata.composition_mode = True
+        metadata.preset_used = preset_name
+    else:
+        # Single effect mode
+        if isinstance(preset, str):
+            preset_config = validate_preset(get_preset(preset))
+            preset_name = preset
+        else:
+            preset_config = validate_preset(preset)
+            preset_name = preset_config.get("name", "custom")
+        
+        preset_cache[preset_name] = preset_config
+        metadata.preset_used = preset_name
     
     # =========================================================================
     # STEP 1: Open input video
@@ -153,11 +318,20 @@ def process_video(
     # STEP 4b: Initialize face detector if preset requests it
     # =========================================================================
     face_detector = None
-    if preset_config.get("detect_faces", False) or preset_config.get("detect_mesh", False):
+    needs_faces = preset_config.get("detect_faces", False)
+    needs_mesh = preset_config.get("detect_mesh", False)
+    
+    # In composition mode, check all presets for face detection
+    if composition_mode:
+        for p in preset_cache.values():
+            needs_faces = needs_faces or p.get("detect_faces", False)
+            needs_mesh = needs_mesh or p.get("detect_mesh", False)
+    
+    if needs_faces or needs_mesh:
         print("[process] Initializing face detection...")
         face_detector = FaceDetector(
-            detect_faces=preset_config.get("detect_faces", False),
-            detect_mesh=preset_config.get("detect_mesh", False),
+            detect_faces=needs_faces,
+            detect_mesh=needs_mesh,
         )
     
     # =========================================================================
@@ -195,11 +369,20 @@ def process_video(
             total_faces_detected = max(total_faces_detected, face_data["face_count"])
         
         # --- Draw the frame ---
-        all_points = tracker.get_all_points()
-        output_frame = draw_frame(
-            frame, all_points, preset_config, frame_idx, overlay_mode,
-            face_data=face_data
-        )
+        if composition_mode:
+            # Multi-effect composition
+            frame_ratio = frame_idx / max(total_frames - 1, 1)
+            effects = get_frame_effects(frame_ratio, composition, crossfade_ratio)
+            output_frame = apply_composed_frame(
+                frame, effects, preset_cache, frame_idx, tracker, face_data, overlay_mode
+            )
+        else:
+            # Single effect mode
+            all_points = tracker.get_all_points()
+            output_frame = draw_frame(
+                frame, all_points, preset_config, frame_idx, overlay_mode,
+                face_data=face_data
+            )
         
         # --- Write output ---
         out.write(output_frame)
@@ -238,6 +421,17 @@ def process_video(
     metadata.processing_time_seconds = time.time() - start_time
     metadata.output_path = output_path
     metadata.original_path = original_output_path or ""
+    
+    # Composition mode: record which segments were applied
+    if composition_mode and composition:
+        for seg in composition:
+            start_frame = int(seg["start"] * frame_idx)
+            end_frame = int(seg["end"] * frame_idx)
+            metadata.segments_applied.append({
+                "effect": seg["effect_id"],
+                "start_frame": start_frame,
+                "end_frame": end_frame,
+            })
     
     # =========================================================================
     # STEP 7: Compute surveillance stats

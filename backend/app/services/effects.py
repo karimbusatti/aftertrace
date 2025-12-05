@@ -123,7 +123,7 @@ def _draw_frame_replace(
     """Normal mode: darken background and draw effects on top."""
     
     # Check for text-based effects first (they replace the entire pipeline)
-    text_result = apply_text_effect(frame, preset, colors)
+    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx)
     if text_result is not None:
         output = text_result
         
@@ -230,7 +230,7 @@ def _draw_frame_overlay(
     original = frame.copy()
     
     # Check for text-based effects
-    text_result = apply_text_effect(frame, preset, colors)
+    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx)
     if text_result is not None:
         # For text effects in overlay mode, blend text layer over original
         effect_layer = text_result
@@ -930,6 +930,7 @@ def apply_text_effect(
     frame: np.ndarray,
     preset: dict[str, Any],
     colors: dict,
+    frame_idx: int = 0,
 ) -> np.ndarray | None:
     """
     Apply text-based effect if preset has text_mode set.
@@ -949,11 +950,18 @@ def apply_text_effect(
     elif text_mode == "thermal_scan":
         return draw_thermal_scan_fast(frame, preset, colors)
     elif text_mode == "matrix_mode":
-        return draw_matrix_mode(frame, preset, colors, frame_idx=0)
+        return draw_matrix_mode(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "contour_trace":
         return draw_contour_trace(frame, preset, colors)
     elif text_mode == "signal_map":
-        return draw_signal_map(frame, preset, colors, frame_idx=0)
+        return draw_signal_map(frame, preset, colors, frame_idx=frame_idx)
+    # === NEW EFFECTS v2 ===
+    elif text_mode == "codenet_overlay":
+        return draw_codenet_overlay(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "code_shadow":
+        return draw_code_shadow(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "binary_bloom":
+        return draw_binary_bloom(frame, preset, colors, frame_idx=frame_idx)
     
     return None
 
@@ -1847,3 +1855,359 @@ def apply_cube_effect(
         return None
     
     return draw_catodic_cube(frame, preset, colors, frame_idx, points)
+
+
+# =============================================================================
+# CODENET OVERLAY (Feature network with Delaunay mesh + labels)
+# =============================================================================
+
+def draw_codenet_overlay(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    CodeNet Overlay: Feature-point network with labels.
+    
+    Inspired by the leaf-twirl reel with connected nodes and "codecore N" labels.
+    - Detects Shi-Tomasi corners
+    - Creates Delaunay triangulation for organic mesh
+    - Gradient lines: short=red, medium=orange/yellow, long=white
+    - Glowing cyan/white nodes
+    - "codecore N" labels above each point
+    """
+    h, w = frame.shape[:2]
+    
+    # Parameters
+    max_points = preset.get("max_points", 80)
+    max_connect_dist = preset.get("connection_max_dist", 150)
+    node_radius = preset.get("node_radius", 4)
+    label_scale = preset.get("label_font_scale", 0.28)
+    blend_alpha = preset.get("blend_alpha", 0.85)
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Enhance contrast for better feature detection
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    
+    # Detect Shi-Tomasi corners
+    corners = cv2.goodFeaturesToTrack(
+        enhanced,
+        maxCorners=max_points,
+        qualityLevel=0.02,
+        minDistance=20,
+        blockSize=7,
+    )
+    
+    if corners is None or len(corners) < 3:
+        return frame.copy()
+    
+    points = corners.reshape(-1, 2).astype(np.float32)
+    
+    # Create overlay layer
+    overlay = np.zeros_like(frame)
+    
+    # Build Delaunay triangulation for organic mesh
+    rect = (0, 0, w, h)
+    subdiv = cv2.Subdiv2D(rect)
+    
+    valid_points = []
+    for pt in points:
+        x, y = pt
+        if 0 < x < w - 1 and 0 < y < h - 1:
+            subdiv.insert((float(x), float(y)))
+            valid_points.append((int(x), int(y)))
+    
+    # Get edges from triangulation
+    edge_list = subdiv.getEdgeList()
+    
+    # Draw connections with gradient colors based on distance
+    for edge in edge_list:
+        x1, y1, x2, y2 = edge
+        p1 = (int(x1), int(y1))
+        p2 = (int(x2), int(y2))
+        
+        # Check bounds
+        if not (0 <= p1[0] < w and 0 <= p1[1] < h):
+            continue
+        if not (0 <= p2[0] < w and 0 <= p2[1] < h):
+            continue
+        
+        # Calculate distance
+        dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        
+        if dist > max_connect_dist:
+            continue
+        
+        # Color gradient based on distance: short=red, medium=orange/yellow, long=white
+        t = min(dist / max_connect_dist, 1.0)
+        
+        if t < 0.33:
+            # Red to orange
+            r = 255
+            g = int(100 * (t / 0.33))
+            b = int(50 * (t / 0.33))
+        elif t < 0.66:
+            # Orange to yellow/white
+            tt = (t - 0.33) / 0.33
+            r = 255
+            g = int(100 + 100 * tt)
+            b = int(50 + 100 * tt)
+        else:
+            # Yellow to white
+            tt = (t - 0.66) / 0.34
+            r = 255
+            g = int(200 + 55 * tt)
+            b = int(150 + 105 * tt)
+        
+        line_color = (b, g, r)  # BGR
+        thickness = max(1, 2 - int(t * 1.5))
+        
+        cv2.line(overlay, p1, p2, line_color, thickness, cv2.LINE_AA)
+    
+    # Draw nodes with glow
+    glow_layer = np.zeros_like(frame)
+    for idx, (px, py) in enumerate(valid_points):
+        # Glow (larger, blurred)
+        cv2.circle(glow_layer, (px, py), node_radius * 3, (255, 255, 200), -1)
+        
+        # Node point (cyan/white)
+        cv2.circle(overlay, (px, py), node_radius, (255, 255, 255), -1)
+        cv2.circle(overlay, (px, py), node_radius - 1, (255, 200, 100), -1)  # Cyan center
+    
+    # Blur glow layer
+    glow_layer = cv2.GaussianBlur(glow_layer, (21, 21), 0)
+    overlay = cv2.addWeighted(overlay, 1.0, glow_layer, 0.3, 0)
+    
+    # Draw labels
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    for idx, (px, py) in enumerate(valid_points):
+        label = f"codecore {idx + 1}"
+        label_y = max(py - 8, 12)
+        
+        # Shadow
+        cv2.putText(overlay, label, (px - 10 + 1, label_y + 1), font, label_scale, (0, 0, 0), 1, cv2.LINE_AA)
+        # Text
+        cv2.putText(overlay, label, (px - 10, label_y), font, label_scale, (255, 255, 255), 1, cv2.LINE_AA)
+    
+    # Blend with original
+    output = cv2.addWeighted(frame, 1.0 - blend_alpha * 0.3, overlay, blend_alpha, 0)
+    
+    # Also add overlay on top
+    mask = (overlay.sum(axis=2) > 0).astype(np.float32)
+    mask = np.stack([mask] * 3, axis=-1)
+    output = (output * (1 - mask * 0.6) + overlay * mask * 0.9).astype(np.uint8)
+    
+    return output
+
+
+# =============================================================================
+# CODESHADOW (ASCII/Matrix density effect)
+# =============================================================================
+
+def draw_code_shadow(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    CodeShadow: Dense ASCII characters forming the image.
+    
+    - Maps brightness to character density
+    - Red for dark/background, green for bright/subject
+    - Black background with CRT feel
+    """
+    h, w = frame.shape[:2]
+    
+    # Parameters
+    cell_size = preset.get("cell_size", 8)
+    char_palette = preset.get("char_palette", " .·:;=+*#@")
+    color_dark = preset.get("color_dark", (0, 0, 140))      # Deep red BGR
+    color_bright = preset.get("color_bright", (0, 200, 0))   # Green BGR
+    threshold_split = preset.get("threshold_split", 0.45)
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Enhance contrast
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
+    
+    # Create output canvas (black background)
+    output = np.zeros((h, w, 3), dtype=np.uint8)
+    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = cell_size / 18.0
+    
+    # Grid dimensions
+    rows = h // cell_size
+    cols = w // cell_size
+    
+    # Sample random characters for variety
+    random.seed(frame_idx + 42)
+    
+    # Map brightness to characters
+    for row in range(rows):
+        for col in range(cols):
+            # Sample center of cell
+            cy = row * cell_size + cell_size // 2
+            cx = col * cell_size + cell_size // 2
+            
+            if cy >= h or cx >= w:
+                continue
+            
+            # Get brightness (average of cell area)
+            y1, y2 = row * cell_size, min((row + 1) * cell_size, h)
+            x1, x2 = col * cell_size, min((col + 1) * cell_size, w)
+            cell_brightness = np.mean(gray[y1:y2, x1:x2]) / 255.0
+            
+            # Skip very dark areas (sparse)
+            if cell_brightness < 0.08:
+                continue
+            
+            # Choose character based on brightness
+            char_idx = int(cell_brightness * (len(char_palette) - 1))
+            char = char_palette[min(char_idx, len(char_palette) - 1)]
+            
+            # Add some randomness to characters for texture
+            if random.random() < 0.3:
+                char = random.choice("(){}[]<>/\\|!?@#$%&*+-=~")
+            
+            # Color: below threshold = red (background), above = green (subject)
+            if cell_brightness < threshold_split:
+                # Red with intensity variation
+                intensity = 0.4 + cell_brightness * 1.2
+                color = tuple(int(c * intensity) for c in color_dark)
+            else:
+                # Green with intensity variation
+                intensity = 0.5 + (cell_brightness - threshold_split) * 1.0
+                color = tuple(int(min(c * intensity, 255)) for c in color_bright)
+            
+            # Draw character
+            pos = (col * cell_size, (row + 1) * cell_size - 2)
+            cv2.putText(output, char, pos, font, font_scale, color, 1, cv2.LINE_AA)
+    
+    # Add subtle scanlines
+    for y in range(0, h, 3):
+        output[y, :] = (output[y, :] * 0.7).astype(np.uint8)
+    
+    return output
+
+
+# =============================================================================
+# BINARY BLOOM (0/1 digits on solid color background)
+# =============================================================================
+
+def draw_binary_bloom(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Binary Bloom: Subject isolation with 0/1 digits on solid background.
+    
+    - Vivid blue solid background
+    - Subject mask filled with white 0s and 1s
+    - Pink/magenta accent markers scattered
+    """
+    h, w = frame.shape[:2]
+    
+    # Parameters
+    bg_color = preset.get("bg_color", (255, 100, 0))       # Vivid blue BGR
+    digit_color = preset.get("digit_color", (255, 255, 255))  # White
+    accent_color = preset.get("accent_color", (180, 100, 255))  # Pink/magenta
+    grid_step = preset.get("grid_step", 14)
+    accent_ratio = preset.get("accent_ratio", 0.08)
+    font_scale = preset.get("binary_font_scale", 0.38)
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Subject isolation using edge detection + morphology
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    
+    # Edge detection
+    edges = cv2.Canny(enhanced, 30, 100)
+    
+    # Heavy dilation to fill subject
+    kernel = np.ones((25, 25), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=3)
+    dilated = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel, iterations=2)
+    
+    # Find largest contour (main subject)
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    subject_mask = np.zeros((h, w), dtype=np.uint8)
+    center_x, center_y = w // 2, h // 2
+    
+    if contours:
+        best_contour = None
+        best_score = 0
+        
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < h * w * 0.02:  # At least 2% of frame
+                continue
+            
+            M = cv2.moments(contour)
+            if M["m00"] > 0:
+                cx = int(M["m10"] / M["m00"])
+                cy = int(M["m01"] / M["m00"])
+                
+                # Favor central subjects
+                dist = np.sqrt((cx - center_x)**2 + (cy - center_y)**2)
+                max_dist = np.sqrt(center_x**2 + center_y**2)
+                centrality = 1.0 - (dist / max_dist)
+                
+                score = area * (0.3 + 0.7 * centrality)
+                
+                if score > best_score:
+                    best_score = score
+                    best_contour = contour
+        
+        if best_contour is not None:
+            hull = cv2.convexHull(best_contour)
+            cv2.fillPoly(subject_mask, [hull], 255)
+    
+    # Fallback: center ellipse
+    if np.sum(subject_mask) < h * w * 0.02 * 255:
+        cv2.ellipse(subject_mask, (center_x, center_y), (w//3, h//2), 0, 0, 360, 255, -1)
+    
+    # Create solid background
+    output = np.full((h, w, 3), bg_color, dtype=np.uint8)
+    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    random.seed(frame_idx + 123)
+    
+    # Draw binary digits inside subject mask
+    accent_positions = []
+    for row in range(0, h, grid_step):
+        for col in range(0, w, grid_step):
+            # Check if inside subject
+            if row >= h or col >= w:
+                continue
+            if subject_mask[row, col] == 0:
+                continue
+            
+            # Choose 0 or 1
+            digit = str(random.randint(0, 1))
+            
+            # Draw digit
+            pos = (col, row + grid_step - 3)
+            cv2.putText(output, digit, pos, font, font_scale, digit_color, 1, cv2.LINE_AA)
+            
+            # Mark some positions for accent
+            if random.random() < accent_ratio:
+                accent_positions.append((col + grid_step // 2, row + grid_step // 2))
+    
+    # Draw accent markers (small pink circles)
+    for (ax, ay) in accent_positions:
+        cv2.circle(output, (ax, ay), 3, accent_color, -1)
+    
+    return output
