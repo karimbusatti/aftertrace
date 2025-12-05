@@ -75,40 +75,40 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
           disabled={disabled}
         />
         
-        {fileName ? (
+          {fileName ? (
           <div className="text-center px-4">
             <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center mx-auto mb-3">
               <span className="text-accent text-xl">✓</span>
             </div>
             <p className="text-white font-medium truncate max-w-[250px]">
-              {fileName}
-            </p>
+                {fileName}
+              </p>
             <p className="text-text-muted text-sm mt-1">
               tap to change
-            </p>
+              </p>
           </div>
-        ) : (
+          ) : (
           <div className="text-center">
             <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-3">
               <span className="text-2xl">↑</span>
             </div>
             <p className="text-white font-medium">
               upload a clip
-            </p>
+              </p>
             <p className="text-text-secondary text-sm mt-1">
               drag & drop, tap to browse, or record
-            </p>
-            <p className="text-text-muted text-xs mt-2">
+              </p>
+          <p className="text-text-muted text-xs mt-2">
               processed server-side, deleted after download
-            </p>
-          </div>
+          </p>
+        </div>
         )}
       </div>
-      
+
       {error && (
         <p className="text-danger text-sm mt-2">
-          {error}
-        </p>
+            {error}
+          </p>
       )}
     </div>
   );
