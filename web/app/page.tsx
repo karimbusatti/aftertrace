@@ -19,6 +19,7 @@ export default function Home() {
   // Sequence mode state
   const [mode, setMode] = useState<'single' | 'sequence'>('single');
   const [sequence, setSequence] = useState<string[]>([]);
+  const [maxSlots, setMaxSlots] = useState(3); // Default 3 slots, can choose 2-5
 
   const handleSubmit = async () => {
     if (!file) return;
@@ -93,6 +94,8 @@ export default function Home() {
                 onModeChange={setMode}
                 sequence={sequence}
                 onSequenceChange={setSequence}
+                maxSlots={maxSlots}
+                onMaxSlotsChange={setMaxSlots}
                 disabled={isLoading}
               />
             </div>

@@ -90,8 +90,8 @@ export async function processVideo(
   if (composition && composition.length > 0) {
     // Send composition as JSON string if using sequence mode
     formData.append("composition", JSON.stringify(composition));
-    // Preset is ignored in backend but good to send fallback
-    formData.append("preset", "composition");
+    // Send first effect as fallback preset (backend needs valid preset for tracking params)
+    formData.append("preset", composition[0].effect_id);
   } else {
     formData.append("preset", preset);
   }

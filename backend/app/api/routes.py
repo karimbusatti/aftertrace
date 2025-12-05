@@ -98,20 +98,34 @@ async def process_video_endpoint(
     file: UploadFile = File(...),
     preset: Optional[str] = Form(default="grid_trace"),
     overlay_mode: bool = Form(default=False),
+    composition: Optional[str] = Form(default=None),
 ):
     """
     Process a video with Aftertrace visual effects.
     
     Args:
         file: Video file (mp4, mov, webm, etc.)
-        preset: Visual preset name
+        preset: Visual preset name (used as fallback if composition is provided)
         overlay_mode: If true, blend effects at 40% over original video
+        composition: JSON string of effect sequence (optional)
     
     Returns:
         Processing metadata and download info.
     """
-    # Validate preset
-    if preset not in PRESETS:
+    # Parse composition if provided
+    composition_list = None
+    if composition:
+        import json
+        try:
+            composition_list = json.loads(composition)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid composition format. Expected JSON array."
+            )
+    
+    # Validate preset (only if not using composition)
+    if not composition_list and preset not in PRESETS:
         raise HTTPException(
             status_code=400,
             detail=f"Unknown preset '{preset}'. Available: {list(PRESETS.keys())}"
@@ -145,6 +159,7 @@ async def process_video_endpoint(
             preset=preset,
             overlay_mode=overlay_mode,
             original_output_path=str(original_path),
+            composition=composition_list,
         )
         
         # Clean up input file

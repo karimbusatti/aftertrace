@@ -6,9 +6,10 @@ interface SequenceTimelineProps {
   sequence: string[];
   presets: { id: string; name: string; color?: string }[];
   onRemove: (index: number) => void;
+  maxSlots: number;
 }
 
-export function SequenceTimeline({ sequence, presets, onRemove }: SequenceTimelineProps) {
+export function SequenceTimeline({ sequence, presets, onRemove, maxSlots }: SequenceTimelineProps) {
   // Helper to get preset name
   const getPresetName = (id: string) => {
     const preset = presets.find((p) => p.id === id);
@@ -16,19 +17,19 @@ export function SequenceTimeline({ sequence, presets, onRemove }: SequenceTimeli
   };
 
   return (
-    <div className="mb-6">
+    <div className="mb-4">
       <div className="flex justify-between items-center mb-2">
         <span className="text-text-muted text-xs font-mono uppercase tracking-widest">
-          Sequence ({sequence.length}/4)
+          Sequence ({sequence.length}/{maxSlots})
         </span>
         {sequence.length === 0 && (
           <span className="text-text-muted text-xs italic opacity-50">
-            Select effects to build chain
+            tap effects to build chain
           </span>
         )}
       </div>
 
-      <div className="grid grid-cols-4 gap-2 h-12">
+      <div className={`grid gap-2 h-12`} style={{ gridTemplateColumns: `repeat(${maxSlots}, 1fr)` }}>
         <AnimatePresence mode="popLayout">
           {sequence.map((effectId, index) => (
             <motion.div
@@ -70,7 +71,7 @@ export function SequenceTimeline({ sequence, presets, onRemove }: SequenceTimeli
         </AnimatePresence>
 
         {/* Empty slots */}
-        {Array.from({ length: Math.max(0, 4 - sequence.length) }).map((_, i) => (
+        {Array.from({ length: Math.max(0, maxSlots - sequence.length) }).map((_, i) => (
           <div
             key={`empty-${i}`}
             className="h-full border border-white/5 rounded-lg flex items-center justify-center border-dashed"

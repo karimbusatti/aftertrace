@@ -40,6 +40,8 @@ interface PresetPickerProps {
   onModeChange: (mode: 'single' | 'sequence') => void;
   sequence: string[];
   onSequenceChange: (seq: string[]) => void;
+  maxSlots: number;
+  onMaxSlotsChange: (slots: number) => void;
 }
 
 export function PresetPicker({ 
@@ -49,7 +51,9 @@ export function PresetPicker({
   mode,
   onModeChange,
   sequence,
-  onSequenceChange
+  onSequenceChange,
+  maxSlots,
+  onMaxSlotsChange
 }: PresetPickerProps) {
   
   const handlePresetClick = (presetId: string) => {
@@ -57,9 +61,17 @@ export function PresetPicker({
       onChange(presetId);
     } else {
       // Sequence mode: append if under limit
-      if (sequence.length < 4) {
+      if (sequence.length < maxSlots) {
         onSequenceChange([...sequence, presetId]);
       }
+    }
+  };
+  
+  // When maxSlots changes, trim sequence if needed
+  const handleMaxSlotsChange = (newMax: number) => {
+    onMaxSlotsChange(newMax);
+    if (sequence.length > newMax) {
+      onSequenceChange(sequence.slice(0, newMax));
     }
   };
 
@@ -106,10 +118,32 @@ export function PresetPicker({
       {/* Sequence Timeline (only in sequence mode) */}
       {mode === 'sequence' && (
         <div className="animate-fade-in">
+          {/* Slot count selector */}
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-text-muted text-xs">Effects in sequence:</span>
+            <div className="flex gap-1">
+              {[2, 3, 4, 5].map((num) => (
+                <button
+                  key={num}
+                  onClick={() => handleMaxSlotsChange(num)}
+                  disabled={disabled}
+                  className={`w-7 h-7 rounded-md text-xs font-medium transition-all duration-150
+                    ${maxSlots === num 
+                      ? 'bg-accent text-white' 
+                      : 'bg-white/5 text-text-secondary hover:bg-white/10 hover:text-white'
+                    }`}
+                >
+                  {num}
+                </button>
+              ))}
+            </div>
+          </div>
+          
           <SequenceTimeline 
             sequence={sequence} 
             presets={ALL_PRESETS}
             onRemove={handleRemoveFromSequence}
+            maxSlots={maxSlots}
           />
         </div>
       )}
@@ -124,7 +158,7 @@ export function PresetPicker({
             <button
               key={preset.id}
               onClick={() => handlePresetClick(preset.id)}
-              disabled={disabled || (mode === 'sequence' && sequence.length >= 4)}
+              disabled={disabled || (mode === 'sequence' && sequence.length >= maxSlots)}
               className={`
                 py-2.5 px-3 rounded-lg text-left transition-all duration-200 group
                 active:scale-[0.98] hover:scale-[1.01]
@@ -162,7 +196,7 @@ export function PresetPicker({
             <button
               key={preset.id}
               onClick={() => handlePresetClick(preset.id)}
-              disabled={disabled || (mode === 'sequence' && sequence.length >= 4)}
+              disabled={disabled || (mode === 'sequence' && sequence.length >= maxSlots)}
               className={`
                 py-2 px-3 rounded-lg text-center text-xs transition-all duration-200
                 active:scale-[0.96] hover:scale-[1.03]
