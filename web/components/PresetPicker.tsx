@@ -47,11 +47,22 @@ const MAIN_PRESETS: Preset[] = [
       </div>
     )
   },
-  { id: "blob_track", name: "Blob Track", description: "coordinate tracking" },
+  { 
+    id: "blob_track", 
+    name: "Blob Track", 
+    description: "coordinate tracking",
+    icon: (
+      <svg className="w-6 h-6 text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+        <path d="M10 6.5 L14 17.5" strokeDasharray="2 2" />
+      </svg>
+    )
+  },
 ];
 
 const SECONDARY_PRESETS: Preset[] = [
-  { id: "code_shadow", name: "CodeShadow", description: "ascii matrix" },
+  { id: "code_shadow", name: "Code Shadow", description: "ascii matrix" },
   { id: "contour_trace", name: "Ghost Trace", description: "edge silhouette" },
   { id: "data_body", name: "Matrix Mode", description: "data rain" },
   { id: "particle_silhouette", name: "Particle Cloud", description: "ethereal" },
@@ -301,7 +312,7 @@ export function PresetPicker({
                 py-2 px-3 rounded-lg text-center text-xs transition-all duration-200
                 active:scale-[0.96] hover:scale-[1.03]
                 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:active:scale-100
-                flex-1 min-w-[70px] max-w-[100px]
+                flex-1 min-w-[70px] max-w-[115px]
                 ${isSelected
                   ? "bg-white/10 border border-white/30 text-white" 
                   : "bg-white/5 border border-transparent text-text-secondary hover:bg-white/8 hover:text-white"

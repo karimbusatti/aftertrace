@@ -52,6 +52,49 @@ from .face_detection import FaceDetector
 # COMPOSITION HELPERS
 # =============================================================================
 
+def build_sequence_composition(
+    effects: list[str],
+    segment_duration_s: float,
+    total_frames: int,
+    fps: float,
+) -> list[dict]:
+    """
+    Build composition segments from a list of effects that alternate over time.
+    
+    Args:
+        effects: List of effect IDs to cycle through
+        segment_duration_s: Duration of each segment in seconds
+        total_frames: Total frames in the video
+        fps: Video frame rate
+    
+    Returns:
+        List of composition segments with effect_id, start, end (ratios 0-1)
+    """
+    if not effects:
+        return []
+    
+    segment_frames = max(1, int(segment_duration_s * fps))
+    composition = []
+    frame_idx = 0
+    effect_idx = 0
+    
+    while frame_idx < total_frames:
+        start_ratio = frame_idx / total_frames
+        end_frame = min(frame_idx + segment_frames, total_frames)
+        end_ratio = end_frame / total_frames
+        
+        composition.append({
+            "effect_id": effects[effect_idx % len(effects)],
+            "start": start_ratio,
+            "end": end_ratio,
+        })
+        
+        frame_idx = end_frame
+        effect_idx += 1
+    
+    return composition
+
+
 def get_frame_effects(
     frame_ratio: float,
     composition: list[dict],
@@ -171,6 +214,10 @@ def process_video(
     original_output_path: str | None = None,
     composition: list[dict] | None = None,
     crossfade_ratio: float = 0.05,
+    # New sequence mode parameters
+    mode: str | None = "single",
+    effects: list[str] | None = None,
+    segment_duration_s: float | None = 0.5,
 ) -> ProcessingMetadata:
     """
     Process a video with Aftertrace visual effects.
@@ -178,55 +225,60 @@ def process_video(
     Args:
         input_path: Path to input video file
         output_path: Path for output video file
-        preset: Preset name (str) or custom preset dict (ignored if composition is set)
+        preset: Preset name (str) or custom preset dict (for single mode)
         overlay_mode: If True, blend effects at ~40% over original video
                       If False, replace background with darkened version (default)
         return_metadata: Whether to compute and return metadata
         original_output_path: If provided, save a re-encoded copy of original here
-        composition: Optional list of effect segments for multi-effect mode
+        composition: Optional list of effect segments for multi-effect mode (legacy)
                      Each segment: {"effect_id": str, "start": float, "end": float}
-                     "clean" = original video, other values = preset names
         crossfade_ratio: Overlap ratio at segment boundaries (default 5%)
+        mode: "single" or "sequence"
+        effects: List of effect IDs for sequence mode
+        segment_duration_s: Duration of each segment in sequence mode (seconds)
     
     Returns:
         ProcessingMetadata with stats about the processing.
     
-    How it works:
-    -------------
-    For each frame:
-      1. Check if this is a "spawn frame" (beat/onset detected)
-      2. If spawn frame: detect new feature points on edges
-      3. Track existing points with Lucas-Kanade optical flow
-      4. Age points, kill old ones, fade trails
-      5. Draw the frame: trails, points, connections, effects
-      6. Write frame to output
-    
-    Composition mode:
-    -----------------
-    When `composition` is provided, the video is split into segments,
-    each with a different effect. Crossfade blending occurs at segment
-    boundaries for smooth transitions.
-    
-    Preset controls (single effect mode):
-    -------------------------------------
-    - spawn_per_beat: Points spawned per beat/onset
-    - max_points: Cap on simultaneous tracked points
-    - life_frames: How long points live before dying
-    - trail_length: How much position history to keep
-    - shape: circle, square, diamond, cross
-    - connect_points: Whether to draw grid lines
-    - color_mode: Color palette name
-    - blur_radius: Gaussian blur for soft effects
-    - scanlines: CRT-style scanlines overlay
+    Modes:
+    ------
+    - Single mode: Apply one effect to the entire video
+    - Sequence mode: Alternate between effects every segment_duration_s seconds
+    - Composition mode (legacy): Use explicit composition segments
     """
     start_time = time.time()
     metadata = ProcessingMetadata()
     
     # =========================================================================
-    # COMPOSITION MODE SETUP
+    # STEP 1: Open input video (need fps/frames for sequence mode)
     # =========================================================================
-    composition_mode = composition is not None and len(composition) > 0
+    cap = cv2.VideoCapture(input_path)
+    if not cap.isOpened():
+        raise ValueError(f"Could not open video: {input_path}")
+    
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    metadata.duration_seconds = total_frames / fps if fps > 0 else 0
+    
+    # =========================================================================
+    # MODE SETUP: Single, Sequence, or Composition
+    # =========================================================================
     preset_cache: dict[str, dict] = {}
+    
+    # Build composition from sequence mode if needed
+    if mode == "sequence" and effects and len(effects) > 0:
+        composition = build_sequence_composition(
+            effects=effects,
+            segment_duration_s=segment_duration_s or 0.5,
+            total_frames=total_frames,
+            fps=fps,
+        )
+        print(f"[process] Sequence mode: {len(effects)} effects, {segment_duration_s}s segments")
+    
+    composition_mode = composition is not None and len(composition) > 0
     
     if composition_mode:
         # Build preset cache for all effects in composition
@@ -237,7 +289,7 @@ def process_video(
                 preset_cache[eff_id] = validate_preset(get_preset(eff_id))
             effect_names.append(eff_id)
         
-        preset_name = f"composition({','.join(effect_names)})"
+        preset_name = f"sequence({','.join(set(effect_names))})"
         # Use first non-clean effect as primary config for tracking params
         primary_effect = next((e for e in effect_names if e != "clean"), "grid_trace")
         preset_config = preset_cache.get(primary_effect, validate_preset(get_preset("grid_trace")))
@@ -256,22 +308,8 @@ def process_video(
         preset_cache[preset_name] = preset_config
         metadata.preset_used = preset_name
     
-    # =========================================================================
-    # STEP 1: Open input video
-    # =========================================================================
-    cap = cv2.VideoCapture(input_path)
-    if not cap.isOpened():
-        raise ValueError(f"Could not open video: {input_path}")
-    
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    
-    metadata.duration_seconds = total_frames / fps if fps > 0 else 0
-    
     print(f"[process] Input: {width}x{height} @ {fps:.1f}fps, {total_frames} frames")
-    print(f"[process] Preset: {preset_name}, overlay_mode: {overlay_mode}")
+    print(f"[process] Mode: {mode}, Preset: {preset_name}, overlay: {overlay_mode}")
     
     # =========================================================================
     # STEP 2: Extract and analyze audio

@@ -98,6 +98,11 @@ async def process_video_endpoint(
     file: UploadFile = File(...),
     preset: Optional[str] = Form(default="grid_trace"),
     overlay_mode: bool = Form(default=False),
+    # New sequence mode parameters
+    mode: Optional[str] = Form(default="single"),
+    effects: Optional[str] = Form(default=None),  # JSON array of effect IDs
+    segment_duration_s: Optional[float] = Form(default=0.5),
+    # Legacy composition support
     composition: Optional[str] = Form(default=None),
 ):
     """
@@ -105,17 +110,32 @@ async def process_video_endpoint(
     
     Args:
         file: Video file (mp4, mov, webm, etc.)
-        preset: Visual preset name (used as fallback if composition is provided)
+        preset: Visual preset name (for single mode)
         overlay_mode: If true, blend effects at 40% over original video
-        composition: JSON string of effect sequence (optional)
+        mode: "single" or "sequence"
+        effects: JSON array of effect IDs (for sequence mode)
+        segment_duration_s: Duration of each effect segment in sequence mode
+        composition: Legacy JSON string of effect sequence (deprecated)
     
     Returns:
         Processing metadata and download info.
     """
-    # Parse composition if provided
+    import json
+    
+    # Parse effects list for sequence mode
+    effects_list = None
+    if effects:
+        try:
+            effects_list = json.loads(effects)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid effects format. Expected JSON array."
+            )
+    
+    # Parse legacy composition if provided
     composition_list = None
     if composition:
-        import json
         try:
             composition_list = json.loads(composition)
         except json.JSONDecodeError:
@@ -124,12 +144,22 @@ async def process_video_endpoint(
                 detail="Invalid composition format. Expected JSON array."
             )
     
-    # Validate preset (only if not using composition)
-    if not composition_list and preset not in PRESETS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown preset '{preset}'. Available: {list(PRESETS.keys())}"
-        )
+    # Validate preset for single mode
+    if mode == "single" and not composition_list:
+        if preset not in PRESETS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown preset '{preset}'. Available: {list(PRESETS.keys())}"
+            )
+    
+    # Validate effects for sequence mode
+    if mode == "sequence" and effects_list:
+        for eff in effects_list:
+            if eff not in PRESETS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown effect '{eff}' in sequence. Available: {list(PRESETS.keys())}"
+                )
     
     # Generate unique ID for this job
     job_id = str(uuid.uuid4())[:8]
@@ -160,6 +190,10 @@ async def process_video_endpoint(
             overlay_mode=overlay_mode,
             original_output_path=str(original_path),
             composition=composition_list,
+            # New sequence mode params
+            mode=mode,
+            effects=effects_list,
+            segment_duration_s=segment_duration_s,
         )
         
         # Clean up input file
