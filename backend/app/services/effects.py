@@ -2125,94 +2125,34 @@ def draw_binary_bloom(
     """
     Binary Bloom: 0/1 digits inside subject silhouette on solid background.
     
-    Uses edge-based detection (Canny + morphology) for robust subject isolation.
-    Rejects masks that are too large (>85% of frame) to avoid full-frame noise.
+    Uses the SAME brightness-threshold approach as draw_data_body / 
+    draw_particle_silhouette for reliable subject detection.
+    Digits appear only where pixel brightness exceeds threshold.
     """
     h, w = frame.shape[:2]
     
     # Parameters
     bg_color = preset.get("bg_color", (160, 40, 0))         # Deep blue BGR
     digit_color = preset.get("digit_color", (255, 255, 255))
-    edge_color = preset.get("edge_color", (255, 255, 255))
     accent_color = preset.get("accent_color", (200, 50, 255))
     grid_step = preset.get("grid_step", 8)
-    edge_grid_step = preset.get("edge_grid_step", 5)
     font_scale = preset.get("binary_font_scale", 0.35)
-    edge_font_scale = preset.get("edge_font_scale", 0.40)
+    # Same threshold approach as draw_data_body (line 523)
+    min_brightness = preset.get("min_brightness", 40)
     
+    # Convert to grayscale for brightness sampling (same as data_body/particle_silhouette)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # =========================================================================
-    # SUBJECT ISOLATION using edge-based detection (more robust than Otsu)
+    # SUBJECT MASK using brightness threshold (like draw_data_body)
     # =========================================================================
-    
-    # 1. Enhance contrast with CLAHE
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray)
-    
-    # 2. Edge detection
-    edges = cv2.Canny(enhanced, 30, 100)
-    
-    # 3. Heavy dilation to connect edges into solid regions
-    kernel_large = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
-    dilated = cv2.dilate(edges, kernel_large, iterations=3)
-    
-    # 4. Close gaps and fill
-    dilated = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel_large, iterations=2)
-    
-    # 5. Find contours and keep ONLY the largest central one
-    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    subject_mask = np.zeros((h, w), dtype=np.uint8)
-    center_x, center_y = w // 2, h // 2
-    min_area = h * w * 0.05   # Subject must be at least 5% of frame
-    max_area = h * w * 0.85   # But not more than 85% (avoids full-frame)
-    
-    if contours:
-        best_contour = None
-        best_score = 0
-        
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area < min_area or area > max_area:
-                continue
-            
-            M = cv2.moments(contour)
-            if M["m00"] > 0:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                
-                # Prefer central contours
-                dist = np.sqrt((cx - center_x)**2 + (cy - center_y)**2)
-                max_dist = np.sqrt(center_x**2 + center_y**2)
-                centrality = 1.0 - (dist / max_dist)
-                
-                score = area * (0.3 + 0.7 * centrality)
-                
-                if score > best_score:
-                    best_score = score
-                    best_contour = contour
-        
-        if best_contour is not None:
-            # Fill with convex hull for cleaner silhouette
-            hull = cv2.convexHull(best_contour)
-            cv2.fillPoly(subject_mask, [hull], 255)
-    
-    # Fallback: center ellipse (smaller than before to avoid full frame)
-    mask_coverage = np.sum(subject_mask > 0) / (h * w)
-    if mask_coverage < 0.03:
-        cv2.ellipse(subject_mask, (center_x, center_y), (w//4, h//3), 0, 0, 360, 255, -1)
-        mask_coverage = np.sum(subject_mask > 0) / (h * w)
+    # This is the same approach used by:
+    # - draw_data_body: gray[cy, cx] > min_brightness
+    # - draw_particle_silhouette: gray > brightness_threshold
+    subject_mask = gray > min_brightness
     
     # =========================================================================
-    # EDGE DETECTION for denser outline
-    # =========================================================================
-    kernel_small = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    edge_mask = cv2.Canny(subject_mask, 50, 150)
-    edge_mask = cv2.dilate(edge_mask, kernel_small, iterations=2)
-    
-    # =========================================================================
-    # DRAW OUTPUT
+    # DRAW OUTPUT - solid blue background
     # =========================================================================
     output = np.full((h, w, 3), bg_color, dtype=np.uint8)
     
@@ -2220,33 +2160,39 @@ def draw_binary_bloom(
     # Stable random seed (updates every ~100ms / 3 frames) for gentle flicker
     random.seed(frame_idx // 3 + 42)
     
-    # Interior 0/1s (sparse, slightly dimmer)
-    for row in range(0, h, grid_step):
-        for col in range(0, w, grid_step):
-            if subject_mask[row, col] == 0:
+    # Pre-compute grid positions using NumPy (vectorized)
+    rows = np.arange(0, h, grid_step)
+    cols = np.arange(0, w, grid_step)
+    
+    # Draw 0/1 digits only inside subject (where brightness > threshold)
+    for row in rows:
+        for col in cols:
+            # Sample brightness at cell center (same as draw_data_body)
+            cy = min(row + grid_step // 2, h - 1)
+            cx = min(col + grid_step // 2, w - 1)
+            
+            # Only draw inside subject (bright pixels)
+            if not subject_mask[cy, cx]:
                 continue
-            if edge_mask[row, col] > 0:
-                continue  # Skip edges, draw them denser below
             
             digit = "0" if random.random() < 0.5 else "1"
             pos = (col, row + grid_step - 2)
-            cv2.putText(output, digit, pos, font, font_scale, (220, 220, 220), 1, cv2.LINE_AA)
-    
-    # Edge 0/1s (dense, bright white)
-    for row in range(0, h, edge_grid_step):
-        for col in range(0, w, edge_grid_step):
-            if edge_mask[row, col] == 0:
-                continue
             
-            digit = "0" if random.random() < 0.5 else "1"
-            pos = (col, row + edge_grid_step - 1)
-            cv2.putText(output, digit, pos, font, edge_font_scale, edge_color, 1, cv2.LINE_AA)
+            # Brightness-scaled color (brighter subject = brighter digit)
+            brightness = gray[cy, cx]
+            intensity = min(255, int(180 + brightness * 0.3))
+            color = (intensity, intensity, intensity)
+            
+            cv2.putText(output, digit, pos, font, font_scale, color, 1, cv2.LINE_AA)
     
-    # Accent dots (sparse pink markers inside subject)
-    for _ in range(min(int(mask_coverage * 100), 40)):
-        ay = random.randint(0, h - 1)
-        ax = random.randint(0, w - 1)
-        if subject_mask[ay, ax] > 0:
-            cv2.circle(output, (ax, ay), 2, accent_color, -1)
+    # Sparse accent markers inside subject (vectorized selection)
+    subject_coords = np.column_stack(np.where(subject_mask))
+    if len(subject_coords) > 0:
+        num_accents = min(30, len(subject_coords) // 100)
+        if num_accents > 0:
+            indices = np.random.choice(len(subject_coords), size=num_accents, replace=False)
+            for idx in indices:
+                ay, ax = subject_coords[idx]
+                cv2.circle(output, (int(ax), int(ay)), 2, accent_color, -1)
     
     return output
