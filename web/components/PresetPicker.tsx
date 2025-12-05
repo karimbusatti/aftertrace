@@ -27,7 +27,7 @@ const MAIN_PRESETS: Preset[] = [
     )
   },
   { 
-    id: "motion_flow", 
+    id: "motion_trace",  // Backend uses motion_trace
     name: "Motion Flow", 
     description: "curving lines trace movement",
     icon: (
@@ -275,7 +275,7 @@ export function PresetPicker({
                       >
                         {preset.icon}
                       </motion.div>
-                    ) : preset.id === "motion_flow" ? (
+                    ) : preset.id === "motion_trace" ? (
                       <motion.div 
                         animate={{ x: [0, 2, 0] }}
                         transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
