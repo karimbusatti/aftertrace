@@ -269,16 +269,34 @@ def process_video(
     preset_cache: dict[str, dict] = {}
     
     # Build composition from sequence mode if needed
-    if mode == "sequence" and effects and len(effects) > 0:
-        composition = build_sequence_composition(
-            effects=effects,
-            segment_duration_s=segment_duration_s or 0.5,
-            total_frames=total_frames,
-            fps=fps,
-        )
-        print(f"[process] Sequence mode: {len(effects)} effects, {segment_duration_s}s segments")
+    if mode == "sequence" and effects:
+        if len(effects) == 0:
+            print(f"[process] WARNING: sequence mode but empty effects list, falling back to single")
+        else:
+            # Smart default for segment_duration_s: if missing/0, divide video evenly
+            video_duration = total_frames / fps if fps > 0 else 10.0
+            if not segment_duration_s or segment_duration_s <= 0:
+                segment_duration_s = max(0.25, video_duration / len(effects))
+                print(f"[process] Auto segment_duration_s = {segment_duration_s:.2f}s (video={video_duration:.1f}s / {len(effects)} effects)")
+            
+            composition = build_sequence_composition(
+                effects=effects,
+                segment_duration_s=segment_duration_s,
+                total_frames=total_frames,
+                fps=fps,
+            )
+            print(f"[process] Sequence mode: {len(effects)} effects, {segment_duration_s}s segments")
+            print(f"[process] Built {len(composition)} composition segments:")
+            for i, seg in enumerate(composition[:5]):  # Show first 5
+                print(f"[process]   [{i}] {seg['effect_id']}: {seg['start']:.3f} - {seg['end']:.3f}")
+            if len(composition) > 5:
+                print(f"[process]   ... and {len(composition) - 5} more segments")
     
     composition_mode = composition is not None and len(composition) > 0
+    
+    # Extra debug for sequence mode troubleshooting
+    if mode == "sequence":
+        print(f"[process] composition_mode={composition_mode}, composition length={len(composition) if composition else 0}")
     
     if composition_mode:
         # Build preset cache for all effects in composition
@@ -296,6 +314,16 @@ def process_video(
         
         metadata.composition_mode = True
         metadata.preset_used = preset_name
+        
+        # Record segments for frontend display
+        metadata.segments_applied = [
+            {
+                "effect": seg["effect_id"],
+                "start_frame": int(seg["start"] * total_frames),
+                "end_frame": int(seg["end"] * total_frames),
+            }
+            for seg in composition
+        ]
     else:
         # Single effect mode
         if isinstance(preset, str):
@@ -410,9 +438,15 @@ def process_video(
         if composition_mode:
             # Multi-effect composition
             frame_ratio = frame_idx / max(total_frames - 1, 1)
-            effects = get_frame_effects(frame_ratio, composition, crossfade_ratio)
+            frame_effects = get_frame_effects(frame_ratio, composition, crossfade_ratio)
+            
+            # Log effect transitions (first frame of each new effect)
+            if frame_idx == 0 or (frame_idx % 30 == 0):
+                effect_names = [f"{e[0]}({e[1]:.1f})" for e in frame_effects]
+                print(f"[process] Frame {frame_idx}: {', '.join(effect_names)}")
+            
             output_frame = apply_composed_frame(
-                frame, effects, preset_cache, frame_idx, tracker, face_data, overlay_mode
+                frame, frame_effects, preset_cache, frame_idx, tracker, face_data, overlay_mode
             )
         else:
             # Single effect mode

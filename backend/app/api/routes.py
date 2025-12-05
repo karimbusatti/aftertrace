@@ -161,6 +161,9 @@ async def process_video_endpoint(
                     detail=f"Unknown effect '{eff}' in sequence. Available: {list(PRESETS.keys())}"
                 )
     
+    # DEBUG: Log received parameters
+    print(f"[API /process] mode={mode}, preset={preset}, effects_list={effects_list}, segment_duration_s={segment_duration_s}")
+    
     # Generate unique ID for this job
     job_id = str(uuid.uuid4())[:8]
     
