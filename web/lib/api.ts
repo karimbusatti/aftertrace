@@ -82,17 +82,22 @@ export async function processVideo(
   file: File,
   preset: string,
   overlayMode: boolean = false,
-  composition: CompositionSegment[] | null = null
+  sequenceConfig: { effects: string[]; segmentDuration: number } | null = null
 ): Promise<ProcessResponse> {
   const formData = new FormData();
   formData.append("file", file);
   
-  if (composition && composition.length > 0) {
-    // Send composition as JSON string if using sequence mode
-    formData.append("composition", JSON.stringify(composition));
-    // Send first effect as fallback preset (backend needs valid preset for tracking params)
-    formData.append("preset", composition[0].effect_id);
+  if (sequenceConfig && sequenceConfig.effects.length > 0) {
+    // New Sequence Mode Payload
+    formData.append("mode", "sequence");
+    formData.append("effects", JSON.stringify(sequenceConfig.effects));
+    formData.append("segment_duration_s", sequenceConfig.segmentDuration.toString());
+    
+    // Fallback preset for backend tracking initialization (use first effect)
+    formData.append("preset", sequenceConfig.effects[0]);
   } else {
+    // Standard Single Preset Mode
+    formData.append("mode", "single");
     formData.append("preset", preset);
   }
   
@@ -109,23 +114,6 @@ export async function processVideo(
   }
 
   return res.json();
-}
-
-/**
- * Helper to split a sequence of preset IDs into equal time segments.
- * e.g., ['a', 'b'] -> [{effect_id: 'a', start: 0, end: 0.5}, {effect_id: 'b', start: 0.5, end: 1}]
- */
-export function buildComposition(sequence: string[]): CompositionSegment[] {
-  if (!sequence.length) return [];
-  
-  const count = sequence.length;
-  const durationPerSegment = 1.0 / count;
-  
-  return sequence.map((effectId, index) => ({
-    effect_id: effectId,
-    start: index * durationPerSegment,
-    end: (index + 1) * durationPerSegment,
-  }));
 }
 
 export function getDownloadUrl(jobId: string): string {

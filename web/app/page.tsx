@@ -5,7 +5,7 @@ import { UploadZone } from "@/components/UploadZone";
 import { PresetPicker } from "@/components/PresetPicker";
 import { ResultPanel } from "@/components/ResultPanel";
 import { TipsSheet } from "@/components/TipsSheet";
-import { processVideo, type ProcessResponse, buildComposition } from "@/lib/api";
+import { processVideo, type ProcessResponse } from "@/lib/api";
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -20,6 +20,7 @@ export default function Home() {
   const [mode, setMode] = useState<'single' | 'sequence'>('single');
   const [sequence, setSequence] = useState<string[]>([]);
   const [maxSlots, setMaxSlots] = useState(3); // Default 3 slots, can choose 2-5
+  const [segmentDuration, setSegmentDuration] = useState(0.5); // Default 0.5s per segment
 
   const handleSubmit = async () => {
     if (!file) return;
@@ -30,10 +31,13 @@ export default function Home() {
     setResult(null);
 
     try {
-      // Build composition if in sequence mode
-      const composition = mode === 'sequence' ? buildComposition(sequence) : null;
+      // Build sequence config if in sequence mode
+      const sequenceConfig = mode === 'sequence' ? {
+        effects: sequence,
+        segmentDuration: segmentDuration
+      } : null;
       
-      const response = await processVideo(file, preset, false, composition);
+      const response = await processVideo(file, preset, false, sequenceConfig);
       setResult(response);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Something went wrong";
@@ -96,6 +100,8 @@ export default function Home() {
                 onSequenceChange={setSequence}
                 maxSlots={maxSlots}
                 onMaxSlotsChange={setMaxSlots}
+                segmentDuration={segmentDuration}
+                onSegmentDurationChange={setSegmentDuration}
                 disabled={isLoading}
               />
             </div>
