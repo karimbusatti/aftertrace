@@ -67,6 +67,28 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
           <TrackabilityBadge score={trackability} />
         </div>
         
+        {metadata?.segments_applied && metadata.segments_applied.length > 0 && (
+          <div className="mb-6 p-3 bg-white/5 rounded-lg">
+             <p className="text-text-muted text-[10px] uppercase tracking-wider mb-2">Sequence</p>
+             <div className="flex h-1.5 rounded-full overflow-hidden gap-0.5">
+               {metadata.segments_applied.map((seg, i) => (
+                 <div 
+                   key={i} 
+                   className="flex-1 bg-accent/40 first:bg-accent/60 last:bg-accent/80"
+                   title={seg.effect}
+                 />
+               ))}
+             </div>
+             <div className="flex justify-between mt-1.5">
+               {metadata.segments_applied.map((seg, i) => (
+                 <span key={i} className="text-[9px] text-text-muted truncate max-w-[50px] block">
+                   {seg.effect.replace('_', ' ')}
+                 </span>
+               ))}
+             </div>
+          </div>
+        )}
+        
         <div className="grid grid-cols-3 gap-4 text-center">
           <StatBlock 
             value={metadata?.total_points_spawned ?? 0} 

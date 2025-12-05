@@ -5,7 +5,7 @@ import { UploadZone } from "@/components/UploadZone";
 import { PresetPicker } from "@/components/PresetPicker";
 import { ResultPanel } from "@/components/ResultPanel";
 import { TipsSheet } from "@/components/TipsSheet";
-import { processVideo, type ProcessResponse } from "@/lib/api";
+import { processVideo, type ProcessResponse, buildComposition } from "@/lib/api";
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -15,6 +15,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isTipsOpen, setIsTipsOpen] = useState(false);
+  
+  // Sequence mode state
+  const [mode, setMode] = useState<'single' | 'sequence'>('single');
+  const [sequence, setSequence] = useState<string[]>([]);
 
   const handleSubmit = async () => {
     if (!file) return;
@@ -25,7 +29,10 @@ export default function Home() {
     setResult(null);
 
     try {
-      const response = await processVideo(file, preset);
+      // Build composition if in sequence mode
+      const composition = mode === 'sequence' ? buildComposition(sequence) : null;
+      
+      const response = await processVideo(file, preset, false, composition);
       setResult(response);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Something went wrong";
@@ -44,7 +51,7 @@ export default function Home() {
     setValidationError(null);
   };
 
-  const canSubmit = file && !isLoading;
+  const canSubmit = file && !isLoading && (mode === 'single' || sequence.length > 0);
 
   return (
     <main className="min-h-dvh flex flex-col">
@@ -56,22 +63,22 @@ export default function Home() {
       </header>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col justify-center px-6 pb-12">
+      <div className="flex-1 flex flex-col justify-center px-6 pb-12 pt-4 md:pt-0">
         <div className="w-full max-w-lg mx-auto">
           {/* Hero text */}
-          <div className="mb-10 text-center md:text-left animate-fade-in">
+          <div className="mb-8 md:mb-10 text-center md:text-left animate-fade-in">
             <h1 className="text-4xl md:text-5xl font-bold leading-tight tracking-tight">
               see what
               <br />
               <span className="text-accent">cameras see</span>
             </h1>
-            <p className="text-text-secondary mt-4 text-lg max-w-md">
+            <p className="text-text-secondary mt-3 md:mt-4 text-lg max-w-md mx-auto md:mx-0 leading-relaxed">
               transform your clips into surveillance art. understand your digital footprint.
             </p>
           </div>
 
           {/* Card with glowing orange border */}
-          <div className="card-glow p-6 space-y-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
+          <div className="card-glow p-5 md:p-6 space-y-5 md:space-y-6 animate-slide-up" style={{ animationDelay: "0.1s" }}>
             <UploadZone
               onFileSelect={handleFileSelect}
               disabled={isLoading}
@@ -82,6 +89,10 @@ export default function Home() {
               <PresetPicker
                 value={preset}
                 onChange={setPreset}
+                mode={mode}
+                onModeChange={setMode}
+                sequence={sequence}
+                onSequenceChange={setSequence}
                 disabled={isLoading}
               />
             </div>
