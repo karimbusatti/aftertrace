@@ -15,7 +15,7 @@ logging.getLogger("moviepy").setLevel(logging.ERROR)
 
 # Handle moviepy import gracefully - may not be available on all platforms
 try:
-from moviepy.editor import VideoFileClip
+    from moviepy.editor import VideoFileClip
     MOVIEPY_AVAILABLE = True
 except ImportError:
     MOVIEPY_AVAILABLE = False
