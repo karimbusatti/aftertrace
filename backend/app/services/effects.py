@@ -1511,8 +1511,11 @@ def draw_number_cloud(
 
 
 # =============================================================================
-# MOTION TRACE EFFECT (Clean optical flow lines)
+# MOTION TRACE EFFECT (Dense optical flow visualization)
 # =============================================================================
+
+# Frame cache for optical flow computation
+_motion_trace_prev_frame: np.ndarray | None = None
 
 def draw_motion_trace(
     frame: np.ndarray,
@@ -1521,68 +1524,108 @@ def draw_motion_trace(
     colors: dict,
 ) -> np.ndarray:
     """
-    Motion Flow (formerly Trace): Elegant flowing curved lines.
+    Motion Flow: Curved flowing lines that trace actual movement.
     
-    Creates organic curved trails that visualize motion, with:
-    - Chaikin-like smoothing for curves
-    - Comet-tail opacity fading (bright head, invisible tail)
-    - Glowing head for particle feel
+    Uses dense optical flow (Farneback) to detect motion and draws
+    smooth curved lines only in regions with actual movement.
+    Very different from Grid Trace - no grid, just organic flow lines.
     """
-    h, w = frame.shape[:2]
+    global _motion_trace_prev_frame
     
-    # Dark background (almost black) to make lines pop
-    bg_alpha = preset.get("bg_alpha", 0.1)
+    h, w = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Parameters
+    bg_alpha = preset.get("bg_alpha", 0.15)
+    flow_color = preset.get("flow_color", colors.get("trail", (255, 200, 100)))
+    thickness = preset.get("line_thickness", preset.get("trace_thickness", 2))
+    min_flow_mag = preset.get("min_flow_mag", 1.5)  # Minimum flow magnitude to draw
+    line_length_scale = preset.get("line_length_scale", 8)  # How long to draw lines
+    sample_step = preset.get("sample_step", 12)  # Grid sampling step
+    
+    # Keep original video visible underneath
     output = (frame * bg_alpha).astype(np.uint8)
     
-    # Get parameters
-    # Support both preset keys for backward compatibility
-    trace_color = preset.get("flow_color", colors.get("trail", (255, 200, 100))) 
-    thickness = preset.get("line_thickness", preset.get("trace_thickness", 1))
-    trail_len = preset.get("trail_length", 30)
-    smoothing = preset.get("smoothing", True)
+    # Need previous frame for optical flow
+    if _motion_trace_prev_frame is None or _motion_trace_prev_frame.shape != gray.shape:
+        _motion_trace_prev_frame = gray.copy()
+        return output
     
-    for point in points:
-        if len(point.trace) < 4:
-            continue
+    # Compute dense optical flow (Farneback)
+    flow = cv2.calcOpticalFlowFarneback(
+        _motion_trace_prev_frame, gray,
+        None,
+        pyr_scale=0.5,
+        levels=3,
+        winsize=15,
+        iterations=3,
+        poly_n=5,
+        poly_sigma=1.2,
+        flags=0
+    )
+    
+    # Update previous frame
+    _motion_trace_prev_frame = gray.copy()
+    
+    # Compute flow magnitude and angle
+    flow_x, flow_y = flow[..., 0], flow[..., 1]
+    magnitude = np.sqrt(flow_x**2 + flow_y**2)
+    
+    # Color palette for variety (BGR)
+    flow_colors = [
+        flow_color,                    # Primary color from preset
+        (255, 180, 80),               # Cyan
+        (180, 255, 120),              # Light green-cyan
+        (255, 220, 150),              # Light cyan
+    ]
+    
+    # Sample points from motion regions and draw flow lines
+    color_idx = 0
+    for y in range(sample_step, h - sample_step, sample_step):
+        for x in range(sample_step, w - sample_step, sample_step):
+            mag = magnitude[y, x]
             
-        # Get visible trail points
-        trace = point.trace[-trail_len:]
-        
-        # Convert to float numpy array for smoothing
-        pts = np.array(trace, dtype=np.float32)
-        
-        # Simple smoothing (3-point moving average)
-        if smoothing and len(pts) > 2:
-            pts_smooth = pts.copy()
-            # p[i] = 0.25*p[i-1] + 0.5*p[i] + 0.25*p[i+1]
-            pts_smooth[1:-1] = 0.25 * pts[:-2] + 0.5 * pts[1:-1] + 0.25 * pts[2:]
-            pts = pts_smooth
-
-        # Draw segments with non-linear gradient opacity (comet tail)
-        # Iterate points to draw lines
-        for i in range(len(pts) - 1):
-            pt1 = tuple(pts[i].astype(int))
-            pt2 = tuple(pts[i+1].astype(int))
+            # Only draw in regions with significant motion
+            if mag < min_flow_mag:
+                continue
             
-            # Alpha calculation: (i / total)^1.5 makes tail fade out faster
-            # i=0 is tail (alpha near 0), i=len is head (alpha 1)
-            prog = (i + 1) / len(pts)
-            alpha = prog ** 1.5
+            # Get flow vector
+            dx = flow_x[y, x]
+            dy = flow_y[y, x]
             
-            color = tuple(int(c * alpha) for c in trace_color)
-            cv2.line(output, pt1, pt2, color, thickness, cv2.LINE_AA)
+            # Scale line length by magnitude (capped)
+            line_len = min(mag * line_length_scale, 60)
             
-        # Draw glowing head at the very last point
-        head = tuple(pts[-1].astype(int))
-        # Inner bright core
-        cv2.circle(output, head, 1, (255, 255, 255), -1, cv2.LINE_AA)
-        # Outer glow
-        cv2.circle(output, head, 4, trace_color, -1, cv2.LINE_AA)
-
-    # Add global bloom/glow
-    glow_intensity = preset.get("glow_intensity", 0.4)
+            # Calculate end point (following flow direction)
+            x2 = int(x + dx * line_length_scale)
+            y2 = int(y + dy * line_length_scale)
+            
+            # Create curved line using 3 points (start, mid-offset, end)
+            # Add slight perpendicular curve for organic feel
+            mid_x = (x + x2) // 2 + int(dy * 0.3)
+            mid_y = (y + y2) // 2 - int(dx * 0.3)
+            
+            # Draw curved polyline
+            pts = np.array([[x, y], [mid_x, mid_y], [x2, y2]], dtype=np.int32)
+            
+            # Alpha based on magnitude (stronger motion = brighter)
+            alpha = min(1.0, mag / 8.0)
+            color = flow_colors[color_idx % len(flow_colors)]
+            draw_color = tuple(int(c * alpha) for c in color)
+            
+            # Draw smooth polyline
+            cv2.polylines(output, [pts], False, draw_color, thickness, cv2.LINE_AA)
+            
+            # Draw small glowing head at end point
+            if mag > min_flow_mag * 2:
+                cv2.circle(output, (x2, y2), 2, (255, 255, 255), -1, cv2.LINE_AA)
+            
+            color_idx += 1
+    
+    # Add global glow for polish
+    glow_intensity = preset.get("glow_intensity", 0.5)
     if glow_intensity > 0:
-        blur = cv2.GaussianBlur(output, (13, 13), 0)
+        blur = cv2.GaussianBlur(output, (9, 9), 0)
         output = cv2.addWeighted(output, 1.0, blur, glow_intensity, 0)
     
     return output
