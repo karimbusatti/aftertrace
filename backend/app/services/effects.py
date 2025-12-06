@@ -2125,31 +2125,52 @@ def draw_binary_bloom(
     """
     Binary Bloom: 0/1 digits inside subject silhouette on solid background.
     
-    Uses the SAME brightness-threshold approach as draw_data_body / 
-    draw_particle_silhouette for reliable subject detection.
-    Digits appear only where pixel brightness exceeds threshold.
+    Uses edge-based detection (Canny + dilation + largest contour) for proper
+    silhouette isolation. Works for both bright and dark subjects.
     """
     h, w = frame.shape[:2]
     
     # Parameters
     bg_color = preset.get("bg_color", (160, 40, 0))         # Deep blue BGR
-    digit_color = preset.get("digit_color", (255, 255, 255))
     accent_color = preset.get("accent_color", (200, 50, 255))
     grid_step = preset.get("grid_step", 8)
     font_scale = preset.get("binary_font_scale", 0.35)
-    # Same threshold approach as draw_data_body (line 523)
-    min_brightness = preset.get("min_brightness", 40)
     
-    # Convert to grayscale for brightness sampling (same as data_body/particle_silhouette)
+    # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # =========================================================================
-    # SUBJECT MASK using brightness threshold (like draw_data_body)
+    # SUBJECT MASK using edge-based detection (like draw_number_cloud)
     # =========================================================================
-    # This is the same approach used by:
-    # - draw_data_body: gray[cy, cx] > min_brightness
-    # - draw_particle_silhouette: gray > brightness_threshold
-    subject_mask = gray > min_brightness
+    # 1. Enhance contrast
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    
+    # 2. Edge detection
+    edges = cv2.Canny(enhanced, 30, 100)
+    
+    # 3. Heavy dilation to connect edges into solid regions
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (20, 20))
+    dilated = cv2.dilate(edges, kernel, iterations=2)
+    dilated = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel, iterations=1)
+    
+    # 4. Find contours and keep the largest one
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    subject_mask = np.zeros((h, w), dtype=np.uint8)
+    
+    if contours:
+        # Find largest contour by area
+        best_contour = max(contours, key=lambda c: cv2.contourArea(c))
+        area = cv2.contourArea(best_contour)
+        
+        # Only use if reasonable size (5-90% of frame)
+        if h * w * 0.05 < area < h * w * 0.9:
+            cv2.drawContours(subject_mask, [best_contour], -1, 255, -1)
+    
+    # Fallback: center ellipse if no good contour found
+    mask_coverage = np.sum(subject_mask > 0) / (h * w)
+    if mask_coverage < 0.03:
+        cv2.ellipse(subject_mask, (w // 2, h // 2), (w // 3, h // 3), 0, 0, 360, 255, -1)
     
     # =========================================================================
     # DRAW OUTPUT - solid blue background
@@ -2160,33 +2181,32 @@ def draw_binary_bloom(
     # Stable random seed (updates every ~100ms / 3 frames) for gentle flicker
     random.seed(frame_idx // 3 + 42)
     
-    # Pre-compute grid positions using NumPy (vectorized)
+    # Pre-compute grid positions
     rows = np.arange(0, h, grid_step)
     cols = np.arange(0, w, grid_step)
     
-    # Draw 0/1 digits only inside subject (where brightness > threshold)
+    # Draw 0/1 digits only inside subject silhouette
     for row in rows:
         for col in cols:
-            # Sample brightness at cell center (same as draw_data_body)
             cy = min(row + grid_step // 2, h - 1)
             cx = min(col + grid_step // 2, w - 1)
             
-            # Only draw inside subject (bright pixels)
-            if not subject_mask[cy, cx]:
+            # Only draw inside detected silhouette
+            if subject_mask[cy, cx] == 0:
                 continue
             
             digit = "0" if random.random() < 0.5 else "1"
             pos = (col, row + grid_step - 2)
             
-            # Brightness-scaled color (brighter subject = brighter digit)
+            # Brightness-scaled color for depth effect
             brightness = gray[cy, cx]
             intensity = min(255, int(180 + brightness * 0.3))
             color = (intensity, intensity, intensity)
             
             cv2.putText(output, digit, pos, font, font_scale, color, 1, cv2.LINE_AA)
     
-    # Sparse accent markers inside subject (vectorized selection)
-    subject_coords = np.column_stack(np.where(subject_mask))
+    # Sparse accent markers inside subject
+    subject_coords = np.column_stack(np.where(subject_mask > 0))
     if len(subject_coords) > 0:
         num_accents = min(30, len(subject_coords) // 100)
         if num_accents > 0:
