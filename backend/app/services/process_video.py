@@ -268,6 +268,7 @@ def process_video(
     # =========================================================================
     preset_cache: dict[str, dict] = {}
     sequence_mode = False
+    composition_mode = False  # True if using legacy composition system
     sequence_effects: list[str] = []
     segment_frames = 1
     
@@ -316,6 +317,7 @@ def process_video(
         # =================================================================
         # LEGACY COMPOSITION MODE (for backward compatibility)
         # =================================================================
+        composition_mode = True
         print(f"[process] === LEGACY COMPOSITION MODE ===")
         
         for seg in composition:
