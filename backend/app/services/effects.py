@@ -1511,11 +1511,12 @@ def draw_number_cloud(
 
 
 # =============================================================================
-# MOTION TRACE EFFECT (Dense optical flow visualization)
+# MOTION TRACE EFFECT (Dense optical flow with persistent trails)
 # =============================================================================
 
-# Frame cache for optical flow computation
+# Persistent state for motion trace effect
 _motion_trace_prev_frame: np.ndarray | None = None
+_motion_trace_trail_canvas: np.ndarray | None = None
 
 def draw_motion_trace(
     frame: np.ndarray,
@@ -1524,32 +1525,42 @@ def draw_motion_trace(
     colors: dict,
 ) -> np.ndarray:
     """
-    Motion Flow: Curved flowing lines that trace actual movement.
+    Motion Flow: Flowing curved trails with network connections.
     
-    Uses dense optical flow (Farneback) to detect motion and draws
-    smooth curved lines only in regions with actual movement.
-    Very different from Grid Trace - no grid, just organic flow lines.
+    Features:
+    - Dense optical flow (Farneback) for motion detection
+    - Persistent trail canvas that fades over time
+    - Network lines connecting nearby motion points
+    - Composited over original video
     """
-    global _motion_trace_prev_frame
+    global _motion_trace_prev_frame, _motion_trace_trail_canvas
     
     h, w = frame.shape[:2]
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Parameters
-    bg_alpha = preset.get("bg_alpha", 0.15)
     flow_color = preset.get("flow_color", colors.get("trail", (255, 200, 100)))
-    thickness = preset.get("line_thickness", preset.get("trace_thickness", 2))
-    min_flow_mag = preset.get("min_flow_mag", 1.5)  # Minimum flow magnitude to draw
-    line_length_scale = preset.get("line_length_scale", 8)  # How long to draw lines
-    sample_step = preset.get("sample_step", 12)  # Grid sampling step
+    thickness = preset.get("line_thickness", 2)
+    min_flow_mag = preset.get("min_flow_mag", 1.5)
+    line_length_scale = preset.get("line_length_scale", 6)
+    sample_step = preset.get("sample_step", 10)
+    trail_fade = preset.get("trail_fade", 0.92)  # How much trails persist (0.9-0.98)
+    max_connect_dist = preset.get("max_connect_dist", 50)  # Max distance for network lines
+    frame_alpha = preset.get("frame_alpha", 0.6)  # Original frame visibility
+    trail_alpha = preset.get("trail_alpha", 0.9)  # Trail canvas visibility
     
-    # Keep original video visible underneath
-    output = (frame * bg_alpha).astype(np.uint8)
+    # Initialize or reset trail canvas if needed
+    if _motion_trace_trail_canvas is None or _motion_trace_trail_canvas.shape[:2] != (h, w):
+        _motion_trace_trail_canvas = np.zeros((h, w, 3), dtype=np.uint8)
+    
+    # Fade previous trails (creates the comet/persistence effect)
+    _motion_trace_trail_canvas = ((_motion_trace_trail_canvas.astype(np.float32)) * trail_fade).astype(np.uint8)
     
     # Need previous frame for optical flow
     if _motion_trace_prev_frame is None or _motion_trace_prev_frame.shape != gray.shape:
         _motion_trace_prev_frame = gray.copy()
-        return output
+        # Return original frame with empty trail on first frame
+        return cv2.addWeighted(frame, frame_alpha, _motion_trace_trail_canvas, trail_alpha, 0)
     
     # Compute dense optical flow (Farneback)
     flow = cv2.calcOpticalFlowFarneback(
@@ -1567,66 +1578,92 @@ def draw_motion_trace(
     # Update previous frame
     _motion_trace_prev_frame = gray.copy()
     
-    # Compute flow magnitude and angle
+    # Compute flow magnitude
     flow_x, flow_y = flow[..., 0], flow[..., 1]
     magnitude = np.sqrt(flow_x**2 + flow_y**2)
     
-    # Color palette for variety (BGR)
+    # Color palette for variety (BGR - cyan/blue tones)
     flow_colors = [
-        flow_color,                    # Primary color from preset
+        flow_color,                    # Primary from preset
         (255, 180, 80),               # Cyan
-        (180, 255, 120),              # Light green-cyan
-        (255, 220, 150),              # Light cyan
+        (200, 255, 150),              # Light cyan-green
+        (255, 220, 180),              # Pale cyan
     ]
     
-    # Sample points from motion regions and draw flow lines
+    # =========================================================================
+    # COLLECT MOTION POINTS
+    # =========================================================================
+    motion_points = []
     color_idx = 0
+    
     for y in range(sample_step, h - sample_step, sample_step):
         for x in range(sample_step, w - sample_step, sample_step):
             mag = magnitude[y, x]
             
-            # Only draw in regions with significant motion
             if mag < min_flow_mag:
                 continue
             
-            # Get flow vector
+            # Store motion point with its flow vector and color
             dx = flow_x[y, x]
             dy = flow_y[y, x]
-            
-            # Scale line length by magnitude (capped)
-            line_len = min(mag * line_length_scale, 60)
-            
-            # Calculate end point (following flow direction)
-            x2 = int(x + dx * line_length_scale)
-            y2 = int(y + dy * line_length_scale)
-            
-            # Create curved line using 3 points (start, mid-offset, end)
-            # Add slight perpendicular curve for organic feel
-            mid_x = (x + x2) // 2 + int(dy * 0.3)
-            mid_y = (y + y2) // 2 - int(dx * 0.3)
-            
-            # Draw curved polyline
-            pts = np.array([[x, y], [mid_x, mid_y], [x2, y2]], dtype=np.int32)
-            
-            # Alpha based on magnitude (stronger motion = brighter)
-            alpha = min(1.0, mag / 8.0)
             color = flow_colors[color_idx % len(flow_colors)]
-            draw_color = tuple(int(c * alpha) for c in color)
-            
-            # Draw smooth polyline
-            cv2.polylines(output, [pts], False, draw_color, thickness, cv2.LINE_AA)
-            
-            # Draw small glowing head at end point
-            if mag > min_flow_mag * 2:
-                cv2.circle(output, (x2, y2), 2, (255, 255, 255), -1, cv2.LINE_AA)
-            
+            motion_points.append((x, y, dx, dy, mag, color))
             color_idx += 1
     
-    # Add global glow for polish
-    glow_intensity = preset.get("glow_intensity", 0.5)
-    if glow_intensity > 0:
-        blur = cv2.GaussianBlur(output, (9, 9), 0)
-        output = cv2.addWeighted(output, 1.0, blur, glow_intensity, 0)
+    # =========================================================================
+    # DRAW FLOW LINES onto trail canvas
+    # =========================================================================
+    for (x, y, dx, dy, mag, color) in motion_points:
+        # Calculate end point
+        x2 = int(x + dx * line_length_scale)
+        y2 = int(y + dy * line_length_scale)
+        
+        # Clamp to frame bounds
+        x2 = max(0, min(w - 1, x2))
+        y2 = max(0, min(h - 1, y2))
+        
+        # Create curved line (3 points with perpendicular offset)
+        mid_x = (x + x2) // 2 + int(dy * 0.4)
+        mid_y = (y + y2) // 2 - int(dx * 0.4)
+        mid_x = max(0, min(w - 1, mid_x))
+        mid_y = max(0, min(h - 1, mid_y))
+        
+        pts = np.array([[x, y], [mid_x, mid_y], [x2, y2]], dtype=np.int32)
+        
+        # Brightness based on magnitude
+        alpha = min(1.0, mag / 6.0)
+        draw_color = tuple(int(c * alpha) for c in color)
+        
+        # Draw curved flow line
+        cv2.polylines(_motion_trace_trail_canvas, [pts], False, draw_color, thickness, cv2.LINE_AA)
+        
+        # Glowing head at end point for strong motion
+        if mag > min_flow_mag * 1.5:
+            cv2.circle(_motion_trace_trail_canvas, (x2, y2), 3, (255, 255, 255), -1, cv2.LINE_AA)
+    
+    # =========================================================================
+    # DRAW NETWORK CONNECTIONS between nearby motion points
+    # =========================================================================
+    if len(motion_points) > 1:
+        for i, (x1, y1, _, _, mag1, color1) in enumerate(motion_points):
+            for (x2, y2, _, _, mag2, _) in motion_points[i+1:]:
+                dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                
+                if dist < max_connect_dist:
+                    # Fainter connection lines
+                    conn_alpha = 0.4 * (1 - dist / max_connect_dist)
+                    conn_color = tuple(int(c * conn_alpha) for c in color1)
+                    cv2.line(_motion_trace_trail_canvas, (x1, y1), (x2, y2), conn_color, 1, cv2.LINE_AA)
+    
+    # =========================================================================
+    # COMPOSITE: trail canvas over original frame
+    # =========================================================================
+    # Add subtle glow to trail canvas
+    glow = cv2.GaussianBlur(_motion_trace_trail_canvas, (7, 7), 0)
+    trail_with_glow = cv2.addWeighted(_motion_trace_trail_canvas, 1.0, glow, 0.4, 0)
+    
+    # Blend with original frame
+    output = cv2.addWeighted(frame, frame_alpha, trail_with_glow, trail_alpha, 0)
     
     return output
 
