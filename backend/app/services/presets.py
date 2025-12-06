@@ -869,9 +869,28 @@ PRESETS: dict[str, dict[str, Any]] = {
 # HELPER FUNCTIONS
 # =============================================================================
 
-def get_preset(name: str) -> dict[str, Any]:
-    """Get a preset by name, with fallback to blob_track."""
-    return PRESETS.get(name, PRESETS["blob_track"])
+def get_preset(name: str, strict: bool = False) -> dict[str, Any]:
+    """
+    Get a preset by name.
+    
+    Args:
+        name: Preset ID (e.g., "binary_bloom", "motion_trace")
+        strict: If True, raise KeyError for unknown presets instead of fallback
+    
+    Returns:
+        Preset configuration dict
+    
+    Raises:
+        KeyError: If strict=True and preset not found
+    """
+    if name in PRESETS:
+        return PRESETS[name]
+    
+    if strict:
+        raise KeyError(f"Unknown preset '{name}'. Available: {list(PRESETS.keys())}")
+    
+    print(f"[presets] WARNING: Unknown preset '{name}', falling back to blob_track")
+    return PRESETS["blob_track"]
 
 
 def get_preset_colors(preset: dict[str, Any]) -> dict[str, tuple[int, int, int]]:

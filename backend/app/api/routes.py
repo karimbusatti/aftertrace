@@ -144,25 +144,39 @@ async def process_video_endpoint(
                 detail="Invalid composition format. Expected JSON array."
             )
     
-    # Validate preset for single mode
-    if mode == "single" and not composition_list:
-        if preset not in PRESETS:
+    # Validate based on mode
+    if mode == "sequence":
+        # Sequence mode: require effects array
+        if not effects_list or len(effects_list) == 0:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown preset '{preset}'. Available: {list(PRESETS.keys())}"
+                detail="Sequence mode requires 'effects' array with at least one effect ID."
             )
-    
-    # Validate effects for sequence mode
-    if mode == "sequence" and effects_list:
+        
+        # Validate all effects exist
         for eff in effects_list:
             if eff not in PRESETS:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Unknown effect '{eff}' in sequence. Available: {list(PRESETS.keys())}"
                 )
+        
+        # Use first effect as primary preset for tracking config
+        preset = effects_list[0]
+        print(f"[API /process] SEQUENCE MODE: effects={effects_list}, segment_duration_s={segment_duration_s}")
     
-    # DEBUG: Log received parameters
-    print(f"[API /process] mode={mode}, preset={preset}, effects_list={effects_list}, segment_duration_s={segment_duration_s}")
+    elif mode == "single" and not composition_list:
+        # Single mode: require valid preset
+        if preset not in PRESETS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown preset '{preset}'. Available: {list(PRESETS.keys())}"
+            )
+        print(f"[API /process] SINGLE MODE: preset={preset}")
+    
+    else:
+        # Legacy composition mode
+        print(f"[API /process] LEGACY MODE: composition={composition_list}")
     
     # Generate unique ID for this job
     job_id = str(uuid.uuid4())[:8]

@@ -436,20 +436,27 @@ def process_video(
         
         # --- Draw the frame ---
         if composition_mode:
-            # Multi-effect composition
+            # Multi-effect composition (sequence mode)
             frame_ratio = frame_idx / max(total_frames - 1, 1)
             frame_effects = get_frame_effects(frame_ratio, composition, crossfade_ratio)
             
-            # Log effect transitions (first frame of each new effect)
-            if frame_idx == 0 or (frame_idx % 30 == 0):
-                effect_names = [f"{e[0]}({e[1]:.1f})" for e in frame_effects]
-                print(f"[process] Frame {frame_idx}: {', '.join(effect_names)}")
+            # Log effect transitions at key frames
+            current_effect = frame_effects[0][0] if frame_effects else "none"
+            if frame_idx == 0:
+                print(f"[process] === SEQUENCE MODE: Starting with {current_effect} ===")
+                _last_logged_effect = current_effect
+            elif frame_idx % 30 == 0:
+                effect_str = ", ".join([f"{e[0]}({e[1]:.0%})" for e in frame_effects])
+                print(f"[process] Frame {frame_idx}/{total_frames}: {effect_str}")
             
             output_frame = apply_composed_frame(
                 frame, frame_effects, preset_cache, frame_idx, tracker, face_data, overlay_mode
             )
         else:
             # Single effect mode
+            if frame_idx == 0:
+                print(f"[process] === SINGLE MODE: Using {preset_name} ===")
+            
             all_points = tracker.get_all_points()
             output_frame = draw_frame(
                 frame, all_points, preset_config, frame_idx, overlay_mode,
