@@ -862,6 +862,46 @@ PRESETS: dict[str, dict[str, Any]] = {
         "binary_font_scale": 0.35,
         "edge_font_scale": 0.40,
     },
+    
+    # =========================================================================
+    # SIGNAL FEEDBACK (CRT/VHS glitch with noise warping and feedback trails)
+    # =========================================================================
+    
+    "signal_feedback": {
+        "name": "Signal Feedback",
+        "description": "CRT glitch with noise warping and feedback trails",
+        
+        "spawn_per_beat": 0,
+        "max_points": 0,
+        
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+        
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        
+        # Signal Feedback specific
+        "text_mode": "signal_feedback",
+        "feedback_decay": 0.88,           # Trail persistence (0.8-0.95)
+        "distortion_amp": 8.0,            # Warp intensity
+        "chroma_shift": 3,                # RGB channel offset (pixels)
+        "scanline_intensity": 0.15,       # Scanline darkness
+        "noise_scale": 0.02,              # How fast noise evolves
+    },
 }
 
 

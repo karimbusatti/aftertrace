@@ -966,6 +966,8 @@ def apply_text_effect(
         return draw_code_shadow(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "binary_bloom":
         return draw_binary_bloom(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "signal_feedback":
+        return draw_signal_feedback(frame, preset, colors, frame_idx=frame_idx)
     
     return None
 
@@ -2305,3 +2307,130 @@ def draw_binary_bloom(
             cv2.putText(output, digit, pos, font, font_scale * 1.1, edge_color, 1, cv2.LINE_AA)
     
     return output
+
+
+# =============================================================================
+# SIGNAL FEEDBACK (CRT/VHS style with noise warping and feedback trails)
+# =============================================================================
+
+# Persistent state for signal feedback effect
+_signal_feedback_buffer: np.ndarray | None = None
+_signal_feedback_noise: np.ndarray | None = None
+
+def draw_signal_feedback(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Signal Feedback: CRT/VHS-style effect with noise warping and feedback trails.
+    
+    Features:
+    - Noise-based coordinate distortion (cv2.remap)
+    - Persistent feedback buffer with decay (liquid trails)
+    - Chromatic aberration (RGB channel shift)
+    - CRT scanlines
+    """
+    global _signal_feedback_buffer, _signal_feedback_noise
+    
+    h, w = frame.shape[:2]
+    
+    # Parameters
+    feedback_decay = preset.get("feedback_decay", 0.88)
+    distortion_amp = preset.get("distortion_amp", 8.0)
+    chroma_shift = preset.get("chroma_shift", 3)
+    scanline_intensity = preset.get("scanline_intensity", 0.15)
+    noise_scale = preset.get("noise_scale", 0.02)  # How fast noise evolves
+    
+    # Convert current frame to float [0, 1]
+    current_float = frame.astype(np.float32) / 255.0
+    
+    # =========================================================================
+    # INITIALIZE STATE
+    # =========================================================================
+    if _signal_feedback_buffer is None or _signal_feedback_buffer.shape[:2] != (h, w):
+        _signal_feedback_buffer = current_float.copy()
+        _signal_feedback_noise = np.random.rand(h, w).astype(np.float32)
+        return frame  # Return original on first frame
+    
+    # =========================================================================
+    # STEP 1: Generate noise-based warp map
+    # =========================================================================
+    # Slowly evolve the noise field
+    new_noise = np.random.rand(h, w).astype(np.float32)
+    _signal_feedback_noise = _signal_feedback_noise * (1 - noise_scale) + new_noise * noise_scale
+    
+    # Smooth noise for organic warping
+    smooth_noise = cv2.GaussianBlur(_signal_feedback_noise, (51, 51), 0)
+    
+    # Create base coordinate grid
+    grid_x, grid_y = np.meshgrid(np.arange(w), np.arange(h))
+    grid_x = grid_x.astype(np.float32)
+    grid_y = grid_y.astype(np.float32)
+    
+    # Add noise-based displacement
+    offset_x = (smooth_noise - 0.5) * distortion_amp
+    offset_y = (smooth_noise - 0.5) * distortion_amp
+    
+    map_x = grid_x + offset_x
+    map_y = grid_y + offset_y
+    
+    # =========================================================================
+    # STEP 2: Warp feedback buffer and blend with current frame
+    # =========================================================================
+    # Warp the previous feedback buffer
+    warped_feedback = cv2.remap(
+        _signal_feedback_buffer, 
+        map_x, map_y, 
+        cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT
+    )
+    
+    # Blend: decay old feedback, add new frame
+    _signal_feedback_buffer = warped_feedback * feedback_decay + current_float * (1.0 - feedback_decay)
+    
+    # Convert back to uint8 for post-processing
+    result = (_signal_feedback_buffer * 255).astype(np.uint8)
+    
+    # =========================================================================
+    # STEP 3: Chromatic Aberration (RGB channel shift)
+    # =========================================================================
+    if chroma_shift > 0:
+        b, g, r = cv2.split(result)
+        
+        # Shift R left, B right
+        r_shifted = np.roll(r, -chroma_shift, axis=1)
+        b_shifted = np.roll(b, chroma_shift, axis=1)
+        
+        # Clean up edges
+        r_shifted[:, -chroma_shift:] = r[:, -chroma_shift:]
+        b_shifted[:, :chroma_shift] = b[:, :chroma_shift]
+        
+        result = cv2.merge([b_shifted, g, r_shifted])
+    
+    # =========================================================================
+    # STEP 4: CRT Scanlines
+    # =========================================================================
+    if scanline_intensity > 0:
+        # Create scanline mask (darken every other row)
+        scanline_mask = np.ones((h, w), dtype=np.float32)
+        scanline_mask[1::2, :] = 1.0 - scanline_intensity
+        
+        # Apply to all channels
+        result = (result.astype(np.float32) * scanline_mask[..., np.newaxis]).astype(np.uint8)
+    
+    # =========================================================================
+    # STEP 5: Subtle vignette for CRT feel
+    # =========================================================================
+    # Create radial gradient
+    cy, cx = h // 2, w // 2
+    Y, X = np.ogrid[:h, :w]
+    dist_from_center = np.sqrt((X - cx)**2 + (Y - cy)**2)
+    max_dist = np.sqrt(cx**2 + cy**2)
+    vignette = 1.0 - (dist_from_center / max_dist) * 0.3
+    vignette = np.clip(vignette, 0.7, 1.0).astype(np.float32)
+    
+    result = (result.astype(np.float32) * vignette[..., np.newaxis]).astype(np.uint8)
+    
+    return result
