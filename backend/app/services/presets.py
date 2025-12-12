@@ -973,8 +973,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         
         # Vector Signal specific
         "text_mode": "vector_signal",
-        "max_points": 80,
-        "max_connect_distance": 150,
+        "max_points": 100,
+        "max_connect_distance": 280,
     },
 }
 

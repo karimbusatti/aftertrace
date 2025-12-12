@@ -2439,6 +2439,7 @@ def draw_signal_feedback(
     result = (result.astype(np.float32) * vignette[..., np.newaxis]).astype(np.uint8)
     
     return result
+
 # =============================================================================
 # SIGNAL BLOOM (Lava-red distortion)
 # =============================================================================
@@ -2451,57 +2452,70 @@ def draw_signal_bloom(
 ) -> np.ndarray:
     """
     Signal Bloom: Lava-red distortion on black background.
-    Inspired by high-contrast thermal/radioactive imagery.
+    Matches the "fried" high-contrast thermal aesthetic.
     """
     h, w = frame.shape[:2]
     
-    # Parameters
-    threshold = preset.get("bloom_threshold", 50)
-    glow_intensity = preset.get("glow_intensity", 0.6)
-    
-    # 1. Heavy contrast preprocessing
+    # 1. Preprocessing: Grayscale + Extreme Contrast
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # Increase contrast significantly
-    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+    # Apply CLAHE with high clip limits to bring out texture
+    clahe = cv2.createCLAHE(clipLimit=8.0, tileGridSize=(4, 4))
     enhanced = clahe.apply(gray)
     
-    # Threshold to isolate bright spots/features
-    _, mask = cv2.threshold(enhanced, threshold, 255, cv2.THRESH_BINARY)
+    # 2. Level adjustment (Crush blacks, boost whites)
+    # Map input [30, 220] to [0, 255]
+    enhanced = cv2.normalize(enhanced, None, 0, 255, cv2.NORM_MINMAX)
+    _, enhanced = cv2.threshold(enhanced, 40, 255, cv2.THRESH_TOZERO)
     
-    # 2. Dilation to create "blobs" of signal
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-    dilated = cv2.dilate(mask, kernel, iterations=2)
+    # 3. Create Custom Color Map (Black -> Red -> Orange -> Yellow)
+    # We'll do this manually for speed and control using a lookup table (LUT)
+    lut = np.zeros((256, 1, 3), dtype=np.uint8)
     
-    # 3. Create the color layers
-    output = np.zeros((h, w, 3), dtype=np.uint8)
+    # Gradient definition
+    # 0-50: Black to Deep Red
+    # 50-150: Deep Red to Bright Red
+    # 150-220: Bright Red to Yellow
+    # 220-255: Yellow to White
     
-    # Base Red layer (Deep Red)
-    output[dilated > 0] = (0, 0, 180)  # BGR
+    for i in range(256):
+        if i < 50:
+            # Black to Dark Red (0,0,0) -> (0,0,100)
+            t = i / 50
+            lut[i, 0] = (0, 0, int(100 * t))
+        elif i < 150:
+            # Dark Red to Bright Red (0,0,100) -> (0,0,255)
+            t = (i - 50) / 100
+            lut[i, 0] = (0, 0, int(100 + 155 * t))
+        elif i < 220:
+            # Bright Red to Yellow (0,0,255) -> (0,255,255)  [BGR: Red is (0,0,255), Yellow is (0,255,255)]
+            t = (i - 150) / 70
+            lut[i, 0] = (0, int(255 * t), 255)
+        else:
+            # Yellow to White (0,255,255) -> (255,255,255)
+            t = (i - 220) / 35
+            lut[i, 0] = (int(255 * t), 255, 255)
+            
+    # Apply LUT
+    output = cv2.LUT(enhanced, lut)
     
-    # Core layer (Bright Red/Orange) - slightly eroded
-    core_mask = cv2.erode(dilated, kernel, iterations=1)
-    output[core_mask > 0] = (0, 60, 255) # Orange-ish
+    # 4. Add "Aura" / Bloom
+    # Blur the bright parts and add them back
+    bright_mask = cv2.GaussianBlur(output, (25, 25), 0)
+    output = cv2.addWeighted(output, 0.8, bright_mask, 0.6, 0)
     
-    # Hotspot layer (White/Yellow) - internal details
-    # Use original gray details inside the mask
-    details = cv2.bitwise_and(enhanced, enhanced, mask=core_mask)
-    _, hot_spots = cv2.threshold(details, 200, 255, cv2.THRESH_BINARY)
-    output[hot_spots > 0] = (100, 200, 255) # Bright Yellow-ish
+    # 5. Edge emphasis (glowing edges)
+    edges = cv2.Canny(enhanced, 50, 150)
+    edges = cv2.dilate(edges, np.ones((3,3), np.uint8))
     
-    # 4. Heavy Bloom/Glow
-    # Multiple blur passes for radioactive look
-    blur1 = cv2.GaussianBlur(output, (15, 15), 0)
-    blur2 = cv2.GaussianBlur(output, (45, 45), 0)
+    # Make edges bright lava red/yellow
+    output[edges > 0] = (0, 150, 255)  # Orange-ish edge
     
-    output = cv2.addWeighted(output, 1.0, blur1, 0.7, 0)
-    output = cv2.addWeighted(output, 1.0, blur2, 0.5, 0)
-    
-    # 5. Add noise/grain
-    noise = np.random.normal(0, 15, (h, w, 3)).astype(np.uint8)
-    # Only apply noise where there is signal, to keep background black (or everywhere for grit)
-    # Let's apply everywhere for aesthetic
-    output = cv2.add(output, noise)
+    # 6. Add texture/noise
+    # The reference is quite noisy ("fried")
+    if frame_idx % 2 == 0:
+        noise = np.random.normal(0, 15, (h, w, 3)).astype(np.uint8)
+        output = cv2.add(output, noise)
     
     return output
 
@@ -2518,26 +2532,31 @@ def draw_vector_signal(
 ) -> np.ndarray:
     """
     Vector Signal: Green vector lines connecting points with data annotations.
-    Reference: Nature/AI technology signal style (vertical curved lines).
+    Reference: Nature/AI technology signal style (vertical/structured connections).
     """
     h, w = frame.shape[:2]
     
     # Parameters
-    max_points = preset.get("max_points", 60)
-    connect_dist = preset.get("max_connect_distance", 200)
+    max_points = preset.get("max_points", 80)
+    connect_dist = preset.get("max_connect_distance", 250)
     
-    # 1. Background: Grayscale low-contrast version of original
+    # 1. Background: Pure Grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    gray_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-    # Darken it
-    background = (gray_bgr * 0.4).astype(np.uint8)
+    
+    # Contrast stretch the background to look good but monochromatic
+    # Reference has deep blacks and clear whites
+    gray = cv2.normalize(gray, None, 0, 240, cv2.NORM_MINMAX)
+    background = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    
+    # Darken slightly to make green pop
+    background = (background * 0.7).astype(np.uint8)
     
     # 2. Detect features
     corners = cv2.goodFeaturesToTrack(
         gray,
         maxCorners=max_points,
-        qualityLevel=0.01,
-        minDistance=15,
+        qualityLevel=0.015,
+        minDistance=20,
         blockSize=7
     )
     
@@ -2546,53 +2565,91 @@ def draw_vector_signal(
         
     points = corners.reshape(-1, 2)
     
-    # Canvas for lines
+    # Sort points by Y to help with vertical structure
+    # sorting isn't strictly necessary for all-to-all, but helps if we want to limit connections "upwards"
+    # Let's keep distinct points
+    
     overlay = np.zeros_like(background)
     
-    # Color: Bright Signal Green
-    color_line = (50, 255, 50) # BGR
-    color_text = (100, 255, 100)
+    # Colors
+    color_line = (50, 255, 50)  # Bright Matrix Green
+    color_text = (150, 255, 150) # Paler Green for text
+    color_point = (0, 255, 0)
     
-    # 3. Draw connections (curved looks better, but straight is faster. Let's try vertical-biased curves)
-    # The reference images show lines going upwards like expanding plant growth or data streams.
+    # 3. Draw connections - favor verticality
+    # We want a "web" or "forest" look
     
-    # Use random seed for stable jitter
-    np.random.seed(frame_idx // 5)
+    np.random.seed(frame_idx // 10) # Stable seed
+    
+    # Pre-calculate data for labels
+    labels = {}
+    for i in range(len(points)):
+        labels[i] = f"{np.random.random():.2f}"
     
     for i, pt1 in enumerate(points):
         x1, y1 = pt1
         
-        # Draw point
-        cv2.circle(overlay, (int(x1), int(y1)), 2, color_line, -1)
+        # Draw point (small filled circle)
+        cv2.circle(overlay, (int(x1), int(y1)), 3, color_point, -1)
         
         # Connections
-        count = 0
-        for pt2 in points[i+1:]:
+        connections_made = 0
+        
+        # Find 3 nearest neighbors that are somewhat vertical?
+        # Let's just look at all other points
+        candidates = []
+        for j, pt2 in enumerate(points):
+            if i == j: continue
+            
             x2, y2 = pt2
             dist = np.hypot(x2 - x1, y2 - y1)
             
             if dist < connect_dist:
-                # Alpha based on distance
-                alpha = 1.0 - (dist / connect_dist)
-                c = tuple(int(x * alpha) for x in color_line)
+                # Calculate angle (0 is right, 90 is down, -90 is up)
+                dx = x2 - x1
+                dy = y2 - y1
+                angle = np.degrees(np.arctan2(dy, dx))
                 
-                # Draw curved line (bezier-like) approx using polylines or just line
-                # For "nature" look, maybe simple straight lines are fine, but let's try to curve
-                # towards a virtual center or just straight for now to match the "vector" feel.
-                # References show straight lines forming a mesh.
-                cv2.line(overlay, (int(x1), int(y1)), (int(x2), int(y2)), c, 1, cv2.LINE_AA)
-                count += 1
-                if count > 4: break # Limit connections per point
+                # We prefer vertical connections (-90 or +90)
+                # i.e., abs(angle) close to 90
+                is_vertical = abs(abs(angle) - 90) < 40
+                
+                candidates.append((dist, j, pt2, is_vertical))
         
-        # Annotations (numbers/text)
-        if i % 3 == 0:
-            label = f"{np.random.random():.2f}"
-            cv2.putText(overlay, label, (int(x1)+5, int(y1)-5), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.3, color_text, 1, cv2.LINE_AA)
+        # Sort candidates: prefer vertical, then proximity
+        # Weight verticality highly
+        candidates.sort(key=lambda c: c[0] - (100 if c[3] else 0))
+        
+        # Draw top 3 connections
+        for dist, j, pt2, is_vert in candidates[:3]:
+            x2, y2 = pt2
+            
+            # Simple curvature:
+            # If drawing from (x1, y1) to (x2, y2), add a control point
+            # to make it curve slightly.
+            # A simple way to get a nice curve is to average X, but push Y?
+            
+            # Actually, reference lines are mostly straight but form a group.
+            # Let's use straight lines for crispness, or very subtle curve.
+            # Curved lines are expensive in python loops. Let's do straight for performance
+            # unless we really need the "drape".
+            # The reference shows somewhat curved lines.
+            
+            alpha = (1.0 - dist / connect_dist) * 0.8
+            color = tuple(int(c * alpha) for c in color_line)
+            
+            cv2.line(overlay, (int(x1), int(y1)), (int(x2), int(y2)), color, 1, cv2.LINE_AA)
 
-    # 4. Composite
-    # Add glow to lines
-    glow = cv2.GaussianBlur(overlay, (5, 5), 0)
+    # 4. Draw Labels (on top of lines)
+    for i, pt1 in enumerate(points):
+        x1, y1 = pt1
+        if i % 2 == 0:
+            cv2.putText(overlay, labels[i], (int(x1)+6, int(y1)-6), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, color_text, 1, cv2.LINE_AA)
+
+    # 5. Composite
+    # Add glow to the green layer
+    glow = cv2.GaussianBlur(overlay, (7, 7), 0)
     overlay = cv2.addWeighted(overlay, 1.0, glow, 0.5, 0)
     
     output = cv2.add(background, overlay)
