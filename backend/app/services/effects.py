@@ -2582,8 +2582,14 @@ def draw_vector_signal(
         if hasattr(pt, 'is_active') and not pt.is_active():
             continue
             
-        x, y = pt.x, pt.y
-        pid = pt.id
+        # FIX: TrackedPoint has .position (numpy array), not .x/.y
+        if hasattr(pt, 'position'):
+            x, y = pt.position[0], pt.position[1]
+            pid = pt.id
+        else:
+            # Fallback for dicts or other types
+            continue
+            
         active_points.append((x, y, pid))
         
     if len(active_points) < 2:
