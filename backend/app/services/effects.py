@@ -2468,51 +2468,44 @@ def draw_signal_bloom(
     enhanced = cv2.normalize(enhanced, None, 0, 255, cv2.NORM_MINMAX)
     _, enhanced = cv2.threshold(enhanced, 40, 255, cv2.THRESH_TOZERO)
     
+    # FIX: Convert single-channel gray to 3-channel BGR BEFORE applying 3-channel LUT
+    enhanced_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+    
     # 3. Create Custom Color Map (Black -> Red -> Orange -> Yellow)
-    # We'll do this manually for speed and control using a lookup table (LUT)
     lut = np.zeros((256, 1, 3), dtype=np.uint8)
     
     # Gradient definition
-    # 0-50: Black to Deep Red
-    # 50-150: Deep Red to Bright Red
-    # 150-220: Bright Red to Yellow
-    # 220-255: Yellow to White
-    
     for i in range(256):
         if i < 50:
-            # Black to Dark Red (0,0,0) -> (0,0,100)
+            # Black to Deep Red
             t = i / 50
             lut[i, 0] = (0, 0, int(100 * t))
         elif i < 150:
-            # Dark Red to Bright Red (0,0,100) -> (0,0,255)
+            # Dark Red to Bright Red
             t = (i - 50) / 100
             lut[i, 0] = (0, 0, int(100 + 155 * t))
         elif i < 220:
-            # Bright Red to Yellow (0,0,255) -> (0,255,255)  [BGR: Red is (0,0,255), Yellow is (0,255,255)]
+            # Bright Red to Yellow
             t = (i - 150) / 70
             lut[i, 0] = (0, int(255 * t), 255)
         else:
-            # Yellow to White (0,255,255) -> (255,255,255)
+            # Yellow to White
             t = (i - 220) / 35
             lut[i, 0] = (int(255 * t), 255, 255)
             
-    # Apply LUT
-    output = cv2.LUT(enhanced, lut)
+    # Apply LUT (Now compatible: 3-channel src, 3-channel LUT)
+    output = cv2.LUT(enhanced_bgr, lut)
     
     # 4. Add "Aura" / Bloom
-    # Blur the bright parts and add them back
     bright_mask = cv2.GaussianBlur(output, (25, 25), 0)
     output = cv2.addWeighted(output, 0.8, bright_mask, 0.6, 0)
     
-    # 5. Edge emphasis (glowing edges)
+    # 5. Edge emphasis
     edges = cv2.Canny(enhanced, 50, 150)
     edges = cv2.dilate(edges, np.ones((3,3), np.uint8))
-    
-    # Make edges bright lava red/yellow
     output[edges > 0] = (0, 150, 255)  # Orange-ish edge
     
     # 6. Add texture/noise
-    # The reference is quite noisy ("fried")
     if frame_idx % 2 == 0:
         noise = np.random.normal(0, 15, (h, w, 3)).astype(np.uint8)
         output = cv2.add(output, noise)
@@ -2533,22 +2526,18 @@ def draw_vector_signal(
     """
     Vector Signal: Green vector lines connecting points with data annotations.
     Reference: Nature/AI technology signal style (vertical/structured connections).
+    FIXED: Uses quadratic bezier curves for organic "drape" look.
     """
     h, w = frame.shape[:2]
     
     # Parameters
-    max_points = preset.get("max_points", 80)
-    connect_dist = preset.get("max_connect_distance", 250)
+    max_points = preset.get("max_points", 100)
+    connect_dist = preset.get("max_connect_distance", 280)
     
-    # 1. Background: Pure Grayscale
+    # 1. Background
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    # Contrast stretch the background to look good but monochromatic
-    # Reference has deep blacks and clear whites
     gray = cv2.normalize(gray, None, 0, 240, cv2.NORM_MINMAX)
     background = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-    
-    # Darken slightly to make green pop
     background = (background * 0.7).astype(np.uint8)
     
     # 2. Detect features
@@ -2564,83 +2553,79 @@ def draw_vector_signal(
         return background
         
     points = corners.reshape(-1, 2)
-    
-    # Sort points by Y to help with vertical structure
-    # sorting isn't strictly necessary for all-to-all, but helps if we want to limit connections "upwards"
-    # Let's keep distinct points
-    
     overlay = np.zeros_like(background)
     
     # Colors
-    color_line = (50, 255, 50)  # Bright Matrix Green
-    color_text = (150, 255, 150) # Paler Green for text
+    color_line = (50, 255, 50) 
+    color_text = (150, 255, 150)
     color_point = (0, 255, 0)
     
-    # 3. Draw connections - favor verticality
-    # We want a "web" or "forest" look
-    
-    np.random.seed(frame_idx // 10) # Stable seed
-    
-    # Pre-calculate data for labels
-    labels = {}
-    for i in range(len(points)):
-        labels[i] = f"{np.random.random():.2f}"
+    # 3. Draw connections with Curves
+    np.random.seed(frame_idx // 10)
+    labels = {i: f"{np.random.random():.2f}" for i in range(len(points))}
     
     for i, pt1 in enumerate(points):
         x1, y1 = pt1
-        
-        # Draw point (small filled circle)
         cv2.circle(overlay, (int(x1), int(y1)), 3, color_point, -1)
         
         # Connections
-        connections_made = 0
-        
-        # Find 3 nearest neighbors that are somewhat vertical?
-        # Let's just look at all other points
         candidates = []
         for j, pt2 in enumerate(points):
             if i == j: continue
-            
             x2, y2 = pt2
             dist = np.hypot(x2 - x1, y2 - y1)
             
             if dist < connect_dist:
-                # Calculate angle (0 is right, 90 is down, -90 is up)
                 dx = x2 - x1
                 dy = y2 - y1
                 angle = np.degrees(np.arctan2(dy, dx))
-                
-                # We prefer vertical connections (-90 or +90)
-                # i.e., abs(angle) close to 90
-                is_vertical = abs(abs(angle) - 90) < 40
-                
+                # Prefer vertical connections
+                is_vertical = abs(abs(angle) - 90) < 45
                 candidates.append((dist, j, pt2, is_vertical))
         
-        # Sort candidates: prefer vertical, then proximity
-        # Weight verticality highly
-        candidates.sort(key=lambda c: c[0] - (100 if c[3] else 0))
+        candidates.sort(key=lambda c: c[0] - (120 if c[3] else 0))
         
-        # Draw top 3 connections
         for dist, j, pt2, is_vert in candidates[:3]:
             x2, y2 = pt2
             
-            # Simple curvature:
-            # If drawing from (x1, y1) to (x2, y2), add a control point
-            # to make it curve slightly.
-            # A simple way to get a nice curve is to average X, but push Y?
+            # Bezier control point calculation
+            # We want an organic curve.
+            # If line is vertical-ish, curve slightly sideways?
+            # Or always curve "up" like a fountain or "down" like a drape?
+            # Let's try curving "sideways" perpendicular to the midpoint,
+            # or simply pulling the midpoint 'up' (decreasing Y) to look like an arch.
             
-            # Actually, reference lines are mostly straight but form a group.
-            # Let's use straight lines for crispness, or very subtle curve.
-            # Curved lines are expensive in python loops. Let's do straight for performance
-            # unless we really need the "drape".
-            # The reference shows somewhat curved lines.
+            # Midpoint
+            mx, my = (x1 + x2) / 2, (y1 + y2) / 2
             
+            # Control point offset
+            # A simple arch pulls 'my' upwards (lower Y value)
+            # The stronger the pull, the more pronounced the curve.
+            curve_strength = dist * 0.2  # proportional to distance
+            
+            # Try to push 'up' (screen coordinates y-minus)
+            cx, cy = mx, my - curve_strength
+            
+            # Generate bezier points
+            t = np.linspace(0, 1, 10).reshape(-1, 1)
+            # Quadratic Bezier formula: P = (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2
+            P0 = np.array([x1, y1])
+            P1 = np.array([cx, cy])
+            P2 = np.array([x2, y2])
+            
+            curve_pts = (1-t)**2 * P0 + 2*(1-t)*t * P1 + t**2 * P2
+            curve_pts = curve_pts.astype(np.int32)
+            
+            # Fade alpha with distance
             alpha = (1.0 - dist / connect_dist) * 0.8
-            color = tuple(int(c * alpha) for c in color_line)
+            color = tuple(int(c * alpha) for c in color_line) # Only works if we draw line by line or overlay?
+            # cv2.polylines sends uniform color.
+            # To handle alpha, we might need to draw on a temp layer or just pick the color
+            # Since we are adding, we can just draw.
             
-            cv2.line(overlay, (int(x1), int(y1)), (int(x2), int(y2)), color, 1, cv2.LINE_AA)
+            cv2.polylines(overlay, [curve_pts], False, color, 1, cv2.LINE_AA)
 
-    # 4. Draw Labels (on top of lines)
+    # 4. Draw Labels
     for i, pt1 in enumerate(points):
         x1, y1 = pt1
         if i % 2 == 0:
@@ -2648,10 +2633,8 @@ def draw_vector_signal(
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, color_text, 1, cv2.LINE_AA)
 
     # 5. Composite
-    # Add glow to the green layer
     glow = cv2.GaussianBlur(overlay, (7, 7), 0)
     overlay = cv2.addWeighted(overlay, 1.0, glow, 0.5, 0)
-    
     output = cv2.add(background, overlay)
     
     return output
