@@ -902,6 +902,80 @@ PRESETS: dict[str, dict[str, Any]] = {
         "scanline_intensity": 0.15,       # Scanline darkness
         "noise_scale": 0.02,              # How fast noise evolves
     },
+
+    # =========================================================================
+    # SIGNAL BLOOM (Lava-red distortion)
+    # =========================================================================
+
+    "signal_bloom": {
+        "name": "Signal Bloom",
+        "description": "Radioactive lava-red distortion",
+        
+        "spawn_per_beat": 0,
+        "max_points": 0,
+        
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+        
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        
+        # Signal Bloom specific
+        "text_mode": "signal_bloom",
+        "bloom_threshold": 60,
+        "glow_intensity": 0.8,
+    },
+
+    # =========================================================================
+    # VECTOR SIGNAL (Green connected lines)
+    # =========================================================================
+
+    "vector_signal": {
+        "name": "Vector Signal",
+        "description": "Green data vectors and nodes",
+        
+        "spawn_per_beat": 0,
+        "max_points": 0,
+        
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+        
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        
+        "darken_factor": 1.0,
+        
+        # Vector Signal specific
+        "text_mode": "vector_signal",
+        "max_points": 80,
+        "max_connect_distance": 150,
+    },
 }
 
 

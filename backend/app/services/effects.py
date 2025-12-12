@@ -968,6 +968,11 @@ def apply_text_effect(
         return draw_binary_bloom(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "signal_feedback":
         return draw_signal_feedback(frame, preset, colors, frame_idx=frame_idx)
+    # === NEW EFFECTS v3 ===
+    elif text_mode == "signal_bloom":
+        return draw_signal_bloom(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "vector_signal":
+        return draw_vector_signal(frame, preset, colors, frame_idx=frame_idx)
     
     return None
 
@@ -2434,3 +2439,162 @@ def draw_signal_feedback(
     result = (result.astype(np.float32) * vignette[..., np.newaxis]).astype(np.uint8)
     
     return result
+# =============================================================================
+# SIGNAL BLOOM (Lava-red distortion)
+# =============================================================================
+
+def draw_signal_bloom(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Signal Bloom: Lava-red distortion on black background.
+    Inspired by high-contrast thermal/radioactive imagery.
+    """
+    h, w = frame.shape[:2]
+    
+    # Parameters
+    threshold = preset.get("bloom_threshold", 50)
+    glow_intensity = preset.get("glow_intensity", 0.6)
+    
+    # 1. Heavy contrast preprocessing
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Increase contrast significantly
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    
+    # Threshold to isolate bright spots/features
+    _, mask = cv2.threshold(enhanced, threshold, 255, cv2.THRESH_BINARY)
+    
+    # 2. Dilation to create "blobs" of signal
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    dilated = cv2.dilate(mask, kernel, iterations=2)
+    
+    # 3. Create the color layers
+    output = np.zeros((h, w, 3), dtype=np.uint8)
+    
+    # Base Red layer (Deep Red)
+    output[dilated > 0] = (0, 0, 180)  # BGR
+    
+    # Core layer (Bright Red/Orange) - slightly eroded
+    core_mask = cv2.erode(dilated, kernel, iterations=1)
+    output[core_mask > 0] = (0, 60, 255) # Orange-ish
+    
+    # Hotspot layer (White/Yellow) - internal details
+    # Use original gray details inside the mask
+    details = cv2.bitwise_and(enhanced, enhanced, mask=core_mask)
+    _, hot_spots = cv2.threshold(details, 200, 255, cv2.THRESH_BINARY)
+    output[hot_spots > 0] = (100, 200, 255) # Bright Yellow-ish
+    
+    # 4. Heavy Bloom/Glow
+    # Multiple blur passes for radioactive look
+    blur1 = cv2.GaussianBlur(output, (15, 15), 0)
+    blur2 = cv2.GaussianBlur(output, (45, 45), 0)
+    
+    output = cv2.addWeighted(output, 1.0, blur1, 0.7, 0)
+    output = cv2.addWeighted(output, 1.0, blur2, 0.5, 0)
+    
+    # 5. Add noise/grain
+    noise = np.random.normal(0, 15, (h, w, 3)).astype(np.uint8)
+    # Only apply noise where there is signal, to keep background black (or everywhere for grit)
+    # Let's apply everywhere for aesthetic
+    output = cv2.add(output, noise)
+    
+    return output
+
+
+# =============================================================================
+# VECTOR SIGNAL (Green connected lines)
+# =============================================================================
+
+def draw_vector_signal(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Vector Signal: Green vector lines connecting points with data annotations.
+    Reference: Nature/AI technology signal style (vertical curved lines).
+    """
+    h, w = frame.shape[:2]
+    
+    # Parameters
+    max_points = preset.get("max_points", 60)
+    connect_dist = preset.get("max_connect_distance", 200)
+    
+    # 1. Background: Grayscale low-contrast version of original
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    gray_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    # Darken it
+    background = (gray_bgr * 0.4).astype(np.uint8)
+    
+    # 2. Detect features
+    corners = cv2.goodFeaturesToTrack(
+        gray,
+        maxCorners=max_points,
+        qualityLevel=0.01,
+        minDistance=15,
+        blockSize=7
+    )
+    
+    if corners is None:
+        return background
+        
+    points = corners.reshape(-1, 2)
+    
+    # Canvas for lines
+    overlay = np.zeros_like(background)
+    
+    # Color: Bright Signal Green
+    color_line = (50, 255, 50) # BGR
+    color_text = (100, 255, 100)
+    
+    # 3. Draw connections (curved looks better, but straight is faster. Let's try vertical-biased curves)
+    # The reference images show lines going upwards like expanding plant growth or data streams.
+    
+    # Use random seed for stable jitter
+    np.random.seed(frame_idx // 5)
+    
+    for i, pt1 in enumerate(points):
+        x1, y1 = pt1
+        
+        # Draw point
+        cv2.circle(overlay, (int(x1), int(y1)), 2, color_line, -1)
+        
+        # Connections
+        count = 0
+        for pt2 in points[i+1:]:
+            x2, y2 = pt2
+            dist = np.hypot(x2 - x1, y2 - y1)
+            
+            if dist < connect_dist:
+                # Alpha based on distance
+                alpha = 1.0 - (dist / connect_dist)
+                c = tuple(int(x * alpha) for x in color_line)
+                
+                # Draw curved line (bezier-like) approx using polylines or just line
+                # For "nature" look, maybe simple straight lines are fine, but let's try to curve
+                # towards a virtual center or just straight for now to match the "vector" feel.
+                # References show straight lines forming a mesh.
+                cv2.line(overlay, (int(x1), int(y1)), (int(x2), int(y2)), c, 1, cv2.LINE_AA)
+                count += 1
+                if count > 4: break # Limit connections per point
+        
+        # Annotations (numbers/text)
+        if i % 3 == 0:
+            label = f"{np.random.random():.2f}"
+            cv2.putText(overlay, label, (int(x1)+5, int(y1)-5), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.3, color_text, 1, cv2.LINE_AA)
+
+    # 4. Composite
+    # Add glow to lines
+    glow = cv2.GaussianBlur(overlay, (5, 5), 0)
+    overlay = cv2.addWeighted(overlay, 1.0, glow, 0.5, 0)
+    
+    output = cv2.add(background, overlay)
+    
+    return output

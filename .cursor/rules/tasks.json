@@ -133,7 +133,7 @@
         "id": "PWA1",
         "phase": "pwa-polish",
         "title": "Add basic PWA support (manifest + icons)",
-        "status": "done",
+         "status": "done",
         "files": [
           "web/public/manifest.json",
           "web/public/icons/*",

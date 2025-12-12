@@ -11,9 +11,9 @@ type Preset = {
 };
 
 const MAIN_PRESETS: Preset[] = [
-  { 
-    id: "codenet_overlay", 
-    name: "CodeNet", 
+  {
+    id: "codenet_overlay",
+    name: "CodeNet",
     description: "feature network",
     icon: (
       <div className="relative w-6 h-6 flex items-center justify-center opacity-50">
@@ -26,9 +26,9 @@ const MAIN_PRESETS: Preset[] = [
       </div>
     )
   },
-  { 
+  {
     id: "motion_trace",  // Backend uses motion_trace
-    name: "Motion Flow", 
+    name: "Motion Flow",
     description: "curving lines trace movement",
     icon: (
       <svg className="w-6 h-6 text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -37,19 +37,19 @@ const MAIN_PRESETS: Preset[] = [
       </svg>
     )
   },
-  { 
-    id: "binary_bloom", 
-    name: "Binary Bloom", 
+  {
+    id: "binary_bloom",
+    name: "Binary Bloom",
     description: "0/1 silhouette",
     icon: (
       <div className="text-[8px] font-mono leading-none opacity-50 text-center">
-        010<br/>101<br/>010
+        010<br />101<br />010
       </div>
     )
   },
-  { 
-    id: "blob_track", 
-    name: "Blob Track", 
+  {
+    id: "blob_track",
+    name: "Blob Track",
     description: "coordinate tracking",
     icon: (
       <svg className="w-6 h-6 text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -68,8 +68,8 @@ const SECONDARY_PRESETS: Preset[] = [
   { id: "particle_silhouette", name: "Particle Cloud", description: "ethereal" },
   { id: "signal_map", name: "Signal Map", description: "" },
   { id: "thermal_scan", name: "Thermal Scan", description: "" },
-  { id: "grid_trace", name: "Grid Trace", description: "" },
-  { id: "face_mesh", name: "Face Mesh", description: "" },
+  { id: "signal_bloom", name: "Signal Bloom", description: "lava distortion" },
+  { id: "vector_signal", name: "Vector Signal", description: "data vectors" },
 ];
 
 // Combined list for lookups
@@ -79,7 +79,7 @@ interface PresetPickerProps {
   value: string;
   onChange: (preset: string) => void;
   disabled?: boolean;
-  
+
   // Sequence mode props
   mode: 'single' | 'sequence';
   onModeChange: (mode: 'single' | 'sequence') => void;
@@ -91,9 +91,9 @@ interface PresetPickerProps {
   onSegmentDurationChange: (duration: number) => void;
 }
 
-export function PresetPicker({ 
-  value, 
-  onChange, 
+export function PresetPicker({
+  value,
+  onChange,
   disabled,
   mode,
   onModeChange,
@@ -104,7 +104,7 @@ export function PresetPicker({
   segmentDuration,
   onSegmentDurationChange
 }: PresetPickerProps) {
-  
+
   const handlePresetClick = (presetId: string) => {
     if (mode === 'single') {
       onChange(presetId);
@@ -115,7 +115,7 @@ export function PresetPicker({
       }
     }
   };
-  
+
   // When maxSlots changes, trim sequence if needed
   const handleMaxSlotsChange = (newMax: number) => {
     onMaxSlotsChange(newMax);
@@ -136,28 +136,26 @@ export function PresetPicker({
         <p className="text-text-muted text-xs font-mono uppercase tracking-widest">
           Choose Effect
         </p>
-        
+
         {/* Mode Toggle */}
         <div className="bg-white/5 rounded-lg p-0.5 flex text-xs font-medium">
           <button
             onClick={() => onModeChange('single')}
             disabled={disabled}
-            className={`px-3 py-1.5 rounded-md transition-all duration-200 ${
-              mode === 'single' 
-                ? 'bg-white/10 text-white shadow-sm' 
-                : 'text-text-secondary hover:text-white'
-            }`}
+            className={`px-3 py-1.5 rounded-md transition-all duration-200 ${mode === 'single'
+              ? 'bg-white/10 text-white shadow-sm'
+              : 'text-text-secondary hover:text-white'
+              }`}
           >
             Single
           </button>
           <button
             onClick={() => onModeChange('sequence')}
             disabled={disabled}
-            className={`px-3 py-1.5 rounded-md transition-all duration-200 ${
-              mode === 'sequence' 
-                ? 'bg-white/10 text-white shadow-sm' 
-                : 'text-text-secondary hover:text-white'
-            }`}
+            className={`px-3 py-1.5 rounded-md transition-all duration-200 ${mode === 'sequence'
+              ? 'bg-white/10 text-white shadow-sm'
+              : 'text-text-secondary hover:text-white'
+              }`}
           >
             Sequence
           </button>
@@ -179,8 +177,8 @@ export function PresetPicker({
                     onClick={() => handleMaxSlotsChange(num)}
                     disabled={disabled}
                     className={`w-7 h-7 rounded-md text-xs font-medium transition-all duration-150
-                      ${maxSlots === num 
-                        ? 'bg-accent text-white' 
+                      ${maxSlots === num
+                        ? 'bg-accent text-white'
                         : 'bg-white/5 text-text-secondary hover:bg-white/10 hover:text-white'
                       }`}
                   >
@@ -200,8 +198,8 @@ export function PresetPicker({
                     onClick={() => onSegmentDurationChange(dur)}
                     disabled={disabled}
                     className={`px-2 h-7 rounded-md text-xs font-medium transition-all duration-150 min-w-[3rem]
-                      ${segmentDuration === dur 
-                        ? 'bg-white/20 text-white border border-white/30' 
+                      ${segmentDuration === dur
+                        ? 'bg-white/20 text-white border border-white/30'
                         : 'bg-white/5 text-text-secondary hover:bg-white/10 hover:text-white border border-transparent'
                       }`}
                   >
@@ -211,22 +209,22 @@ export function PresetPicker({
               </div>
             </div>
           </div>
-          
-          <SequenceTimeline 
-            sequence={sequence} 
+
+          <SequenceTimeline
+            sequence={sequence}
             presets={ALL_PRESETS}
             onRemove={handleRemoveFromSequence}
             maxSlots={maxSlots}
           />
         </div>
       )}
-      
+
       {/* Main 4 presets - 2x2 grid, compact */}
       <div className="grid grid-cols-2 gap-2 mb-2">
         {MAIN_PRESETS.map((preset) => {
           const isSelected = mode === 'single' ? value === preset.id : false;
           const isInSequence = mode === 'sequence' ? sequence.includes(preset.id) : false;
-          
+
           return (
             <button
               key={preset.id}
@@ -237,7 +235,7 @@ export function PresetPicker({
                 active:scale-[0.98] hover:scale-[1.01]
                 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:active:scale-100
                 ${isSelected
-                  ? "bg-white/10 border border-white/30" 
+                  ? "bg-white/10 border border-white/30"
                   : "bg-white/5 border border-transparent hover:bg-white/8"
                 }
                 ${isInSequence && mode === 'sequence' ? "ring-1 ring-accent/40" : ""}
@@ -257,7 +255,7 @@ export function PresetPicker({
 
               <div className="flex justify-between items-start relative z-10">
                 <span className="block text-white text-sm font-medium">{preset.name}</span>
-                
+
                 {/* Sequence Badge */}
                 {isInSequence && (
                   <span className="text-[10px] bg-accent/20 text-accent px-1.5 rounded-full font-mono">
@@ -269,14 +267,14 @@ export function PresetPicker({
                 {!isInSequence && preset.icon && (
                   <div className="text-white/40 group-hover:text-white/80 transition-colors">
                     {preset.id === "codenet_overlay" ? (
-                      <motion.div 
+                      <motion.div
                         animate={{ scale: [1, 1.1, 1] }}
                         transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
                       >
                         {preset.icon}
                       </motion.div>
                     ) : preset.id === "motion_trace" ? (
-                      <motion.div 
+                      <motion.div
                         animate={{ x: [0, 2, 0] }}
                         transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
                       >
@@ -288,7 +286,7 @@ export function PresetPicker({
                   </div>
                 )}
               </div>
-              
+
               <span className="block text-text-muted text-xs font-mono mt-0.5 relative z-10">
                 {preset.description}
               </span>
@@ -296,7 +294,7 @@ export function PresetPicker({
           );
         })}
       </div>
-      
+
       {/* Secondary presets - flexible row */}
       <div className="flex flex-wrap gap-1.5 justify-center">
         {SECONDARY_PRESETS.map((preset) => {
@@ -314,7 +312,7 @@ export function PresetPicker({
                 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:active:scale-100
                 flex-1 min-w-[70px] max-w-[115px]
                 ${isSelected
-                  ? "bg-white/10 border border-white/30 text-white" 
+                  ? "bg-white/10 border border-white/30 text-white"
                   : "bg-white/5 border border-transparent text-text-secondary hover:bg-white/8 hover:text-white"
                 }
                 ${isInSequence && mode === 'sequence' ? "ring-1 ring-accent/40" : ""}
