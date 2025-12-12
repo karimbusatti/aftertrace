@@ -972,7 +972,7 @@ def apply_text_effect(
     elif text_mode == "signal_bloom":
         return draw_signal_bloom(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "vector_signal":
-        return draw_vector_signal(frame, preset, colors, frame_idx=frame_idx)
+        return draw_vector_signal(frame, preset, colors, frame_idx=frame_idx, points=points)
     
     return None
 
@@ -2453,6 +2453,7 @@ def draw_signal_bloom(
     """
     Signal Bloom: Lava-red distortion on black background.
     Matches the "fried" high-contrast thermal aesthetic.
+    STABILIZED: Removed strobing noise and threshold flicker.
     """
     h, w = frame.shape[:2]
     
@@ -2460,55 +2461,58 @@ def draw_signal_bloom(
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Apply CLAHE with high clip limits to bring out texture
-    clahe = cv2.createCLAHE(clipLimit=8.0, tileGridSize=(4, 4))
+    # Reduced clipLimit slightly to 6.0 for stability
+    clahe = cv2.createCLAHE(clipLimit=6.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
     
     # 2. Level adjustment (Crush blacks, boost whites)
     # Map input [30, 220] to [0, 255]
     enhanced = cv2.normalize(enhanced, None, 0, 255, cv2.NORM_MINMAX)
-    _, enhanced = cv2.threshold(enhanced, 40, 255, cv2.THRESH_TOZERO)
     
-    # FIX: Convert single-channel gray to 3-channel BGR BEFORE applying 3-channel LUT
-    enhanced_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
-    
+    # Use adaptive threshold or softer threshold to avoid hard strobing
+    # Instead of hard threshold, we'll use a curve
     # 3. Create Custom Color Map (Black -> Red -> Orange -> Yellow)
     lut = np.zeros((256, 1, 3), dtype=np.uint8)
     
     # Gradient definition
     for i in range(256):
-        if i < 50:
+        if i < 40:
+            # Deep Black (crushed)
+             lut[i, 0] = (0, 0, 0)
+        elif i < 100:
             # Black to Deep Red
-            t = i / 50
-            lut[i, 0] = (0, 0, int(100 * t))
-        elif i < 150:
-            # Dark Red to Bright Red
-            t = (i - 50) / 100
-            lut[i, 0] = (0, 0, int(100 + 155 * t))
-        elif i < 220:
-            # Bright Red to Yellow
-            t = (i - 150) / 70
-            lut[i, 0] = (0, int(255 * t), 255)
+            t = (i - 40) / 60
+            lut[i, 0] = (0, 0, int(180 * t))
+        elif i < 180:
+            # Deep Red to Bright Red/Orange
+            t = (i - 100) / 80
+            lut[i, 0] = (0, int(80 * t), 255)
         else:
-            # Yellow to White
-            t = (i - 220) / 35
-            lut[i, 0] = (int(255 * t), 255, 255)
+            # Orange to Yellow/White
+            t = (i - 180) / 75
+            lut[i, 0] = (int(200 * t), 150 + int(105 * t), 255)
             
-    # Apply LUT (Now compatible: 3-channel src, 3-channel LUT)
+    # Apply LUT (Convert to BGR first!)
+    enhanced_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
     output = cv2.LUT(enhanced_bgr, lut)
     
     # 4. Add "Aura" / Bloom
-    bright_mask = cv2.GaussianBlur(output, (25, 25), 0)
-    output = cv2.addWeighted(output, 0.8, bright_mask, 0.6, 0)
+    bright_mask = cv2.GaussianBlur(output, (35, 35), 0)
+    output = cv2.addWeighted(output, 0.9, bright_mask, 0.7, 0)
     
-    # 5. Edge emphasis
-    edges = cv2.Canny(enhanced, 50, 150)
-    edges = cv2.dilate(edges, np.ones((3,3), np.uint8))
-    output[edges > 0] = (0, 150, 255)  # Orange-ish edge
+    # 5. Edge emphasis (thick glowing edges)
+    edges = cv2.Canny(enhanced, 40, 120)
+    edges = cv2.dilate(edges, np.ones((2,2), np.uint8))
     
-    # 6. Add texture/noise
-    if frame_idx % 2 == 0:
-        noise = np.random.normal(0, 15, (h, w, 3)).astype(np.uint8)
-        output = cv2.add(output, noise)
+    # Make edges bright lava yellow
+    output[edges > 0] = (50, 200, 255)
+    
+    # 6. Add texture/noise (Stabilized)
+    # Use a fixed noise pattern that pans slightly or just static grain
+    # Don't toggle on/off with frame_idx
+    np.random.seed(frame_idx // 10) # Change noise only 3 times a second, akin to film grain
+    noise = np.random.normal(0, 10, (h, w, 3)).astype(np.uint8)
+    output = cv2.add(output, noise)
     
     return output
 
@@ -2522,17 +2526,14 @@ def draw_vector_signal(
     preset: dict[str, Any],
     colors: dict,
     frame_idx: int = 0,
+    points: list[Any] | None = None, # actual type is list[TrackedPoint]
 ) -> np.ndarray:
     """
     Vector Signal: Green vector lines connecting points with data annotations.
     Reference: Nature/AI technology signal style (vertical/structured connections).
-    FIXED: Uses quadratic bezier curves for organic "drape" look.
+    FIXED: Uses STABLE tracked points to prevent strobing, plus alien data flow animation.
     """
     h, w = frame.shape[:2]
-    
-    # Parameters
-    max_points = preset.get("max_points", 100)
-    connect_dist = preset.get("max_connect_distance", 280)
     
     # 1. Background
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -2540,19 +2541,25 @@ def draw_vector_signal(
     background = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
     background = (background * 0.7).astype(np.uint8)
     
-    # 2. Detect features
-    corners = cv2.goodFeaturesToTrack(
-        gray,
-        maxCorners=max_points,
-        qualityLevel=0.015,
-        minDistance=20,
-        blockSize=7
-    )
+    # Valid points?
+    if not points:
+        return background
+
+    # Use the tracked points directly!
+    active_points = []
     
-    if corners is None:
+    for pt in points:
+        # Check if it's a valid point object or dict
+        if hasattr(pt, 'is_active') and not pt.is_active():
+            continue
+            
+        x, y = pt.x, pt.y
+        pid = pt.id
+        active_points.append((x, y, pid))
+        
+    if len(active_points) < 2:
         return background
         
-    points = corners.reshape(-1, 2)
     overlay = np.zeros_like(background)
     
     # Colors
@@ -2560,55 +2567,46 @@ def draw_vector_signal(
     color_text = (150, 255, 150)
     color_point = (0, 255, 0)
     
-    # 3. Draw connections with Curves
-    np.random.seed(frame_idx // 10)
-    labels = {i: f"{np.random.random():.2f}" for i in range(len(points))}
+    # Parameters
+    max_dist = preset.get("max_connect_distance", 280)
     
-    for i, pt1 in enumerate(points):
-        x1, y1 = pt1
-        cv2.circle(overlay, (int(x1), int(y1)), 3, color_point, -1)
+    # Animation state
+    packet_speed = 0.05
+    
+    # 3. Draw Connections
+    active_points.sort(key=lambda p: p[2]) 
+    
+    for i, (x1, y1, id1) in enumerate(active_points):
+        # Draw Point (pulsing size)
+        pulse = 2 + int(np.sin(frame_idx * 0.2 + id1) * 1.5 + 1.5)
+        cv2.circle(overlay, (int(x1), int(y1)), pulse, color_point, -1)
         
-        # Connections
+        # Look at neighbors
         candidates = []
-        for j, pt2 in enumerate(points):
-            if i == j: continue
-            x2, y2 = pt2
-            dist = np.hypot(x2 - x1, y2 - y1)
+        for j, (x2, y2, id2) in enumerate(active_points):
+            if i >= j: continue # Avoid duplicate pairs
             
-            if dist < connect_dist:
+            dist = np.hypot(x2 - x1, y2 - y1)
+            if dist < max_dist and dist > 10:
                 dx = x2 - x1
                 dy = y2 - y1
                 angle = np.degrees(np.arctan2(dy, dx))
-                # Prefer vertical connections
-                is_vertical = abs(abs(angle) - 90) < 45
-                candidates.append((dist, j, pt2, is_vertical))
+                is_vertical = abs(abs(angle) - 90) < 50
+                candidates.append((dist, x2, y2, id2, is_vertical))
         
-        candidates.sort(key=lambda c: c[0] - (120 if c[3] else 0))
+        # Sort: prefer vertical and close
+        candidates.sort(key=lambda c: c[0] - (150 if c[4] else 0))
         
-        for dist, j, pt2, is_vert in candidates[:3]:
-            x2, y2 = pt2
+        for dist, x2, y2, id2, is_vert in candidates[:3]: # Max 3 connections per point
+            # Draw Quadratic Bezier with "Alien" gravity
+            direction = -1 if (id1 + id2) % 2 == 0 else 1
+            curve_strength = dist * 0.15 * direction
             
-            # Bezier control point calculation
-            # We want an organic curve.
-            # If line is vertical-ish, curve slightly sideways?
-            # Or always curve "up" like a fountain or "down" like a drape?
-            # Let's try curving "sideways" perpendicular to the midpoint,
-            # or simply pulling the midpoint 'up' (decreasing Y) to look like an arch.
-            
-            # Midpoint
             mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+            cx, cy = mx, my + curve_strength
             
-            # Control point offset
-            # A simple arch pulls 'my' upwards (lower Y value)
-            # The stronger the pull, the more pronounced the curve.
-            curve_strength = dist * 0.2  # proportional to distance
-            
-            # Try to push 'up' (screen coordinates y-minus)
-            cx, cy = mx, my - curve_strength
-            
-            # Generate bezier points
-            t = np.linspace(0, 1, 10).reshape(-1, 1)
-            # Quadratic Bezier formula: P = (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2
+            # Bezier points
+            t = np.linspace(0, 1, 12).reshape(-1, 1)
             P0 = np.array([x1, y1])
             P1 = np.array([cx, cy])
             P2 = np.array([x2, y2])
@@ -2616,25 +2614,29 @@ def draw_vector_signal(
             curve_pts = (1-t)**2 * P0 + 2*(1-t)*t * P1 + t**2 * P2
             curve_pts = curve_pts.astype(np.int32)
             
-            # Fade alpha with distance
-            alpha = (1.0 - dist / connect_dist) * 0.8
-            color = tuple(int(c * alpha) for c in color_line) # Only works if we draw line by line or overlay?
-            # cv2.polylines sends uniform color.
-            # To handle alpha, we might need to draw on a temp layer or just pick the color
-            # Since we are adding, we can just draw.
+            # Line Alpha
+            alpha = (1.0 - dist / max_dist) * 0.6
+            c_line = tuple(int(c * alpha) for c in color_line)
             
-            cv2.polylines(overlay, [curve_pts], False, color, 1, cv2.LINE_AA)
-
-    # 4. Draw Labels
-    for i, pt1 in enumerate(points):
-        x1, y1 = pt1
-        if i % 2 == 0:
-            cv2.putText(overlay, labels[i], (int(x1)+6, int(y1)-6), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, color_text, 1, cv2.LINE_AA)
+            cv2.polylines(overlay, [curve_pts], False, c_line, 1, cv2.LINE_AA)
+            
+            # Draw "Alien Data Packet"
+            packet_phase = (frame_idx * packet_speed + (id1 * 0.1 + id2 * 0.2)) % 1.0
+            tp = packet_phase
+            pkt_pos = (1-tp)**2 * P0 + 2*(1-tp)*tp * P1 + tp**2 * P2
+            px, py = int(pkt_pos[0]), int(pkt_pos[1])
+            cv2.circle(overlay, (px, py), 2, (200, 255, 200), -1)
+            
+    # 4. Text Labels (randomly scanning)
+    for i, (x, y, pid) in enumerate(active_points):
+        if (frame_idx + pid) % 60 < 20: 
+            label = f"ID:{pid:02X}"
+            cv2.putText(overlay, label, (int(x)+8, int(y)-8), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.3, color_text, 1, cv2.LINE_AA)
 
     # 5. Composite
-    glow = cv2.GaussianBlur(overlay, (7, 7), 0)
-    overlay = cv2.addWeighted(overlay, 1.0, glow, 0.5, 0)
+    glow = cv2.GaussianBlur(overlay, (9, 9), 0)
+    overlay = cv2.addWeighted(overlay, 1.0, glow, 0.7, 0)
     output = cv2.add(background, overlay)
     
     return output

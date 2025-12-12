@@ -948,8 +948,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         "name": "Vector Signal",
         "description": "Green data vectors and nodes",
         
-        "spawn_per_beat": 0,
-        "max_points": 0,
+        "spawn_per_beat": 4,
+        "max_points": 120,
         
         "life_frames": 1,
         "trail_length": 0,
