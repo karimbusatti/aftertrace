@@ -65,7 +65,7 @@ const SECONDARY_PRESETS: Preset[] = [
   { id: "code_shadow", name: "Code Shadow", description: "ascii matrix" },
   { id: "contour_trace", name: "Ghost Trace", description: "edge silhouette" },
   { id: "data_body", name: "Matrix Mode", description: "data rain" },
-  { id: "particle_silhouette", name: "Particle Cloud", description: "ethereal" },
+  { id: "dither_trace", name: "Dither Trace", description: "ink flow" },
   { id: "signal_map", name: "Signal Map", description: "" },
   { id: "thermal_scan", name: "Thermal Scan", description: "" },
   { id: "signal_bloom", name: "Signal Bloom", description: "lava distortion" },

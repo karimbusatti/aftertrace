@@ -946,8 +946,8 @@ def apply_text_effect(
         return draw_number_cloud(frame, preset, colors)
     elif text_mode == "blob_track":
         return draw_blob_track(frame, preset, colors)
-    elif text_mode == "particle_silhouette":
-        return draw_particle_silhouette(frame, preset, colors)
+    elif text_mode == "dither_trace":
+        return draw_dither_trace(frame, preset, colors)
     elif text_mode == "thermal_scan":
         return draw_thermal_scan_fast(frame, preset, colors)
     elif text_mode == "matrix_mode":
@@ -1244,129 +1244,47 @@ def draw_blob_track(
 # PARTICLE SILHOUETTE EFFECT (bb.dere style)
 # =============================================================================
 
-def draw_particle_silhouette(
+def draw_dither_trace(
     frame: np.ndarray,
     preset: dict[str, Any],
     colors: dict,
 ) -> np.ndarray:
     """
-    Particle Silhouette effect: Dense ethereal point cloud - TouchDesigner/AE quality.
-    
-    Creates thousands of particles forming a glowing silhouette with:
-    - Multiple depth layers (foreground bright, background dim)
-    - Soft ethereal glow with multi-pass blur
-    - Dynamic particle sizing for depth perception
+    Dither Trace effect: 1-bit dithered ink effect.
+    Uses Bayer matrix to threshold brightness into Ink and Paper colors.
     """
     h, w = frame.shape[:2]
-    
-    # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # Get preset params
-    particle_density = preset.get("particle_density", 0.06)
-    brightness_threshold = preset.get("brightness_threshold", 20)
-    glow_intensity = preset.get("particle_glow", 1.0)
+    # Bayer matrix for dithering (4x4)
+    bayer = np.array([
+        [ 0,  8,  2, 10],
+        [12,  4, 14,  6],
+        [ 3, 11,  1,  9],
+        [15,  7, 13,  5]
+    ], dtype=np.float32) / 16.0 * 255.0
     
-    # Create layers for depth effect
-    layer_back = np.zeros((h, w, 3), dtype=np.uint8)
-    layer_mid = np.zeros((h, w, 3), dtype=np.uint8)
-    layer_front = np.zeros((h, w, 3), dtype=np.uint8)
+    # Tile the bayer matrix to match frame resolution
+    tiled_bayer = np.tile(bayer, (h // 4 + 1, w // 4 + 1))[:h, :w]
     
-    # Particle colors - warm whites with slight color variation
-    color_back = (180, 190, 200)   # Cooler, dimmer - background
-    color_mid = (220, 225, 235)    # Neutral - midground
-    color_front = (255, 250, 245)  # Warm, bright - foreground
+    # Add fluid temporal noise via blur
+    blur_amount = preset.get("blob_blur", 11)
+    if blur_amount % 2 == 0: 
+        blur_amount += 1
+    smoothed = cv2.GaussianBlur(gray, (blur_amount, blur_amount), 0)
     
-    # Find subject pixels using multiple methods
-    # 1. Brightness-based
-    bright_mask = gray > brightness_threshold
+    # Apply dither threshold
+    binary = smoothed > tiled_bayer
     
-    # 2. Edge detection for crisp boundaries
-    edges = cv2.Canny(gray, 20, 70)
-    edge_mask = edges > 0
+    # Brand Colors (BGR format)
+    # Ink: #1F1E1D -> R:31 G:30 B:29
+    # Paper: #FAF9F5 -> R:250 G:249 B:245
+    ink = np.array([29, 30, 31], dtype=np.uint8)
+    paper = np.array([245, 249, 250], dtype=np.uint8)
     
-    # 3. Gradient magnitude for texture detail
-    grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-    gradient = np.sqrt(grad_x**2 + grad_y**2)
-    gradient_mask = gradient > 15
-    
-    # Combine all masks
-    combined_mask = np.logical_or(bright_mask, np.logical_or(edge_mask, gradient_mask))
-    all_coords = np.column_stack(np.where(combined_mask))
-    
-    if len(all_coords) == 0:
-        return np.zeros((h, w, 3), dtype=np.uint8)
-    
-    # Sample particles - very high density
-    num_particles = int(len(all_coords) * particle_density)
-    num_particles = min(num_particles, 50000)  # Higher cap for ultra-dense
-    num_particles = max(num_particles, 3000)
-    
-    if len(all_coords) > num_particles:
-        indices = np.random.choice(len(all_coords), size=num_particles, replace=False)
-        sampled = all_coords[indices]
-    else:
-        sampled = all_coords
-    
-    # Draw particles in THREE layers for parallax depth
-    for (row, col) in sampled:
-        base_brightness = gray[row, col] / 255.0
-        
-        # Assign to layer based on brightness + randomness
-        layer_chance = random.random()
-        
-        if layer_chance < 0.3:
-            # Background layer - more scatter, dimmer
-            scatter = random.randint(-4, 4)
-            px = max(0, min(col + scatter, w - 1))
-            py = max(0, min(row + scatter, h - 1))
-            brightness = base_brightness * (0.3 + random.random() * 0.3)
-            color = tuple(int(c * brightness) for c in color_back)
-            layer_back[py, px] = color
-            
-        elif layer_chance < 0.7:
-            # Midground layer - medium scatter
-            scatter = random.randint(-2, 2)
-            px = max(0, min(col + scatter, w - 1))
-            py = max(0, min(row + scatter, h - 1))
-            brightness = base_brightness * (0.5 + random.random() * 0.4)
-            color = tuple(int(c * brightness) for c in color_mid)
-            layer_mid[py, px] = color
-            
-        else:
-            # Foreground layer - minimal scatter, brightest
-            scatter = random.randint(-1, 1)
-            px = max(0, min(col + scatter, w - 1))
-            py = max(0, min(row + scatter, h - 1))
-            brightness = base_brightness * (0.7 + random.random() * 0.3)
-            color = tuple(int(c * brightness) for c in color_front)
-            layer_front[py, px] = color
-    
-    # Apply different blur levels per layer for depth of field
-    layer_back_glow = cv2.GaussianBlur(layer_back, (31, 31), 0)
-    layer_mid_glow = cv2.GaussianBlur(layer_mid, (15, 15), 0)
-    layer_front_glow = cv2.GaussianBlur(layer_front, (7, 7), 0)
-    
-    # Composite layers: back → mid → front
-    output = np.zeros((h, w, 3), dtype=np.uint8)
-    
-    # Add back layer with heavy glow
-    output = cv2.addWeighted(output, 1.0, layer_back_glow, 0.4, 0)
-    output = cv2.add(output, layer_back)
-    
-    # Add mid layer
-    output = cv2.addWeighted(output, 1.0, layer_mid_glow, 0.5, 0)
-    output = cv2.add(output, layer_mid)
-    
-    # Add front layer with subtle glow
-    output = cv2.addWeighted(output, 1.0, layer_front_glow, 0.3, 0)
-    output = cv2.add(output, layer_front)
-    
-    # Final ethereal glow pass
-    if glow_intensity > 0:
-        final_glow = cv2.GaussianBlur(output, (25, 25), 0)
-        output = cv2.addWeighted(output, 1.0, final_glow, glow_intensity * 0.5, 0)
+    output = np.zeros_like(frame)
+    output[binary] = paper
+    output[~binary] = ink
     
     return output
 

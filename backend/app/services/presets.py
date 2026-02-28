@@ -247,9 +247,9 @@ PRESETS: dict[str, dict[str, Any]] = {
     # PARTICLE SILHOUETTE (bb.dere style - NO TRAILS)
     # =========================================================================
     
-    "particle_silhouette": {
-        "name": "Particle Cloud",
-        "description": "Ethereal point silhouette",
+    "dither_trace": {
+        "name": "Dither Trace",
+        "description": "1-bit ink flow",
         
         "spawn_per_beat": 0,
         "max_points": 0,
@@ -266,7 +266,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_connect_distance": 0,
         "connection_thickness": 0,
         
-        "color_mode": "particle_cream",
+        "color_mode": "void",
         "blur_radius": 0,
         "glow_intensity": 0,
         "scanlines": False,
@@ -274,13 +274,8 @@ PRESETS: dict[str, dict[str, Any]] = {
         
         "darken_factor": 1.0,
         
-        # Particle silhouette - denser, more ethereal
-        "text_mode": "particle_silhouette",
-        "particle_density": 0.05,
-        "brightness_threshold": 25,
-        "scatter_range": 2,
-        "particle_glow": 0.8,
-        "connect_particles": False,
+        "text_mode": "dither_trace",
+        "blob_blur": 11,
     },
     
     # =========================================================================
