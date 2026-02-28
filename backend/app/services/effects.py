@@ -807,12 +807,13 @@ def draw_ocular_overload(
         # Cycle colors: Red, Blue, Green every 0.25 seconds
         # 30 fps * 0.25s = 7.5 frames. We'll use 7.5 frames for a fast snappy glitch feel.
         color_cycle_idx = int(frame_idx / 7.5) % 3
-        # BGR: Red=(0,0,255), Blue=(255,0,0), Green=(0,255,0)
-        cycle_colors = [(0, 0, 255), (255, 0, 0), (0, 255, 0)]
+        # BGR: Red=(0,0,200) to match background perfectly, Blue=(255,0,0), Green=(0,255,0)
+        cycle_colors = [(0, 0, 200), (255, 0, 0), (0, 255, 0)]
         iris_color = cycle_colors[color_cycle_idx]
         
-        # Create an off-screen layer and a mask for the eyes
-        eyes_layer = np.zeros((h, w, 3), dtype=np.uint8)
+        # Create an off-screen layer initialized as a COPY of the output
+        # This ensures the sclera (white of eye) maintains the red wavy scanlines
+        eyes_layer = output.copy()
         eye_mask = np.zeros((h, w), dtype=np.uint8)
         
         for face_pts in face_data["mesh_points"]:
@@ -837,18 +838,42 @@ def draw_ocular_overload(
                 rx = int((face_pts[362][0] + face_pts[263][0]) / 2)
                 ry = int((face_pts[362][1] + face_pts[263][1]) / 2)
                 
-                # Dynamic sizes based on eye width
-                eye_w = abs(face_pts[133][0] - face_pts[33][0])
-                iris_r = max(4, int(eye_w * 0.25))
-                pupil_r = max(2, int(iris_r * 0.4))
+                # Sizes based on eye width
+                eye_w_left = abs(face_pts[133][0] - face_pts[33][0])
+                eye_w_right = abs(face_pts[263][0] - face_pts[362][0])
                 
-                # Draw Iris (colored circle) onto the composite layer
-                cv2.circle(eyes_layer, (lx, ly), iris_r, iris_color, -1, cv2.LINE_AA)
-                cv2.circle(eyes_layer, (rx, ry), iris_r, iris_color, -1, cv2.LINE_AA)
-                
-                # Draw Pupil (black circle) onto the composite layer
-                cv2.circle(eyes_layer, (lx, ly), pupil_r, (0, 0, 0), -1, cv2.LINE_AA)
-                cv2.circle(eyes_layer, (rx, ry), pupil_r, (0, 0, 0), -1, cv2.LINE_AA)
+                # Draw blocky scanline iris and rectangular pupil for both eyes
+                for cx, cy, eye_w in [(lx, ly, eye_w_left), (rx, ry, eye_w_right)]:
+                    iris_r = int(eye_w * 0.35)
+                    # Block size gives the retro 8-bit / jagged edge look
+                    block_size = max(4, int(eye_w * 0.12))
+                    
+                    # Align the top-left of the grid securely to the center
+                    start_x = cx - ((cx - (cx - iris_r)) // block_size + 1) * block_size
+                    start_y = cy - ((cy - (cy - iris_r)) // block_size + 1) * block_size
+                    
+                    for bx in range(start_x, cx + iris_r + block_size, block_size):
+                        for by in range(start_y, cy + iris_r + block_size, block_size):
+                            bcx = bx + block_size / 2
+                            bcy = by + block_size / 2
+                            # If the center of the block is inside the iris radius
+                            if (bcx - cx)**2 + (bcy - cy)**2 <= iris_r**2:
+                                x1, x2 = max(0, bx), min(w, bx + block_size)
+                                y1, y2 = max(0, by), min(h, by + block_size)
+                                
+                                if x2 > x1 and y2 > y1:
+                                    block = eyes_layer[y1:y2, x1:x2]
+                                    s_mask = scan_mask[y1:y2, x1:x2]
+                                    
+                                    # Override bright scanlines with iris color
+                                    block[s_mask == 255] = iris_color
+                                    # Override dim areas with pure black
+                                    block[s_mask == 0] = (0, 0, 0)
+                                    
+                    # Draw Pupil (black vertical rectangle)
+                    pw = max(2, int(eye_w * 0.12))
+                    ph = max(4, int(eye_w * 0.18))
+                    cv2.rectangle(eyes_layer, (cx - pw, cy - ph), (cx + pw, cy + ph), (0, 0, 0), -1)
                 
         # Blend the eyes layer onto the final output strictly within the mask
         # Expand mask to 3 channels for `where` operation
