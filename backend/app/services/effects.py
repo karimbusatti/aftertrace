@@ -2485,77 +2485,65 @@ def draw_glyph_trace(
 ) -> np.ndarray:
     """
     Glyph Trace: Renders the frame using an ASCII character grid.
-    Uses the aftertrace brand colors: 
-    Ink (#1F1E1D) -> BGR (29, 30, 31)
-    Paper (#FAF9F5) -> BGR (245, 249, 250)
+    Uses perfectly crisp monospaced pre-rendered text tiles mapped via NumPy
+    for real-time performance and pixel-perfect clarity.
     """
     h, w = frame.shape[:2]
     
     # 1. Colors
+    # Ink (#1F1E1D) -> BGR (29, 30, 31)
+    # Paper (#FAF9F5) -> BGR (245, 249, 250)
     ink_color = (29, 30, 31)
     paper_color = (245, 249, 250)
     
-    # 2. Grid Setup
-    # To keep it performant and clearly visible as ASCII, we choose a fixed width
-    # and calculate height to account for font aspect ratio (fonts are approx 2x taller than wide).
-    grid_w = 120
-    grid_h = int((h / w) * grid_w * 0.5)
-    
-    # Calculate cell sizes for drawing
-    cell_w = w / grid_w
-    cell_h = h / grid_h
-    
-    # 3. Downsample Image
-    small = cv2.resize(frame, (grid_w, grid_h), interpolation=cv2.INTER_AREA)
-    small_gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-    
-    # Optional: boost contrast slightly with S curve to get starker ASCII shapes
-    norm = small_gray.astype(np.float32) / 255.0
-    norm = np.clip((norm - 0.5) * 1.5 + 0.5, 0.0, 1.0)
-    small_gray = (norm * 255).astype(np.uint8)
-    
-    # 4. ASCII Mapping
-    # Standard 10-level brightness string (from darkest to lightest)
-    # We invert it conceptually depending on if we want dark to be density
+    # 2. Pre-render crisp ASCII tiles
+    # Using a 6x10 block gives a nice tall terminal look
+    tw, th = 6, 10
     ascii_chars = " .:-=+*#%@"
     num_chars = len(ascii_chars)
     
-    # 5. Output Canvas
-    # Fill with paper color
-    output = np.full((h, w, 3), paper_color, dtype=np.uint8)
+    # Create the tile bank (num_chars, height, width, 3)
+    tiles = np.full((num_chars, th, tw, 3), paper_color, dtype=np.uint8)
+    font = cv2.FONT_HERSHEY_PLAIN
     
-    # Font settings
-    # Adjust font scale based on cell width (trial and error approach for OpenCV fonts)
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = cell_w / 10.0  # approximate scaling factor
+    for i, char in enumerate(ascii_chars):
+        if char == ' ':
+            continue
+        # FONT_HERSHEY_PLAIN at scale 0.8 is approx 8 pixels tall. 
+        # (0, 8) is the bottom-left baseline for the text
+        # cv2.LINE_4 avoids anti-aliasing blur for maximum crispness
+        cv2.putText(tiles[i], char, (0, 8), font, 0.8, ink_color, 1, cv2.LINE_4)
+        
+    # 3. Downsample Image mathematically to match grid
+    grid_w = w // tw
+    grid_h = h // th
     
-    # 6. Draw Grid
-    for gy in range(grid_h):
-        for gx in range(grid_w):
-            brightness = small_gray[gy, gx]
-            # Map 0-255 to 0-(num_chars-1)
-            char_idx = int((brightness / 255.0) * (num_chars - 1))
-            
-            # Since the background is bright paper, dark areas should be denser characters.
-            # So if brightness is low (dark), char_idx is low, we want a dense character.
-            # We must invert the index mapping:
-            char_idx = (num_chars - 1) - char_idx
-            
-            char = ascii_chars[char_idx]
-            
-            # Skip drawing spaces for performance
-            if char == ' ':
-                continue
-                
-            # Calculate text position (bottom-left corner of the cell for simple cv2 putText)
-            px = int(gx * cell_w)
-            py = int((gy + 0.8) * cell_h)
-            
-            # Add a bit of jitter or noise for the "ink" vibe? Optional.
-            cv2.putText(output, char, (px, py), font, font_scale, ink_color, 1, cv2.LINE_AA)
-            
-    # Add an overall subtle blur for that imperfect "ink spread" look
-    output = cv2.GaussianBlur(output, (3, 3), 0)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    small_gray = cv2.resize(gray, (grid_w, grid_h), interpolation=cv2.INTER_AREA)
     
+    # 4. Enhance contrast so we hit the extreme characters more frequently
+    norm = small_gray.astype(np.float32) / 255.0
+    norm = np.clip((norm - 0.5) * 1.5 + 0.5, 0.0, 1.0)
+    
+    # 5. Map to character indices
+    # We want dark areas (= low norm) to have dense characters (= high indices)
+    # Bright areas (= high norm) fall into empty/light characters (= low indices)
+    indices = ((1.0 - norm) * (num_chars - 1)).astype(np.int32)
+    indices = np.clip(indices, 0, num_chars - 1)
+    
+    # 6. Build final image instantly through numpy memory mapping
+    # mapped shape: (grid_h, grid_w, th, tw, 3)
+    mapped = tiles[indices]
+    
+    # Transpose dimensions to interleave rows and columns properly:
+    # From (grid_h, grid_w, cell_h, cell_w, 3) -> (grid_h, cell_h, grid_w, cell_w, 3)
+    output = mapped.transpose(0, 2, 1, 3, 4).reshape(grid_h * th, grid_w * tw, 3)
+    
+    # If the frame size is not perfectly divisible, pad with paper color
+    if output.shape[0] != h or output.shape[1] != w:
+        final_out = np.full((h, w, 3), paper_color, dtype=np.uint8)
+        final_out[:output.shape[0], :output.shape[1]] = output
+        return final_out
+        
     return output
 
