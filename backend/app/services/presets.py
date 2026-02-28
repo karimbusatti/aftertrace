@@ -942,12 +942,12 @@ PRESETS: dict[str, dict[str, Any]] = {
     # VECTOR SIGNAL (Green connected lines)
     # =========================================================================
 
-    "vector_signal": {
-        "name": "Vector Signal",
-        "description": "Green data vectors and nodes",
+    "glyph_trace": {
+        "name": "Glyph Trace",
+        "description": "ASCII ink renderer",
         
-        "spawn_per_beat": 4,
-        "max_points": 120,
+        "spawn_per_beat": 0,
+        "max_points": 0,
         
         "life_frames": 1,
         "trail_length": 0,
@@ -961,18 +961,14 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_connect_distance": 0,
         "connection_thickness": 0,
         
-        "color_mode": "clean_white",
+        "color_mode": "void",
         "blur_radius": 0,
         "glow_intensity": 0,
         "scanlines": False,
         "high_contrast_bw": False,
         
         "darken_factor": 1.0,
-        
-        # Vector Signal specific
-        "text_mode": "vector_signal",
-        "max_points": 100,
-        "max_connect_distance": 280,
+        "text_mode": "glyph_trace",
     },
 }
 

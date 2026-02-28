@@ -69,7 +69,7 @@ const SECONDARY_PRESETS: Preset[] = [
   { id: "signal_map", name: "Signal Map", description: "" },
   { id: "ocular_overload", name: "Ocular Overload", description: "retinal glitch" },
   { id: "signal_bloom", name: "Signal Bloom", description: "lava distortion" },
-  { id: "vector_signal", name: "Vector Signal", description: "data vectors" },
+  { id: "glyph_trace", name: "Glyph Trace", description: "ascii ink" },
 ];
 
 // Combined list for lookups

@@ -969,8 +969,8 @@ def apply_text_effect(
     # === NEW EFFECTS v3 ===
     elif text_mode == "signal_bloom":
         return draw_signal_bloom(frame, preset, colors, frame_idx=frame_idx)
-    elif text_mode == "vector_signal":
-        return draw_vector_signal(frame, preset, colors, frame_idx=frame_idx, points=points)
+    elif text_mode == "glyph_trace":
+        return draw_glyph_trace(frame, preset, colors, frame_idx=frame_idx, points=points)
     
     return None
 
@@ -2478,131 +2478,89 @@ def draw_signal_bloom(
 
 
 # =============================================================================
-# VECTOR SIGNAL (Green connected lines)
+# GLYPH TRACE (ASCII INK)
 # =============================================================================
 
-def draw_vector_signal(
+def draw_glyph_trace(
     frame: np.ndarray,
     preset: dict[str, Any],
     colors: dict,
     frame_idx: int = 0,
-    points: list[Any] | None = None, # actual type is list[TrackedPoint]
+    points: list[Any] | None = None,
 ) -> np.ndarray:
     """
-    Vector Signal: Green vector lines connecting points with data annotations.
-    Reference: Nature/AI technology signal style (vertical/structured connections).
-    FIXED: Uses STABLE tracked points to prevent strobing, plus alien data flow animation.
+    Glyph Trace: Renders the frame using an ASCII character grid.
+    Uses the aftertrace brand colors: 
+    Ink (#1F1E1D) -> BGR (29, 30, 31)
+    Paper (#FAF9F5) -> BGR (245, 249, 250)
     """
     h, w = frame.shape[:2]
     
-    # 1. Background
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    gray = cv2.normalize(gray, None, 0, 240, cv2.NORM_MINMAX)
-    background = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-    background = (background * 0.7).astype(np.uint8)
+    # 1. Colors
+    ink_color = (29, 30, 31)
+    paper_color = (245, 249, 250)
     
-    # Valid points?
-    if not points:
-        return background
-
-    # Use the tracked points directly!
-    active_points = []
+    # 2. Grid Setup
+    # To keep it performant and clearly visible as ASCII, we choose a fixed width
+    # and calculate height to account for font aspect ratio (fonts are approx 2x taller than wide).
+    grid_w = 120
+    grid_h = int((h / w) * grid_w * 0.5)
     
-    for pt in points:
-        # Check if it's a valid point object or dict
-        if hasattr(pt, 'is_active') and not pt.is_active():
-            continue
-            
-        # FIX: TrackedPoint has .position (numpy array), not .x/.y
-        if hasattr(pt, 'position'):
-            x, y = pt.position[0], pt.position[1]
-            pid = pt.id
-        else:
-            # Fallback for dicts or other types
-            continue
-            
-        active_points.append((x, y, pid))
-        
-    if len(active_points) < 2:
-        return background
-        
-    overlay = np.zeros_like(background)
+    # Calculate cell sizes for drawing
+    cell_w = w / grid_w
+    cell_h = h / grid_h
     
-    # Colors
-    color_line = (50, 255, 50) 
-    color_text = (150, 255, 150)
-    color_point = (0, 255, 0)
+    # 3. Downsample Image
+    small = cv2.resize(frame, (grid_w, grid_h), interpolation=cv2.INTER_AREA)
+    small_gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     
-    # Parameters
-    max_dist = preset.get("max_connect_distance", 280)
+    # Optional: boost contrast slightly with S curve to get starker ASCII shapes
+    norm = small_gray.astype(np.float32) / 255.0
+    norm = np.clip((norm - 0.5) * 1.5 + 0.5, 0.0, 1.0)
+    small_gray = (norm * 255).astype(np.uint8)
     
-    # Animation state
-    packet_speed = 0.05
+    # 4. ASCII Mapping
+    # Standard 10-level brightness string (from darkest to lightest)
+    # We invert it conceptually depending on if we want dark to be density
+    ascii_chars = " .:-=+*#%@"
+    num_chars = len(ascii_chars)
     
-    # 3. Draw Connections
-    active_points.sort(key=lambda p: p[2]) 
+    # 5. Output Canvas
+    # Fill with paper color
+    output = np.full((h, w, 3), paper_color, dtype=np.uint8)
     
-    for i, (x1, y1, id1) in enumerate(active_points):
-        # Draw Point (pulsing size)
-        pulse = 2 + int(np.sin(frame_idx * 0.2 + id1) * 1.5 + 1.5)
-        cv2.circle(overlay, (int(x1), int(y1)), pulse, color_point, -1)
-        
-        # Look at neighbors
-        candidates = []
-        for j, (x2, y2, id2) in enumerate(active_points):
-            if i >= j: continue # Avoid duplicate pairs
+    # Font settings
+    # Adjust font scale based on cell width (trial and error approach for OpenCV fonts)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = cell_w / 10.0  # approximate scaling factor
+    
+    # 6. Draw Grid
+    for gy in range(grid_h):
+        for gx in range(grid_w):
+            brightness = small_gray[gy, gx]
+            # Map 0-255 to 0-(num_chars-1)
+            char_idx = int((brightness / 255.0) * (num_chars - 1))
             
-            dist = np.hypot(x2 - x1, y2 - y1)
-            if dist < max_dist and dist > 10:
-                dx = x2 - x1
-                dy = y2 - y1
-                angle = np.degrees(np.arctan2(dy, dx))
-                is_vertical = abs(abs(angle) - 90) < 50
-                candidates.append((dist, x2, y2, id2, is_vertical))
-        
-        # Sort: prefer vertical and close
-        candidates.sort(key=lambda c: c[0] - (150 if c[4] else 0))
-        
-        for dist, x2, y2, id2, is_vert in candidates[:3]: # Max 3 connections per point
-            # Draw Quadratic Bezier with "Alien" gravity
-            direction = -1 if (id1 + id2) % 2 == 0 else 1
-            curve_strength = dist * 0.15 * direction
+            # Since the background is bright paper, dark areas should be denser characters.
+            # So if brightness is low (dark), char_idx is low, we want a dense character.
+            # We must invert the index mapping:
+            char_idx = (num_chars - 1) - char_idx
             
-            mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-            cx, cy = mx, my + curve_strength
+            char = ascii_chars[char_idx]
             
-            # Bezier points
-            t = np.linspace(0, 1, 12).reshape(-1, 1)
-            P0 = np.array([x1, y1])
-            P1 = np.array([cx, cy])
-            P2 = np.array([x2, y2])
+            # Skip drawing spaces for performance
+            if char == ' ':
+                continue
+                
+            # Calculate text position (bottom-left corner of the cell for simple cv2 putText)
+            px = int(gx * cell_w)
+            py = int((gy + 0.8) * cell_h)
             
-            curve_pts = (1-t)**2 * P0 + 2*(1-t)*t * P1 + t**2 * P2
-            curve_pts = curve_pts.astype(np.int32)
+            # Add a bit of jitter or noise for the "ink" vibe? Optional.
+            cv2.putText(output, char, (px, py), font, font_scale, ink_color, 1, cv2.LINE_AA)
             
-            # Line Alpha
-            alpha = (1.0 - dist / max_dist) * 0.6
-            c_line = tuple(int(c * alpha) for c in color_line)
-            
-            cv2.polylines(overlay, [curve_pts], False, c_line, 1, cv2.LINE_AA)
-            
-            # Draw "Alien Data Packet"
-            packet_phase = (frame_idx * packet_speed + (id1 * 0.1 + id2 * 0.2)) % 1.0
-            tp = packet_phase
-            pkt_pos = (1-tp)**2 * P0 + 2*(1-tp)*tp * P1 + tp**2 * P2
-            px, py = int(pkt_pos[0]), int(pkt_pos[1])
-            cv2.circle(overlay, (px, py), 2, (200, 255, 200), -1)
-            
-    # 4. Text Labels (randomly scanning)
-    for i, (x, y, pid) in enumerate(active_points):
-        if (frame_idx + pid) % 60 < 20: 
-            label = f"ID:{pid:02X}"
-            cv2.putText(overlay, label, (int(x)+8, int(y)-8), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.3, color_text, 1, cv2.LINE_AA)
-
-    # 5. Composite
-    glow = cv2.GaussianBlur(overlay, (9, 9), 0)
-    overlay = cv2.addWeighted(overlay, 1.0, glow, 0.7, 0)
-    output = cv2.add(background, overlay)
+    # Add an overall subtle blur for that imperfect "ink spread" look
+    output = cv2.GaussianBlur(output, (3, 3), 0)
     
     return output
+
