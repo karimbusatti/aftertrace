@@ -811,32 +811,49 @@ def draw_ocular_overload(
         cycle_colors = [(0, 0, 255), (255, 0, 0), (0, 255, 0)]
         iris_color = cycle_colors[color_cycle_idx]
         
+        # Create an off-screen layer and a mask for the eyes
+        eyes_layer = np.zeros((h, w, 3), dtype=np.uint8)
+        eye_mask = np.zeros((h, w), dtype=np.uint8)
+        
         for face_pts in face_data["mesh_points"]:
             if len(face_pts) >= 468:
-                # MediaPipe Eye indices (Iris centers aren't perfect in 468 mesh, but we can average the eye loop)
-                left_eye_indices = [33, 133, 159, 145]  
-                right_eye_indices = [362, 263, 386, 374]
+                # Full eye contours for masking
+                # Screen Left Eye (Right eye of the person)
+                screen_left_contour = [33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7]
+                # Screen Right Eye (Left eye of the person)
+                screen_right_contour = [362, 398, 384, 385, 386, 387, 388, 466, 263, 249, 390, 373, 374, 380, 381, 382]
                 
-                # Left Eye Center
-                lx = int(sum(face_pts[i][0] for i in left_eye_indices) / len(left_eye_indices))
-                ly = int(sum(face_pts[i][1] for i in left_eye_indices) / len(left_eye_indices))
+                # Create mask polygons
+                left_poly = np.array([(int(face_pts[i][0]), int(face_pts[i][1])) for i in screen_left_contour], dtype=np.int32)
+                right_poly = np.array([(int(face_pts[i][0]), int(face_pts[i][1])) for i in screen_right_contour], dtype=np.int32)
                 
-                # Right Eye Center
-                rx = int(sum(face_pts[i][0] for i in right_eye_indices) / len(right_eye_indices))
-                ry = int(sum(face_pts[i][1] for i in right_eye_indices) / len(right_eye_indices))
+                cv2.fillPoly(eye_mask, [left_poly], 255)
+                cv2.fillPoly(eye_mask, [right_poly], 255)
+                
+                # Approximate Eye Centers (using corner points for stability)
+                lx = int((face_pts[33][0] + face_pts[133][0]) / 2)
+                ly = int((face_pts[33][1] + face_pts[133][1]) / 2)
+                
+                rx = int((face_pts[362][0] + face_pts[263][0]) / 2)
+                ry = int((face_pts[362][1] + face_pts[263][1]) / 2)
                 
                 # Dynamic sizes based on eye width
                 eye_w = abs(face_pts[133][0] - face_pts[33][0])
                 iris_r = max(4, int(eye_w * 0.25))
                 pupil_r = max(2, int(iris_r * 0.4))
                 
-                # Draw Iris (colored circle)
-                cv2.circle(output, (lx, ly), iris_r, iris_color, -1)
-                cv2.circle(output, (rx, ry), iris_r, iris_color, -1)
+                # Draw Iris (colored circle) onto the composite layer
+                cv2.circle(eyes_layer, (lx, ly), iris_r, iris_color, -1, cv2.LINE_AA)
+                cv2.circle(eyes_layer, (rx, ry), iris_r, iris_color, -1, cv2.LINE_AA)
                 
-                # Draw Pupil (black circle)
-                cv2.circle(output, (lx, ly), pupil_r, (0, 0, 0), -1)
-                cv2.circle(output, (rx, ry), pupil_r, (0, 0, 0), -1)
+                # Draw Pupil (black circle) onto the composite layer
+                cv2.circle(eyes_layer, (lx, ly), pupil_r, (0, 0, 0), -1, cv2.LINE_AA)
+                cv2.circle(eyes_layer, (rx, ry), pupil_r, (0, 0, 0), -1, cv2.LINE_AA)
+                
+        # Blend the eyes layer onto the final output strictly within the mask
+        # Expand mask to 3 channels for `where` operation
+        mask_3d = eye_mask[:, :, np.newaxis] == 255
+        output = np.where(mask_3d, eyes_layer, output)
     
     return output
 
