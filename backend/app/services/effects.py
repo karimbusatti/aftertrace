@@ -1250,28 +1250,43 @@ def draw_dither_trace(
     colors: dict,
 ) -> np.ndarray:
     """
-    Dither Trace effect: 1-bit dithered ink effect.
-    Uses Bayer matrix to threshold brightness into Ink and Paper colors.
+    Dither Trace effect: High contrast 1-bit dithered ink effect (Atkinson style approximation).
+    Uses a scaled 8x8 Bayer matrix and contrast enhancement to get distinct, chunky ink dots.
     """
     h, w = frame.shape[:2]
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # Bayer matrix for dithering (4x4)
+    # 8x8 Bayer matrix for a wider range of tones and a more organic crosshatch
     bayer = np.array([
-        [ 0,  8,  2, 10],
-        [12,  4, 14,  6],
-        [ 3, 11,  1,  9],
-        [15,  7, 13,  5]
-    ], dtype=np.float32) / 16.0 * 255.0
+        [ 0, 32,  8, 40,  2, 34, 10, 42],
+        [48, 16, 56, 24, 50, 18, 58, 26],
+        [12, 44,  4, 36, 14, 46,  6, 38],
+        [60, 28, 52, 20, 62, 30, 54, 22],
+        [ 3, 35, 11, 43,  1, 33,  9, 41],
+        [51, 19, 59, 27, 49, 17, 57, 25],
+        [15, 47,  7, 39, 13, 45,  5, 37],
+        [63, 31, 55, 23, 61, 29, 53, 21]
+    ], dtype=np.float32) / 64.0 * 255.0
     
-    # Tile the bayer matrix to match frame resolution
-    tiled_bayer = np.tile(bayer, (h // 4 + 1, w // 4 + 1))[:h, :w]
+    # Scale up the Bayer matrix (2x2 pixels per dither dot) to make it "chunkier"
+    scale = 2
+    bayer_scaled = np.repeat(np.repeat(bayer, scale, axis=0), scale, axis=1)
     
-    # Add fluid temporal noise via blur
-    blur_amount = preset.get("blob_blur", 11)
+    # Tile the scaled bayer matrix to match frame resolution
+    bh, bw = bayer_scaled.shape
+    tiled_bayer = np.tile(bayer_scaled, (h // bh + 1, w // bw + 1))[:h, :w]
+    
+    # Add minor temporal noise via slight blur
+    blur_amount = preset.get("blob_blur", 7)
     if blur_amount % 2 == 0: 
         blur_amount += 1
     smoothed = cv2.GaussianBlur(gray, (blur_amount, blur_amount), 0)
+    
+    # CRITICAL: Dramatically increase contrast before dithering to get pure blacks/whites
+    # S-curve function to push midtones to extremes
+    smoothed_f = smoothed.astype(np.float32) / 255.0
+    smoothed_f = 1.0 / (1.0 + np.exp(-12.0 * (smoothed_f - 0.5))) # Steep sigmoid
+    smoothed = (smoothed_f * 255.0).astype(np.float32)
     
     # Apply dither threshold
     binary = smoothed > tiled_bayer
