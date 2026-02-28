@@ -67,7 +67,7 @@ const SECONDARY_PRESETS: Preset[] = [
   { id: "data_body", name: "Matrix Mode", description: "data rain" },
   { id: "dither_trace", name: "Dither Trace", description: "ink flow" },
   { id: "signal_map", name: "Signal Map", description: "" },
-  { id: "thermal_scan", name: "Thermal Scan", description: "" },
+  { id: "ocular_overload", name: "Ocular Overload", description: "retinal glitch" },
   { id: "signal_bloom", name: "Signal Bloom", description: "lava distortion" },
   { id: "vector_signal", name: "Vector Signal", description: "data vectors" },
 ];

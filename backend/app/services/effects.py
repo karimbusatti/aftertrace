@@ -49,10 +49,10 @@ def draw_frame(
     
     if overlay_mode:
         # OVERLAY MODE: Keep original visible, blend effects on top
-        output = _draw_frame_overlay(frame, points, preset, colors, frame_idx)
+        output = _draw_frame_overlay(frame, points, preset, colors, frame_idx, face_data)
     else:
         # NORMAL MODE: Replace background with effect
-        output = _draw_frame_replace(frame, points, preset, colors, frame_idx)
+        output = _draw_frame_replace(frame, points, preset, colors, frame_idx, face_data)
     
     # Apply face detection overlays
     if face_data:
@@ -119,11 +119,12 @@ def _draw_frame_replace(
     preset: dict[str, Any],
     colors: dict,
     frame_idx: int,
+    face_data: dict | None = None,
 ) -> np.ndarray:
     """Normal mode: darken background and draw effects on top."""
     
     # Check for text-based effects first (they replace the entire pipeline)
-    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx, points=points)
+    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx, points=points, face_data=face_data)
     if text_result is not None:
         output = text_result
         
@@ -221,6 +222,7 @@ def _draw_frame_overlay(
     preset: dict[str, Any],
     colors: dict,
     frame_idx: int,
+    face_data: dict | None = None,
 ) -> np.ndarray:
     """
     Overlay mode: blend effects at ~40% over the original frame.
@@ -230,7 +232,7 @@ def _draw_frame_overlay(
     original = frame.copy()
     
     # Check for text-based effects
-    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx, points=points)
+    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx, points=points, face_data=face_data)
     if text_result is not None:
         # For text effects in overlay mode, blend text layer over original
         effect_layer = text_result
@@ -757,87 +759,82 @@ def draw_thermal_scan_slow(
 
 
 # Optimized thermal using numpy vectorization
-def draw_thermal_scan_fast(
+def draw_ocular_overload(
     frame: np.ndarray,
     preset: dict[str, Any],
     colors: dict,
+    frame_idx: int = 0,
+    face_data: dict | None = None,
 ) -> np.ndarray:
     """
-    Thermal Scan effect - EXACT Skepta "Ignorance is Bliss" colors.
-    
-    Precise color match from the album cover:
-    - Background: Dark saturated teal #006B6B (deep cyan-teal)
-    - Skin: Vivid orange #FF6600 to #FF8800
-    - Hot: Yellow-orange #FFAA00 to #FFCC44
+    Ocular Overload effect - Retro computer glitch.
+    - High-contrast red horizontal scanlines
+    - Tracks eye pupils to render blocky squares that cycle Red -> Blue -> Green
     """
     h, w = frame.shape[:2]
     
-    # Convert to grayscale
+    # 1. Base Effect: High Contrast Red scanlines
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # Strong CLAHE for dramatic contrast like the album
-    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
-    gray = clahe.apply(gray)
+    # Increase contrast dramatically (edge/detail emphasis)
+    clahe = cv2.createCLAHE(clipLimit=6.0, tileGridSize=(8, 8))
+    gray_high = clahe.apply(gray)
     
-    # Smooth for thermal look
-    gray = cv2.GaussianBlur(gray, (7, 7), 0)
+    # Threshold to create an intense black & white binary look
+    _, binary = cv2.threshold(gray_high, 80, 255, cv2.THRESH_BINARY)
     
-    # Create output
+    # Horizontal organic scanlines (mask every other line)
+    scan_mask = np.zeros((h, w), dtype=np.uint8)
+    for y in range(0, h, 2):
+        scan_mask[y:y+1, :] = 255
+    
+    # Only keep bright pixels that fall on the scanlines
+    binary_scan = cv2.bitwise_and(binary, scan_mask)
+    
+    # Color mapping: Black background, Red foreground
     output = np.zeros((h, w, 3), dtype=np.uint8)
+    output[binary_scan == 255] = (0, 0, 200) # Deep visceral red (BGR format)
     
-    # Normalize
-    norm = gray.astype(np.float32) / 255.0
+    # Subtle dark red background for non-scanline bright areas to give it depth
+    bg_red = (0, 0, 50)
+    output[(binary == 255) & (scan_mask == 0)] = bg_red
     
-    # === SKEPTA EXACT COLORS (BGR format) ===
-    # Deep teal: RGB(0, 107, 107) = BGR(107, 107, 0) - the dark cyan from album
-    # Orange: RGB(255, 102, 0) = BGR(0, 102, 255) - vivid orange skin
-    # Yellow-orange: RGB(255, 170, 0) = BGR(0, 170, 255) - hot spots
-    
-    # COLD: Deep teal background - bottom 45%
-    cold_mask = norm < 0.45
-    t = norm[cold_mask] / 0.45
-    # Start very dark teal, get slightly brighter
-    output[cold_mask, 0] = (100 + t * 20).astype(np.uint8)    # B: 100->120
-    output[cold_mask, 1] = (90 + t * 25).astype(np.uint8)     # G: 90->115
-    output[cold_mask, 2] = (0 + t * 15).astype(np.uint8)      # R: 0->15
-    
-    # TRANSITION: Teal to orange - 45% to 55%
-    trans_mask = (norm >= 0.45) & (norm < 0.55)
-    t = (norm[trans_mask] - 0.45) / 0.10
-    output[trans_mask, 0] = (120 - t * 118).astype(np.uint8)  # B: 120->2
-    output[trans_mask, 1] = (115 - t * 15).astype(np.uint8)   # G: 115->100
-    output[trans_mask, 2] = (15 + t * 240).astype(np.uint8)   # R: 15->255
-    
-    # WARM: Vivid orange - 55% to 70%
-    warm_mask = (norm >= 0.55) & (norm < 0.70)
-    t = (norm[warm_mask] - 0.55) / 0.15
-    output[warm_mask, 0] = 2                                   # B: very low
-    output[warm_mask, 1] = (100 + t * 70).astype(np.uint8)    # G: 100->170
-    output[warm_mask, 2] = 255                                 # R: max orange
-    
-    # HOT: Yellow-orange - 70% to 85%
-    hot_mask = (norm >= 0.70) & (norm < 0.85)
-    t = (norm[hot_mask] - 0.70) / 0.15
-    output[hot_mask, 0] = (2 + t * 20).astype(np.uint8)       # B: 2->22
-    output[hot_mask, 1] = (170 + t * 50).astype(np.uint8)     # G: 170->220
-    output[hot_mask, 2] = 255                                  # R: max
-    
-    # VERY HOT: Bright yellow - top 15%
-    very_hot_mask = norm >= 0.85
-    t = (norm[very_hot_mask] - 0.85) / 0.15
-    t = np.clip(t, 0, 1)
-    output[very_hot_mask, 0] = (22 + t * 50).astype(np.uint8)   # B: 22->72
-    output[very_hot_mask, 1] = (220 + t * 35).astype(np.uint8)  # G: 220->255
-    output[very_hot_mask, 2] = 255                               # R: max
-    
-    # Subtle glow on hot areas
-    hot_areas = norm > 0.55
-    if np.any(hot_areas):
-        glow = cv2.GaussianBlur(output, (25, 25), 0)
-        mask = hot_areas.astype(np.float32)
-        mask = cv2.GaussianBlur(mask, (35, 35), 0)
-        mask_3d = np.stack([mask] * 3, axis=-1)
-        output = cv2.addWeighted(output, 1.0, (glow * mask_3d * 0.3).astype(np.uint8), 1.0, 0)
+    # 2. Eye Tracking & Color Cycling
+    if face_data and "mesh_points" in face_data:
+        # Cycle colors: Red, Blue, Green every 0.25 seconds
+        # 30 fps * 0.25s = 7.5 frames. We'll use 7 frames for a fast snappy glitch feel.
+        color_cycle_idx = int(frame_idx / 7.5) % 3
+        # BGR: Red=(0,0,255), Blue=(255,0,0), Green=(0,255,0)
+        cycle_colors = [(0, 0, 255), (255, 0, 0), (0, 255, 0)]
+        pupil_color = cycle_colors[color_cycle_idx]
+        
+        for face_pts in face_data["mesh_points"]:
+            if len(face_pts) >= 468:
+                # MediaPipe Eye indices
+                left_eye_indices = [33, 133, 159, 145]  
+                right_eye_indices = [362, 263, 386, 374]
+                
+                # Left Eye Center
+                lx = int(sum(face_pts[i][0] for i in left_eye_indices) / len(left_eye_indices))
+                ly = int(sum(face_pts[i][1] for i in left_eye_indices) / len(left_eye_indices))
+                
+                # Right Eye Center
+                rx = int(sum(face_pts[i][0] for i in right_eye_indices) / len(right_eye_indices))
+                ry = int(sum(face_pts[i][1] for i in right_eye_indices) / len(right_eye_indices))
+                
+                # Square sizes (blocky, pixelated look)
+                # Roughly based on eye width
+                eye_w = abs(face_pts[133][0] - face_pts[33][0])
+                box_w = max(10, int(eye_w * 0.6))
+                
+                # Draw blocky pupil (colored)
+                cv2.rectangle(output, (lx - box_w, ly - box_w), (lx + box_w, ly + box_w), pupil_color, -1)
+                cv2.rectangle(output, (rx - box_w, ry - box_w), (rx + box_w, ry + box_w), pupil_color, -1)
+                
+                # Draw black center square inside the colored square
+                pw = max(3, box_w // 3)
+                cv2.rectangle(output, (lx - pw, ly - pw), (lx + pw, ly + pw), (0, 0, 0), -1)
+                cv2.rectangle(output, (rx - pw, ry - pw), (rx + pw, ry + pw), (0, 0, 0), -1)
     
     return output
 
@@ -932,6 +929,7 @@ def apply_text_effect(
     colors: dict,
     frame_idx: int = 0,
     points: list[TrackedPoint] | None = None,
+    face_data: dict | None = None,
 ) -> np.ndarray | None:
     """
     Apply text-based effect if preset has text_mode set.
@@ -948,8 +946,8 @@ def apply_text_effect(
         return draw_blob_track(frame, preset, colors)
     elif text_mode == "dither_trace":
         return draw_dither_trace(frame, preset, colors)
-    elif text_mode == "thermal_scan":
-        return draw_thermal_scan_fast(frame, preset, colors)
+    elif text_mode == "ocular_overload":
+        return draw_ocular_overload(frame, preset, colors, frame_idx, face_data)
     elif text_mode == "matrix_mode":
         return draw_matrix_mode(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "contour_trace":

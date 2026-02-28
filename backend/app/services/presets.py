@@ -213,15 +213,15 @@ PRESETS: dict[str, dict[str, Any]] = {
     # THERMAL SCAN (Skepta "Ignorance is Bliss" style)
     # =========================================================================
     
-    "thermal_scan": {
-        "name": "Thermal Scan",
-        "description": "Skepta-style heat vision",
+    "ocular_overload": {
+        "name": "Ocular Overload",
+        "description": "retro computer overload",
         
         "spawn_per_beat": 0,
         "max_points": 0,
         
         "life_frames": 1,
-        "trail_length": 0,
+        "trail_length": 0,  
         "trail_fade": False,
         
         "shape": "none",
@@ -232,15 +232,18 @@ PRESETS: dict[str, dict[str, Any]] = {
         "max_connect_distance": 0,
         "connection_thickness": 0,
         
-        "color_mode": "clean_white",
+        "color_mode": "void",
         "blur_radius": 0,
-        "glow_intensity": 0,
-        "scanlines": False,
+        "glow_intensity": 0.2,
+        "scanlines": False,    # we'll draw our own scanlines
         "high_contrast_bw": False,
         
         "darken_factor": 1.0,
+        "text_mode": "ocular_overload",
         
-        "text_mode": "thermal_scan",
+        # REQUIRED for eye tracking
+        "detect_faces": True,
+        "detect_mesh": True,
     },
     
     # =========================================================================
