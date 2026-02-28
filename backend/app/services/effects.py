@@ -94,7 +94,7 @@ def _apply_face_overlays(
         draw_face_glow(output, faces, face_color, intensity=0.3)
     
     # Draw face mesh with appropriate color
-    if preset.get("detect_mesh", False) and mesh_points:
+    if preset.get("detect_mesh", False) and preset.get("draw_mesh", True) and mesh_points:
         mesh_color = (255, 255, 255) if biometric_style == "clean" else face_color
         draw_face_mesh(output, mesh_points, mesh_color, draw_contours=True, glow=biometric_style != "clean")
     
@@ -783,10 +783,13 @@ def draw_ocular_overload(
     # Threshold to create an intense black & white binary look
     _, binary = cv2.threshold(gray_high, 80, 255, cv2.THRESH_BINARY)
     
+    Y, X = np.ogrid[:h, :w]
+    # Wavy Y displacement
+    wave = np.sin(X * 0.05 + frame_idx * 0.2) * 2
+    Y_wave = Y + wave
+    
     # Horizontal organic scanlines (mask every other line)
-    scan_mask = np.zeros((h, w), dtype=np.uint8)
-    for y in range(0, h, 2):
-        scan_mask[y:y+1, :] = 255
+    scan_mask = np.where((Y_wave.astype(int) % 2) == 0, 255, 0).astype(np.uint8)
     
     # Only keep bright pixels that fall on the scanlines
     binary_scan = cv2.bitwise_and(binary, scan_mask)
@@ -802,15 +805,15 @@ def draw_ocular_overload(
     # 2. Eye Tracking & Color Cycling
     if face_data and "mesh_points" in face_data:
         # Cycle colors: Red, Blue, Green every 0.25 seconds
-        # 30 fps * 0.25s = 7.5 frames. We'll use 7 frames for a fast snappy glitch feel.
+        # 30 fps * 0.25s = 7.5 frames. We'll use 7.5 frames for a fast snappy glitch feel.
         color_cycle_idx = int(frame_idx / 7.5) % 3
         # BGR: Red=(0,0,255), Blue=(255,0,0), Green=(0,255,0)
         cycle_colors = [(0, 0, 255), (255, 0, 0), (0, 255, 0)]
-        pupil_color = cycle_colors[color_cycle_idx]
+        iris_color = cycle_colors[color_cycle_idx]
         
         for face_pts in face_data["mesh_points"]:
             if len(face_pts) >= 468:
-                # MediaPipe Eye indices
+                # MediaPipe Eye indices (Iris centers aren't perfect in 468 mesh, but we can average the eye loop)
                 left_eye_indices = [33, 133, 159, 145]  
                 right_eye_indices = [362, 263, 386, 374]
                 
@@ -822,19 +825,18 @@ def draw_ocular_overload(
                 rx = int(sum(face_pts[i][0] for i in right_eye_indices) / len(right_eye_indices))
                 ry = int(sum(face_pts[i][1] for i in right_eye_indices) / len(right_eye_indices))
                 
-                # Square sizes (blocky, pixelated look)
-                # Roughly based on eye width
+                # Dynamic sizes based on eye width
                 eye_w = abs(face_pts[133][0] - face_pts[33][0])
-                box_w = max(10, int(eye_w * 0.6))
+                iris_r = max(4, int(eye_w * 0.25))
+                pupil_r = max(2, int(iris_r * 0.4))
                 
-                # Draw blocky pupil (colored)
-                cv2.rectangle(output, (lx - box_w, ly - box_w), (lx + box_w, ly + box_w), pupil_color, -1)
-                cv2.rectangle(output, (rx - box_w, ry - box_w), (rx + box_w, ry + box_w), pupil_color, -1)
+                # Draw Iris (colored circle)
+                cv2.circle(output, (lx, ly), iris_r, iris_color, -1)
+                cv2.circle(output, (rx, ry), iris_r, iris_color, -1)
                 
-                # Draw black center square inside the colored square
-                pw = max(3, box_w // 3)
-                cv2.rectangle(output, (lx - pw, ly - pw), (lx + pw, ly + pw), (0, 0, 0), -1)
-                cv2.rectangle(output, (rx - pw, ry - pw), (rx + pw, ry + pw), (0, 0, 0), -1)
+                # Draw Pupil (black circle)
+                cv2.circle(output, (lx, ly), pupil_r, (0, 0, 0), -1)
+                cv2.circle(output, (rx, ry), pupil_r, (0, 0, 0), -1)
     
     return output
 

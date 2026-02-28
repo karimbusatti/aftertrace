@@ -244,6 +244,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         # REQUIRED for eye tracking
         "detect_faces": True,
         "detect_mesh": True,
+        "draw_mesh": False,
     },
     
     # =========================================================================
