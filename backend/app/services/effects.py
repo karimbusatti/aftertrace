@@ -1268,24 +1268,17 @@ def draw_dither_trace(
         [63, 31, 55, 23, 61, 29, 53, 21]
     ], dtype=np.float32) / 64.0 * 255.0
     
-    # Scale up the Bayer matrix (2x2 pixels per dither dot) to make it "chunkier"
-    scale = 2
-    bayer_scaled = np.repeat(np.repeat(bayer, scale, axis=0), scale, axis=1)
+    # Do NOT scale the bayer matrix. Apply it 1-to-1 to pixels for classic high-frequency 1-bit look.
+    bh, bw = bayer.shape
+    tiled_bayer = np.tile(bayer, (h // bh + 1, w // bw + 1))[:h, :w]
     
-    # Tile the scaled bayer matrix to match frame resolution
-    bh, bw = bayer_scaled.shape
-    tiled_bayer = np.tile(bayer_scaled, (h // bh + 1, w // bw + 1))[:h, :w]
+    # Very slight blur to reduce webcam noise, but not too much to preserve high-frequency details
+    smoothed = cv2.GaussianBlur(gray, (3, 3), 0)
     
-    # Add minor temporal noise via slight blur
-    blur_amount = preset.get("blob_blur", 7)
-    if blur_amount % 2 == 0: 
-        blur_amount += 1
-    smoothed = cv2.GaussianBlur(gray, (blur_amount, blur_amount), 0)
-    
-    # CRITICAL: Dramatically increase contrast before dithering to get pure blacks/whites
-    # S-curve function to push midtones to extremes
+    # CRITICAL: Increase contrast before dithering to preserve distinct shapes
+    # S-curve function to push midtones
     smoothed_f = smoothed.astype(np.float32) / 255.0
-    smoothed_f = 1.0 / (1.0 + np.exp(-12.0 * (smoothed_f - 0.5))) # Steep sigmoid
+    smoothed_f = 1.0 / (1.0 + np.exp(-10.0 * (smoothed_f - 0.5))) # Sigmoid
     smoothed = (smoothed_f * 255.0).astype(np.float32)
     
     # Apply dither threshold
