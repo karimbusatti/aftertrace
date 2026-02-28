@@ -1322,25 +1322,21 @@ def draw_number_cloud(
     frame: np.ndarray,
     preset: dict[str, Any],
     colors: dict,
+    frame_idx: int = 0,
 ) -> np.ndarray:
     """
-    Numeric Aura effect - IMPRESSIVE data visualization.
-    
-    Multi-layer number cloud with:
-    - Glowing blue numbers in varying sizes
-    - Hex codes mixed with decimals
-    - Depth layers (foreground/background)
-    - Animated glow effect
-    - Subject isolation with clean outline
+    Binary Bloom (Numeric Aura) effect - High-end data visualization style.
+    Features:
+    - Strict scrolling grid system for a structured aesthetic
+    - Dim hex background tracking the subject mask
+    - Bright glowing binary (0/1) foreground directly on the subject
+    - Smooth mask falloff for organic integration
+    - Pure sci-fi palette (cyan, deep blue, white hot)
     """
-    import random
+    import string
     h, w = frame.shape[:2]
     
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    start_number = preset.get("start_number", 19000)
-    
-    # Seed for consistent randomness
-    random.seed(42)
     
     # === SUBJECT DETECTION ===
     clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
@@ -1353,12 +1349,12 @@ def draw_number_cloud(
     
     contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    subject_mask = np.zeros((h, w), dtype=np.uint8)
-    center_x, center_y = w // 2, h // 2
+    subject_mask = np.zeros((h, w), dtype=np.float32)
     
     if contours:
         best_contour = None
         best_score = 0
+        center_x, center_y = w // 2, h // 2
         for contour in contours:
             area = cv2.contourArea(contour)
             if area < h * w * 0.03:
@@ -1376,86 +1372,99 @@ def draw_number_cloud(
                     best_contour = contour
         if best_contour is not None:
             hull = cv2.convexHull(best_contour)
-            cv2.fillPoly(subject_mask, [hull], 255)
+            temp_mask = np.zeros((h, w), dtype=np.uint8)
+            cv2.fillPoly(temp_mask, [hull], 255)
+            subject_mask = temp_mask.astype(np.float32) / 255.0
     
-    if np.sum(subject_mask) < h * w * 0.03 * 255:
-        cv2.ellipse(subject_mask, (center_x, center_y), (w//3, h//2), 0, 0, 360, 255, -1)
-    
-    # === CREATE DARK BASE ===
-    output = np.zeros_like(frame)
-    
-    # Keep background visible but dimmed
-    bg_visible = (frame * 0.15).astype(np.uint8)
-    output = np.where(subject_mask[:, :, np.newaxis] == 0, bg_visible, output)
+    if np.sum(subject_mask) < h * w * 0.03:
+        # Fallback mask if no subject found
+        center_x, center_y = w // 2, h // 2
+        temp_mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.ellipse(temp_mask, (center_x, center_y), (w//3, h//2 + 50), 0, 0, 360, 255, -1)
+        subject_mask = temp_mask.astype(np.float32) / 255.0
+        
+    # Smooth the mask to create a glowing falloff instead of a hard edge
+    subject_mask = cv2.GaussianBlur(subject_mask, (81, 81), 0)
     
     # === COLORS ===
-    # BSOD Blue variations
-    blue_bright = (255, 120, 0)    # Bright blue
-    blue_mid = (200, 80, 0)        # Medium blue
-    blue_dim = (140, 50, 0)        # Dim blue
-    blue_glow = (255, 150, 50)     # Glowing blue
+    # Colors configured based on user's preference for clean, high-contrast look
+    # BGR format
+    bg_color = (0, 0, 0)          # Void black
+    blue_dim = (140, 50, 0)       # Deep dim background blue
+    cyan_bright = (255, 200, 50)  # Bright cyan for binary foreground
+    white_hot = (250, 250, 250)   # White hot core
     
-    font = cv2.FONT_HERSHEY_SIMPLEX
+    output = np.full((h, w, 3), bg_color, dtype=np.uint8)
     
-    # === LAYER 1: Background dim numbers (small, dense) ===
-    for gy in range(8, h - 8, 12):
-        for gx in range(4, w - 30, 38):
-            if subject_mask[gy, gx] > 0:
-                # Mix of hex and decimal
-                if random.random() > 0.7:
-                    text = f"0x{random.randint(0, 0xFFFF):04X}"
+    # Use FONT_HERSHEY_PLAIN for the crisp "code" look
+    font = cv2.FONT_HERSHEY_PLAIN
+    
+    # === LAYER 1: Background Hex Grid (Dim, moving upwards) ===
+    # Strict grid spacing for the background
+    grid_w, grid_h = 16, 20
+    hex_chars = string.hexdigits.upper()
+    
+    # Scrolling background by offset
+    y_offset = int(frame_idx * 1.5) % grid_h
+    
+    for y in range(grid_h - y_offset, h + grid_h, grid_h):
+        for x in range(4, w, grid_w):
+            mask_val = subject_mask[min(y, h-1), min(x, w-1)]
+            
+            # Base brightness depends slightly on the mask to wrap around the subject
+            alpha = 0.15 + (mask_val * 0.5)
+            color = tuple(int(c * alpha) for c in blue_dim)
+            
+            # Change characters based on time and position
+            idx = (x + y // 5 + int(frame_idx * 0.3)) % 16
+            char = hex_chars[idx]
+            
+            cv2.putText(output, char, (x, y), font, 1.0, color, 1, cv2.LINE_AA)
+            
+    # === LAYER 2: Foreground Binary Stream (Bright Cyan, fast changing) ===
+    # Larger grid for the foreground binary
+    bin_grid_w, bin_grid_h = 24, 30
+    
+    # Separate layer for glowing text
+    glow_layer = np.zeros_like(output)
+    
+    for y in range(16, h, bin_grid_h):
+        for x in range(12, w, bin_grid_w):
+            mask_val = subject_mask[y, x]
+            
+            # Only draw where the subject is prominent
+            if mask_val > 0.2:
+                # Fast flickering 0 and 1
+                is_one = ((x * y + frame_idx * 5) % 11) > 4
+                char = "1" if is_one else "0"
+                
+                # Center of the subject becomes white hot
+                if mask_val > 0.75:
+                    text_col = white_hot
+                    glow_col = cyan_bright
+                    thickness = 2
+                    scale = 1.3
                 else:
-                    text = str(start_number + random.randint(0, 9999))
+                    # Blend the color intensity based on mask depth
+                    blend = (mask_val - 0.2) / 0.55
+                    text_col = tuple(
+                        int(cyan_bright[i] * blend + blue_dim[i] * (1 - blend))
+                        for i in range(3)
+                    )
+                    glow_col = blue_dim
+                    thickness = 1
+                    scale = 1.1 + (blend * 0.2)
                 
-                cv2.putText(output, text, (gx, gy), font, 0.28, blue_dim, 1, cv2.LINE_AA)
-    
-    # === LAYER 2: Mid-layer numbers (medium size) ===
-    for gy in range(15, h - 15, 22):
-        for gx in range(10, w - 45, 55):
-            if subject_mask[gy, gx] > 0:
-                if random.random() > 0.6:
-                    text = f"{random.randint(10000, 99999)}"
-                else:
-                    text = f"0x{random.randint(0, 0xFFFFFF):06X}"
+                # Draw sharp primary text
+                cv2.putText(output, char, (x, y), font, scale, text_col, thickness, cv2.LINE_4)
                 
-                # Black shadow
-                cv2.putText(output, text, (gx+1, gy+1), font, 0.4, (0, 0, 0), 2, cv2.LINE_AA)
-                cv2.putText(output, text, (gx, gy), font, 0.4, blue_mid, 1, cv2.LINE_AA)
-    
-    # === LAYER 3: Foreground bright numbers (large, sparse, glowing) ===
-    glow_layer = np.zeros_like(frame)
-    for gy in range(25, h - 25, 40):
-        for gx in range(15, w - 60, 80):
-            if subject_mask[gy, gx] > 0:
-                # Prominent numbers
-                text = str(start_number + random.randint(0, 50000))
-                
-                # Draw glow (thicker, blurred later)
-                cv2.putText(glow_layer, text, (gx, gy), font, 0.6, blue_glow, 3, cv2.LINE_AA)
-                
-                # Draw crisp text
-                cv2.putText(output, text, (gx+1, gy+1), font, 0.6, (0, 0, 0), 3, cv2.LINE_AA)
-                cv2.putText(output, text, (gx, gy), font, 0.6, blue_bright, 1, cv2.LINE_AA)
-    
-    # Apply glow
-    glow_layer = cv2.GaussianBlur(glow_layer, (21, 21), 0)
-    output = cv2.addWeighted(output, 1.0, glow_layer, 0.5, 0)
-    
-    # === BRIGHT OUTLINE around subject ===
-    contours_outline, _ = cv2.findContours(subject_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if contours_outline:
-        # Glow outline
-        outline_glow = np.zeros_like(frame)
-        cv2.drawContours(outline_glow, contours_outline, -1, blue_glow, 8, cv2.LINE_AA)
-        outline_glow = cv2.GaussianBlur(outline_glow, (15, 15), 0)
-        output = cv2.addWeighted(output, 1.0, outline_glow, 0.6, 0)
-        
-        # Crisp outline
-        cv2.drawContours(output, contours_outline, -1, blue_bright, 2, cv2.LINE_AA)
-    
-    # === SCANLINE EFFECT ===
-    for y in range(0, h, 4):
-        output[y, :] = (output[y, :] * 0.85).astype(np.uint8)
+                # Draw thick glow text onto the glow layer
+                if mask_val > 0.5:
+                    cv2.putText(glow_layer, char, (x, y), font, scale, glow_col, thickness + 2, cv2.LINE_AA)
+                    
+    # Composite the glow
+    glow_layer = cv2.GaussianBlur(glow_layer, (15, 15), 0)
+    output = cv2.addWeighted(output, 1.0, glow_layer, 0.9, 0)
     
     return output
 
