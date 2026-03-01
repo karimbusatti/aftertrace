@@ -860,9 +860,10 @@ def draw_ocular_overload(
                 
                 # Draw blocky scanline iris and rectangular pupil for both eyes
                 for cx, cy, eye_w in [(lx, ly, eye_w_left), (rx, ry, eye_w_right)]:
-                    # The sprite width is 8 blocks. The iris diameter is roughly eye_w * 0.7.
-                    # Block size = (0.7 * eye_w) / 8.
-                    block_size = max(2, int((eye_w * 0.7) / sprite_w))
+                    # The sprite width is 8 blocks. The iris diameter in the ref is quite small,
+                    # roughly 35% of the total eye width, not 70%.
+                    # Block size = (0.35 * eye_w) / 8.
+                    block_size = max(2, int((eye_w * 0.35) / sprite_w))
                     
                     # Align the top-left of the sprite grid so it's centered
                     start_x = cx - (sprite_w * block_size) // 2
