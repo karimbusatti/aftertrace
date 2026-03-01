@@ -842,38 +842,53 @@ def draw_ocular_overload(
                 eye_w_left = abs(face_pts[133][0] - face_pts[33][0])
                 eye_w_right = abs(face_pts[263][0] - face_pts[362][0])
                 
+                # Hardcoded retro 8-bit eye sprite: 9 rows, 8 columns
+                # 0: transparent, 1: iris color, 2: pupil (black)
+                eye_sprite = [
+                    "  1111  ",
+                    " 111111 ",
+                    "11111111",
+                    "11122111",
+                    "11122111",
+                    "11122111",
+                    "11111111",
+                    " 111111 ",
+                    "  1111  "
+                ]
+                sprite_h = len(eye_sprite)
+                sprite_w = len(eye_sprite[0])
+                
                 # Draw blocky scanline iris and rectangular pupil for both eyes
                 for cx, cy, eye_w in [(lx, ly, eye_w_left), (rx, ry, eye_w_right)]:
-                    iris_r = int(eye_w * 0.35)
-                    # Block size gives the retro 8-bit / jagged edge look
-                    block_size = max(4, int(eye_w * 0.12))
+                    # The sprite width is 8 blocks. The iris diameter is roughly eye_w * 0.7.
+                    # Block size = (0.7 * eye_w) / 8.
+                    block_size = max(2, int((eye_w * 0.7) / sprite_w))
                     
-                    # Align the top-left of the grid securely to the center
-                    start_x = cx - ((cx - (cx - iris_r)) // block_size + 1) * block_size
-                    start_y = cy - ((cy - (cy - iris_r)) // block_size + 1) * block_size
+                    # Align the top-left of the sprite grid so it's centered
+                    start_x = cx - (sprite_w * block_size) // 2
+                    start_y = cy - (sprite_h * block_size) // 2
                     
-                    for bx in range(start_x, cx + iris_r + block_size, block_size):
-                        for by in range(start_y, cy + iris_r + block_size, block_size):
-                            bcx = bx + block_size / 2
-                            bcy = by + block_size / 2
-                            # If the center of the block is inside the iris radius
-                            if (bcx - cx)**2 + (bcy - cy)**2 <= iris_r**2:
-                                x1, x2 = max(0, bx), min(w, bx + block_size)
-                                y1, y2 = max(0, by), min(h, by + block_size)
+                    for row_idx, row_str in enumerate(eye_sprite):
+                        for col_idx, char in enumerate(row_str):
+                            if char == ' ':
+                                continue
                                 
-                                if x2 > x1 and y2 > y1:
-                                    block = eyes_layer[y1:y2, x1:x2]
-                                    s_mask = scan_mask[y1:y2, x1:x2]
-                                    
-                                    # Override bright scanlines with iris color
+                            bx = start_x + col_idx * block_size
+                            by = start_y + row_idx * block_size
+                            
+                            x1, x2 = max(0, bx), min(w, bx + block_size)
+                            y1, y2 = max(0, by), min(h, by + block_size)
+                            
+                            if x2 > x1 and y2 > y1:
+                                block = eyes_layer[y1:y2, x1:x2]
+                                s_mask = scan_mask[y1:y2, x1:x2]
+                                
+                                if char == '1': # Iris - drawn only on bright scanlines
                                     block[s_mask == 255] = iris_color
-                                    # Override dim areas with pure black
+                                    # Override dim areas with pure black to hollow out scanlines
                                     block[s_mask == 0] = (0, 0, 0)
-                                    
-                    # Draw Pupil (black vertical rectangle)
-                    pw = max(2, int(eye_w * 0.12))
-                    ph = max(4, int(eye_w * 0.18))
-                    cv2.rectangle(eyes_layer, (cx - pw, cy - ph), (cx + pw, cy + ph), (0, 0, 0), -1)
+                                elif char == '2': # Pupil - solid black rectangle
+                                    block[:] = (0, 0, 0)
                 
         # Blend the eyes layer onto the final output strictly within the mask
         # Expand mask to 3 channels for `where` operation
