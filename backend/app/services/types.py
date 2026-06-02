@@ -19,10 +19,10 @@ PresetName = Literal[
     "binary_bloom",
     "slit_scan",
     "ascii_core",
-    "xeno_core",
-    "echo_tunnel",
     "kaleidoscope",
     "tv_static",
+    "chromatic_ghost",
+    "datamosh",
 ]
 
 

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ProcessResponse } from "@/lib/api";
 import { getDownloadUrl } from "@/lib/api";
+import { surveillanceFacts } from "@/lib/copy";
 
 interface ResultPanelProps {
   result: ProcessResponse | null;
@@ -29,6 +30,7 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
   }, [isLoading]);
 
   if (isLoading) {
+    const factIndex = Math.floor(elapsed / 4.5) % surveillanceFacts.length;
     return (
       <div className="card p-8 text-center">
         <div className="w-12 h-12 border-2 border-accent/30 border-t-accent rounded-full animate-spin mx-auto mb-4" />
@@ -37,6 +39,18 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
           {elapsed.toFixed(1)}s
         </p>
         <p className="text-text-muted text-sm mt-1">elapsed</p>
+
+        <div className="mt-6 pt-6 border-t border-white/5 text-left">
+          <p className="text-text-muted text-[10px] uppercase tracking-widest font-mono mb-2">
+            did you know
+          </p>
+          <p
+            key={factIndex}
+            className="text-text-secondary text-sm leading-relaxed animate-fade-in"
+          >
+            {surveillanceFacts[factIndex]}
+          </p>
+        </div>
       </div>
     );
   }

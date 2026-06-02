@@ -1,48 +1,85 @@
-export const tipsSections = [
+export interface TipItem {
+  text: string;
+  impact: "high" | "medium" | "low";
+}
+
+export interface TipSection {
+  id: string;
+  title: string;
+  icon: string;
+  intro: string;
+  tips: TipItem[];
+}
+
+export const tipsSections: TipSection[] = [
   {
     id: "devices",
-    title: "Device Hygiene",
+    title: "Lock down your devices",
+    icon: "📱",
+    intro: "The camera you carry is the one watching you most. Start here.",
     tips: [
-      "Revoke camera and microphone permissions from apps that don't need them. Settings → Privacy → Camera/Microphone.",
-      "Disable location services entirely, or set to 'While Using' for essential apps only.",
-      "Turn off iCloud Photo sync. Your photos shouldn't live on servers you don't control.",
-      "Cover your front camera when not in use. Low-tech, high-impact.",
-      "Regularly clear your photo metadata with exiftool or automation shortcuts before sharing.",
+      { text: "Audit camera & mic permissions: Settings → Privacy. Revoke access from every app that doesn't strictly need it.", impact: "high" },
+      { text: "Set location to \"While Using\" — never \"Always\". Most apps don't need your background location at all.", impact: "high" },
+      { text: "Turn off photo cloud sync, or use end-to-end encrypted storage. Faceprints get built from cloud libraries.", impact: "medium" },
+      { text: "Strip EXIF metadata before sharing — photos carry GPS coordinates, device IDs and timestamps.", impact: "medium" },
+      { text: "Physically cover the front camera when idle. Low-tech, unbeatable.", impact: "low" },
     ],
   },
   {
     id: "public",
-    title: "In Public Spaces",
+    title: "Move through public space",
+    icon: "🚶",
+    intro: "Cameras read your face, your walk, and your routine. Break the pattern.",
     tips: [
-      "Avoid looking directly at cameras. Gaze direction is a tracking vector.",
-      "Wear hats with brims, scarves, or glasses to obscure facial geometry.",
-      "IR LEDs embedded in glasses can blind cameras without being visible to humans.",
-      "Walk unpredictably. Gait analysis can identify you from body movement alone.",
-      "Avoid touching surfaces unnecessarily. Fingerprints persist longer than you think.",
+      { text: "Break up facial geometry: brimmed hats, bulky frames, and asymmetric hair defeat many detectors.", impact: "high" },
+      { text: "Vary your routes and timing. Pattern-of-life tracking links you across cameras by predictability.", impact: "high" },
+      { text: "Don't look up at cameras. A clean frontal frame is exactly what recognition wants.", impact: "medium" },
+      { text: "Reflective or IR-blocking eyewear can wash out your face on IR-sensitive cameras.", impact: "medium" },
+      { text: "Pay cash where it matters. Payment data ties a face to an identity instantly.", impact: "low" },
     ],
   },
   {
     id: "digital",
-    title: "Digital Presence",
+    title: "Shrink your digital trail",
+    icon: "🌐",
+    intro: "Every public photo of your face is training data for someone's model.",
     tips: [
-      "Blur or crop your face from photos before posting anywhere.",
-      "Never use the same profile photo across platforms. Reverse image search is trivial.",
-      "Avoid check-ins, location tags, and geotagged posts entirely.",
-      "Use different usernames and emails per service. Linkability is the enemy.",
-      "Assume any camera-connected device is recording, always.",
+      { text: "Lock down or remove public face photos. Reverse image search links profiles in seconds.", impact: "high" },
+      { text: "Use a different photo, handle, and email per service. Linkability is what makes you trackable.", impact: "high" },
+      { text: "Kill geotags, check-ins, and location tags. They reconstruct your movements after the fact.", impact: "medium" },
+      { text: "Opt out of data brokers (Clearview, PimEyes, etc. honor removal requests in many regions).", impact: "medium" },
+      { text: "Assume anything posted is permanent and scrapable — even after you delete it.", impact: "low" },
     ],
   },
   {
     id: "awareness",
-    title: "Threat Awareness",
+    title: "Know the threat model",
+    icon: "🧠",
+    intro: "You can't opt out of everything — so spend effort where it counts.",
     tips: [
-      "Most surveillance is ambient and automated. You're not being watched, you're being logged.",
-      "Facial recognition databases are built from public photos. Every upload is a contribution.",
-      "License plates, tattoos, and clothing patterns are all tracking vectors.",
-      "Audio fingerprinting can identify you from voice alone. Consider when you speak near devices.",
-      "The goal isn't invisibility. It's raising the cost of surveillance to make you not worth tracking.",
+      { text: "Most surveillance is automated logging, not a person watching. The risk is the permanent record.", impact: "high" },
+      { text: "Your faceprint can't be changed like a password. Protect it like one you can never reset.", impact: "high" },
+      { text: "Gait, posture, tattoos, and clothing are all secondary identifiers when your face is hidden.", impact: "medium" },
+      { text: "Voice is biometric too — assume always-on mics can fingerprint how you speak.", impact: "medium" },
+      { text: "The goal isn't invisibility. It's raising the cost of tracking until you're not worth it.", impact: "low" },
     ],
   },
+];
+
+// Rotating facts shown while a clip is processing.
+export const surveillanceFacts: string[] = [
+  "Modern face recognition can identify you from a single frame — even partially turned or in a crowd.",
+  "The way you walk is nearly as unique as a fingerprint, and trackable from low-res CCTV at a distance.",
+  "Most public faceprint databases were built by scraping photos people posted publicly — including yours.",
+  "Live facial recognition can scan thousands of faces a minute and flag matches in real time.",
+  "Features around your eyes stay identifiable even when you're wearing a mask.",
+  "Once your faceprint is in a database, you can't change it like a password — it's permanent.",
+  "Some retailers track how long you look at a product and link your visits across different stores.",
+  "Border and airport systems increasingly match your live face to your passport photo automatically.",
+  "Emotion-detection AI claims to read your mood from micro-expressions — and it's frequently wrong.",
+  "Citywide camera networks can hand a single person off from one camera to the next, automatically.",
+  "Even blurred or pixelated faces can sometimes be reconstructed by AI upscalers.",
+  "Your phone can be fingerprinted and tied to your face through tagged photos you never uploaded.",
 ];
 
 export function getPersonalizedTips(score: number): string[] {

@@ -1009,12 +1009,12 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
 
     # =========================================================================
-    # ECHO TUNNEL (infinite recursive zoom/rotate feedback)
+    # CHROMATIC GHOST (RGB time-delay motion trails)
     # =========================================================================
 
-    "echo_tunnel": {
-        "name": "Echo Tunnel",
-        "description": "Infinite feedback wormhole",
+    "chromatic_ghost": {
+        "name": "Chromatic Ghost",
+        "description": "Rainbow motion trails",
 
         "spawn_per_beat": 0,
         "max_points": 0,
@@ -1039,12 +1039,47 @@ PRESETS: dict[str, dict[str, Any]] = {
 
         "darken_factor": 1.0,
 
-        # Echo Tunnel specific
-        "text_mode": "echo_tunnel",
-        "echo_zoom": 1.045,
-        "echo_rotate": 1.6,
-        "echo_decay": 0.94,
-        "echo_chroma": 3,
+        # Chromatic Ghost specific
+        "text_mode": "chromatic_ghost",
+        "ghost_frames": 10,
+        "ghost_saturation": 1.4,
+    },
+
+    # =========================================================================
+    # DATAMOSH (optical-flow pixel melt)
+    # =========================================================================
+
+    "datamosh": {
+        "name": "Datamosh",
+        "description": "Melting pixel glitch",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # Datamosh specific
+        "text_mode": "datamosh",
+        "mosh_keyframe": 32,
+        "mosh_smear": 1.6,
     },
 
     # =========================================================================
@@ -1157,42 +1192,6 @@ PRESETS: dict[str, dict[str, Any]] = {
         "ascii_cell": 7,                              # smaller = more detail
         "ascii_ramp": " .`:-=+ic*tLCG#%@",
         "ascii_gamma": 0.85,
-    },
-
-    # =========================================================================
-    # XENO CORE (alien-technology scan)
-    # =========================================================================
-
-    "xeno_core": {
-        "name": "Xeno Core",
-        "description": "Alien tech scan",
-
-        "spawn_per_beat": 0,
-        "max_points": 0,
-
-        "life_frames": 1,
-        "trail_length": 0,
-        "trail_fade": False,
-
-        "shape": "none",
-        "point_size": 0,
-        "trace_thickness": 0,
-
-        "connect_points": False,
-        "max_connect_distance": 0,
-        "connection_thickness": 0,
-
-        "color_mode": "clean_white",
-        "blur_radius": 0,
-        "glow_intensity": 0,
-        "scanlines": False,
-        "high_contrast_bw": False,
-
-        "darken_factor": 1.0,
-
-        # Xeno Core specific
-        "text_mode": "xeno_core",
-        "xeno_chroma": 2,
     },
 }
 

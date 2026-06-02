@@ -72,10 +72,10 @@ const SECONDARY_PRESETS: Preset[] = [
   { id: "glyph_trace", name: "Glyph Trace", description: "ascii ink" },
   { id: "slit_scan", name: "Slit Scan", description: "time warp" },
   { id: "ascii_core", name: "ASCII Core", description: "white code on black" },
-  { id: "xeno_core", name: "Xeno Core", description: "alien tech scan" },
-  { id: "echo_tunnel", name: "Echo Tunnel", description: "feedback wormhole" },
   { id: "kaleidoscope", name: "Kaleidoscope", description: "mirror mandala" },
   { id: "tv_static", name: "TV Static", description: "subject to static" },
+  { id: "chromatic_ghost", name: "Chromatic Ghost", description: "rainbow motion trails" },
+  { id: "datamosh", name: "Datamosh", description: "melting pixels" },
 ];
 
 // Combined list for lookups

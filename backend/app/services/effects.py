@@ -12,6 +12,7 @@ from typing import Any
 
 from .presets import get_preset_colors, COLOR_PALETTES
 from .types import TrackedPoint
+from .segmentation import get_person_mask
 
 
 # Overlay blend intensity (0.0 - 1.0)
@@ -1036,15 +1037,15 @@ def apply_text_effect(
         return draw_slit_scan(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "ascii_core":
         return draw_ascii_core(frame, preset, colors, frame_idx=frame_idx)
-    elif text_mode == "xeno_core":
-        return draw_xeno_core(frame, preset, colors, frame_idx=frame_idx)
-    # === VIRAL TOUCHDESIGNER EFFECTS v5 ===
-    elif text_mode == "echo_tunnel":
-        return draw_echo_tunnel(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "kaleidoscope":
         return draw_kaleidoscope(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "tv_static":
         return draw_tv_static(frame, preset, colors, frame_idx=frame_idx)
+    # === VIRAL TOUCHDESIGNER EFFECTS v6 ===
+    elif text_mode == "chromatic_ghost":
+        return draw_chromatic_ghost(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "datamosh":
+        return draw_datamosh(frame, preset, colors, frame_idx=frame_idx)
 
     return None
 
@@ -2691,7 +2692,8 @@ def reset_stateful_effects():
     global _motion_trace_prev_frame, _motion_trace_trail_canvas
     global _signal_feedback_buffer, _signal_feedback_noise
     global _slit_scan_buffer, _slit_scan_pos
-    global _echo_buffer
+    global _ghost_buffer, _ghost_pos
+    global _datamosh_acc, _datamosh_prev
 
     _motion_trace_prev_frame = None
     _motion_trace_trail_canvas = None
@@ -2699,7 +2701,10 @@ def reset_stateful_effects():
     _signal_feedback_noise = None
     _slit_scan_buffer = None
     _slit_scan_pos = 0
-    _echo_buffer = None
+    _ghost_buffer = None
+    _ghost_pos = 0
+    _datamosh_acc = None
+    _datamosh_prev = None
 
 
 # =============================================================================
@@ -2763,159 +2768,6 @@ def draw_ascii_core(
         out = canvas
 
     return out
-
-
-# =============================================================================
-# XENO CORE (alien-technology scan: flowing energy + glowing node mesh)
-# =============================================================================
-
-def draw_xeno_core(
-    frame: np.ndarray,
-    preset: dict[str, Any],
-    colors: dict,
-    frame_idx: int = 0,
-) -> np.ndarray:
-    """
-    Xeno Core: an alien-tech scan that wraps the subject in flowing cyan/magenta
-    energy along its contours, a pulsing glowing node mesh at feature points,
-    chromatic-aberration bloom, and a sweeping scan beam over near-black.
-
-    Designed for the "how is this real" TouchDesigner look while staying CPU-fast
-    (contour/feature counts are capped).
-    """
-    h, w = frame.shape[:2]
-    phase = frame_idx * 0.25
-
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    enh = clahe.apply(gray)
-
-    # Near-black base with a faint cold-teal tint and a ghost of the subject.
-    output = (frame * 0.12).astype(np.uint8)
-    output[:, :, 0] = np.clip(output[:, :, 0].astype(np.int16) + 12, 0, 255).astype(np.uint8)
-
-    layer = np.zeros_like(frame)
-
-    # --- Flowing energy along subject contours (cyan <-> magenta, pulsing) ---
-    edges = cv2.Canny(enh, 50, 150)
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    contours = sorted((c for c in contours if len(c) >= 10), key=len, reverse=True)[:80]
-
-    cyan = np.array([255, 255, 40], dtype=np.float32)   # BGR
-    mag = np.array([255, 40, 255], dtype=np.float32)
-    for ci, cnt in enumerate(contours):
-        pts = cnt.reshape(-1, 2)
-        step = max(1, len(pts) // 30)
-        for k in range(0, len(pts), step):
-            x, y = pts[k]
-            t = (k / len(pts) + phase * 0.1 + ci * 0.05) % 1.0
-            col = cyan * (1 - t) + mag * t
-            pulse = 0.4 + 0.6 * ((np.sin(k * 0.3 - phase * 2.0) + 1) / 2)
-            c = tuple(int(v * pulse) for v in col)
-            cv2.circle(layer, (int(x), int(y)), 1, c, -1, cv2.LINE_AA)
-
-    # --- Glowing node mesh at feature points ---
-    corners = cv2.goodFeaturesToTrack(enh, maxCorners=60, qualityLevel=0.02, minDistance=24)
-    nodes = [tuple(c.ravel().astype(int)) for c in corners] if corners is not None else []
-
-    for i in range(len(nodes)):
-        x1, y1 = nodes[i]
-        for j in range(i + 1, len(nodes)):
-            x2, y2 = nodes[j]
-            d = np.hypot(x1 - x2, y1 - y2)
-            if d < 160:
-                a = 1.0 - d / 160.0
-                cv2.line(layer, (x1, y1), (x2, y2),
-                         (int(255 * a), int(170 * a), int(255 * a)), 1, cv2.LINE_AA)
-
-    for ni, (x, y) in enumerate(nodes):
-        pr = 2 + int((np.sin(phase * 2.0 + ni) + 1) * 1.5)
-        cv2.circle(layer, (x, y), pr, (255, 255, 180), -1, cv2.LINE_AA)
-
-    # --- Bloom ---
-    glow = cv2.GaussianBlur(layer, (0, 0), 4)
-    layer = cv2.addWeighted(layer, 1.0, glow, 1.1, 0)
-    output = cv2.add(output, layer)
-
-    # --- Chromatic aberration ---
-    b, g, r = cv2.split(output)
-    sh = int(preset.get("xeno_chroma", 2))
-    if sh > 0:
-        r = np.roll(r, sh, axis=1)
-        b = np.roll(b, -sh, axis=1)
-        output = cv2.merge([b, g, r])
-
-    # --- Sweeping scan beam ---
-    scan_y = int((frame_idx * 6) % h)
-    y0 = max(0, scan_y - 1)
-    output[y0:scan_y + 1] = np.clip(
-        output[y0:scan_y + 1].astype(np.int16) + 30, 0, 255
-    ).astype(np.uint8)
-    cv2.line(output, (0, scan_y), (w, scan_y), (255, 255, 200), 1, cv2.LINE_AA)
-
-    return output
-
-
-# =============================================================================
-# ECHO TUNNEL (infinite recursive zoom/rotate feedback)
-# =============================================================================
-
-_echo_buffer: np.ndarray | None = None
-
-
-def draw_echo_tunnel(
-    frame: np.ndarray,
-    preset: dict[str, Any],
-    colors: dict,
-    frame_idx: int = 0,
-) -> np.ndarray:
-    """
-    Echo Tunnel: the hypnotic TouchDesigner feedback-zoom "wormhole".
-
-    Each frame the accumulated buffer is scaled + rotated about the center and
-    decayed, then the live frame is screened back in. The recursive transform
-    pulls imagery into an infinite spiraling tunnel. Chromatic aberration and
-    bloom finish the trippy look.
-    """
-    global _echo_buffer
-
-    h, w = frame.shape[:2]
-    zoom = preset.get("echo_zoom", 1.045)
-    rotate = preset.get("echo_rotate", 1.6)
-    decay = preset.get("echo_decay", 0.94)
-    chroma = int(preset.get("echo_chroma", 3))
-
-    if _echo_buffer is None or _echo_buffer.shape[:2] != (h, w):
-        _echo_buffer = frame.copy()
-        return frame
-
-    # Gentle pulse so the tunnel breathes.
-    z = zoom + 0.02 * np.sin(frame_idx * 0.08)
-
-    # Scale + rotate the previous buffer about the center, then decay it.
-    M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), rotate, z)
-    warped = cv2.warpAffine(
-        _echo_buffer, M, (w, h),
-        flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT,
-    )
-    warped = (warped.astype(np.float32) * decay).astype(np.uint8)
-
-    # Screen the live frame back in so new motion keeps feeding the tunnel.
-    combined = cv2.max(warped, frame)
-    _echo_buffer = combined
-
-    # Bloom.
-    glow = cv2.GaussianBlur(combined, (0, 0), 5)
-    output = cv2.addWeighted(combined, 1.0, glow, 0.6, 0)
-
-    # Chromatic aberration that grows toward the edges (radial feel via roll).
-    if chroma > 0:
-        b, g, r = cv2.split(output)
-        r = np.roll(r, chroma, axis=1)
-        b = np.roll(b, -chroma, axis=1)
-        output = cv2.merge([b, g, r])
-
-    return output
 
 
 # =============================================================================
@@ -3026,6 +2878,69 @@ def _subject_mask(frame: np.ndarray) -> np.ndarray:
     return mask
 
 
+# SMPTE-style color bars (BGR), left -> right.
+_SMPTE_BARS = [
+    (255, 255, 255),  # white
+    (0, 255, 255),    # yellow
+    (255, 255, 0),    # cyan
+    (0, 255, 0),      # green
+    (255, 0, 255),    # magenta
+    (0, 0, 255),      # red
+    (255, 0, 0),      # blue
+]
+
+
+def _broadcast_static(h: int, w: int, frame_idx: int, color_amt: float, block: int) -> np.ndarray:
+    """Build a frame of broken broadcast signal: SMPTE color bars corrupted by
+    RGB noise, signal-bar tearing, a melting lower edge, scanlines and RGB
+    fringing — the look from classic 'no signal' / datamosh test cards."""
+    # 1. Color bars base.
+    bars = np.zeros((h, w, 3), dtype=np.uint8)
+    n = len(_SMPTE_BARS)
+    bw = w // n
+    for i, col in enumerate(_SMPTE_BARS):
+        x0 = i * bw
+        x1 = w if i == n - 1 else (i + 1) * bw
+        bars[:, x0:x1] = col
+    # Lower band: inverted/darker bars (PLUGE-ish) for the broadcast look.
+    band_y = int(h * 0.72)
+    for i, col in enumerate(_SMPTE_BARS[::-1]):
+        x0 = i * bw
+        x1 = w if i == n - 1 else (i + 1) * bw
+        bars[band_y:, x0:x1] = tuple(int(c * 0.35) for c in col)
+
+    # 2. Animated RGB noise blended over the bars.
+    nh, nw = max(1, h // block), max(1, w // block)
+    gray_noise = np.random.randint(0, 256, (nh, nw, 1), dtype=np.uint8).repeat(3, axis=2)
+    color_noise = np.random.randint(0, 256, (nh, nw, 3), dtype=np.uint8)
+    noise = cv2.addWeighted(gray_noise, 1.0 - color_amt, color_noise, color_amt, 0)
+    noise = cv2.resize(noise, (w, h), interpolation=cv2.INTER_NEAREST)
+    static = cv2.addWeighted(bars, 0.55, noise, 0.65, 0)
+
+    # 3. Horizontal signal-bar tearing.
+    rng = np.random.default_rng(frame_idx * 7 + 1)
+    for _ in range(int(rng.integers(4, 9))):
+        by = int(rng.integers(0, h))
+        bh = int(rng.integers(2, max(3, h // 14)))
+        shift = int(rng.integers(-w // 6, w // 6))
+        static[by:by + bh] = np.roll(static[by:by + bh], shift, axis=1)
+
+    # 4. Melting lower edge: rows near the bottom copy from progressively higher
+    #    rows, creating the downward "signal melt" smear from the reference.
+    melt_start = int(h * 0.78)
+    for y in range(melt_start, h):
+        amt = int((y - melt_start) / max(1, h - melt_start) * 18)
+        if amt > 0:
+            src = max(melt_start, y - amt)
+            static[y] = static[src]
+
+    # 5. Scanlines + RGB fringing.
+    static[1::2] = (static[1::2].astype(np.float32) * 0.75).astype(np.uint8)
+    b, g, r = cv2.split(static)
+    static = cv2.merge([np.roll(b, -3, axis=1), g, np.roll(r, 3, axis=1)])
+    return static
+
+
 def draw_tv_static(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -3033,40 +2948,24 @@ def draw_tv_static(
     frame_idx: int = 0,
 ) -> np.ndarray:
     """
-    TV Static: isolate the subject and dissolve ONLY them into broadcast static,
-    leaving the real background behind. The figure reads as a person-shaped hole
-    of dead signal — noise, scanlines, horizontal tearing and RGB fringing.
+    TV Static: isolate the person (MediaPipe selfie segmentation, with a
+    heuristic fallback) and replace ONLY them with broken broadcast signal —
+    corrupted SMPTE color bars, RGB noise, tearing and a melting edge — while
+    the real background stays untouched.
     """
     h, w = frame.shape[:2]
     block = max(1, int(preset.get("static_block", 2)))   # noise chunkiness
-    color_amt = float(preset.get("static_color", 0.35))  # 0=gray .. 1=rgb
+    color_amt = float(preset.get("static_color", 0.6))   # 0=gray .. 1=rgb
 
-    mask = _subject_mask(frame)
+    # Real person isolation when available; heuristic subject mask otherwise.
+    mask = get_person_mask(frame)
+    if mask is None:
+        mask = _subject_mask(frame)
     maskf = (mask.astype(np.float32) / 255.0)[:, :, None]
 
-    # --- Build TV static ---
-    nh, nw = max(1, h // block), max(1, w // block)
-    gray_noise = np.random.randint(0, 256, (nh, nw, 1), dtype=np.uint8).repeat(3, axis=2)
-    color_noise = np.random.randint(0, 256, (nh, nw, 3), dtype=np.uint8)
-    noise = cv2.addWeighted(gray_noise, 1.0 - color_amt, color_noise, color_amt, 0)
-    static = cv2.resize(noise, (w, h), interpolation=cv2.INTER_NEAREST)
+    static = _broadcast_static(h, w, frame_idx, color_amt, block)
 
-    # Occasional bright "signal bar" tearing bands.
-    rng = np.random.default_rng(frame_idx)
-    for _ in range(rng.integers(2, 6)):
-        by = int(rng.integers(0, h))
-        bh = int(rng.integers(2, max(3, h // 20)))
-        shift = int(rng.integers(-w // 10, w // 10))
-        static[by:by + bh] = np.roll(static[by:by + bh], shift, axis=1)
-
-    # Scanlines.
-    static[1::2] = (static[1::2].astype(np.float32) * 0.7).astype(np.uint8)
-
-    # RGB fringing on the static.
-    b, g, r = cv2.split(static)
-    static = cv2.merge([np.roll(b, -2, axis=1), g, np.roll(r, 2, axis=1)])
-
-    # --- Composite: static inside the subject, real video outside ---
+    # Composite: broadcast static inside the subject, real video outside.
     output = frame.astype(np.float32) * (1.0 - maskf) + static.astype(np.float32) * maskf
     output = output.astype(np.uint8)
 
@@ -3074,6 +2973,125 @@ def draw_tv_static(
     edge = cv2.morphologyEx(mask, cv2.MORPH_GRADIENT,
                             cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
     edge_glow = cv2.GaussianBlur(cv2.cvtColor(edge, cv2.COLOR_GRAY2BGR), (0, 0), 4)
-    output = cv2.addWeighted(output, 1.0, edge_glow, 0.5, 0)
+    output = cv2.addWeighted(output, 1.0, edge_glow, 0.45, 0)
 
+    return output
+
+
+# =============================================================================
+# CHROMATIC GHOST (RGB time-delay motion trails)
+# =============================================================================
+
+_ghost_buffer: np.ndarray | None = None
+_ghost_pos: int = 0
+
+
+def draw_chromatic_ghost(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Chromatic Ghost: separate the R/G/B channels in TIME. Red shows the present,
+    green a few frames ago, blue further back — so anything moving leaves a
+    rainbow comet trail while still areas stay true color. Reliably gorgeous.
+    """
+    global _ghost_buffer, _ghost_pos
+
+    h, w = frame.shape[:2]
+    n = max(3, int(preset.get("ghost_frames", 10)))
+    sat = float(preset.get("ghost_saturation", 1.4))
+
+    if (_ghost_buffer is None or _ghost_buffer.shape[0] != n
+            or _ghost_buffer.shape[1:3] != (h, w)):
+        _ghost_buffer = np.repeat(frame[None], n, axis=0).copy()
+        _ghost_pos = 0
+
+    _ghost_buffer[_ghost_pos] = frame
+
+    newest = _ghost_pos
+    mid = (_ghost_pos - n // 2) % n
+    oldest = (_ghost_pos - (n - 1)) % n
+
+    out = np.empty_like(frame)
+    out[:, :, 0] = _ghost_buffer[oldest][:, :, 0]   # B from the past
+    out[:, :, 1] = _ghost_buffer[mid][:, :, 1]      # G mid
+    out[:, :, 2] = _ghost_buffer[newest][:, :, 2]   # R present
+
+    _ghost_pos = (_ghost_pos + 1) % n
+
+    # Punch up saturation so the trails read as vivid color, then bloom.
+    if sat != 1.0:
+        hsv = cv2.cvtColor(out, cv2.COLOR_BGR2HSV).astype(np.float32)
+        hsv[:, :, 1] = np.clip(hsv[:, :, 1] * sat, 0, 255)
+        out = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+    glow = cv2.GaussianBlur(out, (0, 0), 3)
+    out = cv2.addWeighted(out, 1.0, glow, 0.4, 0)
+    return out
+
+
+# =============================================================================
+# DATAMOSH (optical-flow pixel melt with periodic keyframe bloom)
+# =============================================================================
+
+_datamosh_acc: np.ndarray | None = None
+_datamosh_prev: np.ndarray | None = None
+
+
+def draw_datamosh(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Datamosh: the iconic "melting pixels" glitch. Motion vectors (optical flow)
+    smear the accumulated frame so imagery drags and bleeds along movement;
+    fresh detail only enters where motion is strong. A periodic keyframe resets
+    the bloom so it pulses instead of turning to mush.
+    """
+    global _datamosh_acc, _datamosh_prev
+
+    h, w = frame.shape[:2]
+    keyframe = max(8, int(preset.get("mosh_keyframe", 32)))
+    smear = float(preset.get("mosh_smear", 1.6))
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    sf = 0.5
+    gray_small = cv2.resize(gray, (0, 0), fx=sf, fy=sf, interpolation=cv2.INTER_AREA)
+    hs, ws = gray_small.shape[:2]
+
+    # (Re)initialize, and force a keyframe periodically (the datamosh "I-frame").
+    if (_datamosh_acc is None or _datamosh_acc.shape[:2] != (h, w)
+            or _datamosh_prev is None or _datamosh_prev.shape[:2] != (hs, ws)
+            or frame_idx % keyframe == 0):
+        _datamosh_acc = frame.copy()
+        _datamosh_prev = gray_small.copy()
+        return frame
+
+    flow = cv2.calcOpticalFlowFarneback(
+        _datamosh_prev, gray_small, None, 0.5, 3, 15, 3, 5, 1.2, 0
+    )
+    _datamosh_prev = gray_small.copy()
+
+    # Upscale flow to full res and build a remap that drags pixels along motion.
+    flow_full = cv2.resize(flow, (w, h), interpolation=cv2.INTER_LINEAR) / sf
+    grid_x, grid_y = np.meshgrid(np.arange(w), np.arange(h))
+    map_x = (grid_x - flow_full[:, :, 0] * smear).astype(np.float32)
+    map_y = (grid_y - flow_full[:, :, 1] * smear).astype(np.float32)
+
+    warped = cv2.remap(_datamosh_acc, map_x, map_y, cv2.INTER_LINEAR,
+                       borderMode=cv2.BORDER_REFLECT)
+
+    # Fresh detail bleeds in only where motion is strong.
+    mag = np.sqrt(flow_full[:, :, 0] ** 2 + flow_full[:, :, 1] ** 2)
+    alpha = np.clip(mag / 8.0, 0.0, 0.6)[:, :, None]
+    _datamosh_acc = (warped.astype(np.float32) * (1 - alpha)
+                     + frame.astype(np.float32) * alpha).astype(np.uint8)
+
+    # RGB bleed for that decoded-wrong color smear.
+    b, g, r = cv2.split(_datamosh_acc)
+    output = cv2.merge([np.roll(b, 2, axis=1), g, np.roll(r, -2, axis=1)])
     return output
