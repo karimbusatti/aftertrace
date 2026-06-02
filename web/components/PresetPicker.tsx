@@ -76,7 +76,9 @@ const SECONDARY_PRESETS: Preset[] = [
   { id: "tv_static", name: "TV Static", description: "subject to static" },
   { id: "chromatic_ghost", name: "Chromatic Ghost", description: "rainbow motion trails" },
   { id: "crystallize", name: "Crystallize", description: "low-poly mosaic" },
-  { id: "halftone", name: "Halftone", description: "color dot pop-art" },
+  { id: "halftone", name: "Halftone", description: "black & white dots" },
+  { id: "light_trails", name: "Light Trails", description: "long-exposure glow" },
+  { id: "ink", name: "Ink", description: "pen sketch on white" },
 ];
 
 // Combined list for lookups
@@ -314,10 +316,9 @@ export function PresetPicker({
               onClick={() => handlePresetClick(preset.id)}
               disabled={disabled || (mode === 'sequence' && sequence.length >= maxSlots)}
               className={`
-                py-2 px-3 rounded-lg text-center text-xs transition-all duration-200
+                py-2 px-3 rounded-lg text-center text-xs leading-tight whitespace-nowrap transition-all duration-200
                 active:scale-[0.96] hover:scale-[1.03]
                 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:active:scale-100
-                flex-1 min-w-[70px] max-w-[115px]
                 ${isSelected
                   ? "bg-white/10 border border-white/30 text-white"
                   : "bg-white/5 border border-transparent text-text-secondary hover:bg-white/8 hover:text-white"

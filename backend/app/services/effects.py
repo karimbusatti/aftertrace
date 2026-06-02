@@ -1048,6 +1048,10 @@ def apply_text_effect(
         return draw_crystallize(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "halftone":
         return draw_halftone(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "light_trails":
+        return draw_light_trails(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "ink":
+        return draw_ink(frame, preset, colors, frame_idx=frame_idx)
 
     return None
 
@@ -2695,6 +2699,7 @@ def reset_stateful_effects():
     global _signal_feedback_buffer, _signal_feedback_noise
     global _slit_scan_buffer, _slit_scan_pos
     global _ghost_buffer, _ghost_pos
+    global _light_canvas
 
     _motion_trace_prev_frame = None
     _motion_trace_trail_canvas = None
@@ -2704,6 +2709,7 @@ def reset_stateful_effects():
     _slit_scan_pos = 0
     _ghost_buffer = None
     _ghost_pos = 0
+    _light_canvas = None
 
 
 # =============================================================================
@@ -3080,17 +3086,21 @@ def draw_crystallize(
             continue
         cx = int(np.clip(tri[:, 0].mean(), 0, w - 1))
         cy = int(np.clip(tri[:, 1].mean(), 0, h - 1))
-        color = frame[cy, cx].tolist()
+        # Average a small patch around the centroid for a stable facet color.
+        y0, y1 = max(0, cy - 2), min(h, cy + 3)
+        x0, x1 = max(0, cx - 2), min(w, cx + 3)
+        color = frame[y0:y1, x0:x1].reshape(-1, 3).mean(axis=0)
+        color = [int(c) for c in color]
         poly = tri.astype(np.int32)
         cv2.fillConvexPoly(output, poly, color, cv2.LINE_AA)
         if facet_edges:
-            cv2.polylines(output, [poly], True, [int(c * 0.7) for c in color], 1, cv2.LINE_AA)
+            cv2.polylines(output, [poly], True, [int(c * 0.65) for c in color], 1, cv2.LINE_AA)
 
     return output
 
 
 # =============================================================================
-# HALFTONE (color CMYK-style dot pop-art)
+# HALFTONE (classic black-and-white newsprint dots)
 # =============================================================================
 
 _halftone_cache: dict = {}
@@ -3103,13 +3113,14 @@ def draw_halftone(
     frame_idx: int = 0,
 ) -> np.ndarray:
     """
-    Halftone: rebuild the frame from a grid of colored dots whose size tracks
-    local brightness, on black, with a soft emissive glow. Clean pop-art / LED
-    dot-matrix look. Fully vectorized via a cached radial cell pattern.
+    Halftone: classic black-and-white newsprint look. Black dots on a white
+    page, where each dot grows as the source gets darker. Crisp, high-contrast,
+    fully vectorized via a cached radial cell pattern.
     """
     h, w = frame.shape[:2]
-    dot = max(4, int(preset.get("dot_spacing", 10)))
-    gamma = float(preset.get("dot_gamma", 0.8))
+    dot = max(4, int(preset.get("dot_spacing", 8)))
+    gamma = float(preset.get("dot_gamma", 0.9))
+    contrast = float(preset.get("dot_contrast", 1.25))
 
     key = (h, w, dot)
     patt = _halftone_cache.get(key)
@@ -3120,18 +3131,130 @@ def draw_halftone(
         patt = (np.sqrt(cx * cx + cy * cy) / ((dot / 2.0) * np.sqrt(2.0))).astype(np.float32)
         _halftone_cache[key] = patt
 
-    # Per-cell color (blocky via downsample->nearest upsample) and brightness.
+    # Per-cell brightness (blocky via downsample -> nearest upsample).
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
     gw, gh = max(1, w // dot), max(1, h // dot)
-    small = cv2.resize(frame, (gw, gh), interpolation=cv2.INTER_AREA)
-    color_full = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
-    lum = cv2.cvtColor(color_full, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
-    radius = np.power(np.clip(lum, 0.0, 1.0), gamma)  # brighter -> larger dot
+    small = cv2.resize(gray, (gw, gh), interpolation=cv2.INTER_AREA)
+    lum = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST).astype(np.float32) / 255.0
+
+    # Punch contrast, then darker source -> larger black dot.
+    lum = np.clip((lum - 0.5) * contrast + 0.5, 0.0, 1.0)
+    radius = np.power(np.clip(1.0 - lum, 0.0, 1.0), gamma)
 
     mask = patt <= radius
-    output = np.zeros((h, w, 3), dtype=np.uint8)
-    output[mask] = color_full[mask]
+    output = np.full((h, w, 3), 255, dtype=np.uint8)  # white page
+    output[mask] = (0, 0, 0)                            # black ink dots
+    return output
 
-    # Soft glow so the dots read as emissive.
-    glow = cv2.GaussianBlur(output, (0, 0), max(1.0, dot * 0.3))
-    output = cv2.addWeighted(output, 1.0, glow, 0.5, 0)
+
+# =============================================================================
+# LIGHT TRAILS (long-exposure glowing motion trails)
+# =============================================================================
+
+_light_canvas: np.ndarray | None = None
+
+
+def draw_light_trails(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Light Trails: long-exposure light painting. The brightest parts of each
+    frame are accumulated and slowly decayed, so anything bright and moving
+    paints a glowing, fading streak over a darkened version of the scene.
+    Perfectly on-brand for "Aftertrace".
+    """
+    global _light_canvas
+
+    h, w = frame.shape[:2]
+    decay = float(preset.get("trail_decay", 0.93))
+    pct = float(preset.get("bright_pct", 85))      # only the top (100-pct)% trails
+    floor = int(preset.get("bright_thresh", 50))   # but never below this
+    boost = float(preset.get("trail_boost", 1.3))
+
+    if _light_canvas is None or _light_canvas.shape[:2] != (h, w):
+        _light_canvas = np.zeros((h, w, 3), dtype=np.uint8)
+
+    # Decay the accumulated light (older streaks fade out).
+    _light_canvas = (_light_canvas.astype(np.float32) * decay).astype(np.uint8)
+
+    # Contribution: only the brightest parts of the current frame (adaptive to
+    # exposure via a percentile) so it paints trails instead of flooding.
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    thresh = max(floor, int(np.percentile(gray, pct)))
+    bright = gray > thresh
+    contrib = np.zeros_like(frame)
+    contrib[bright] = frame[bright]
+    contrib = np.clip(contrib.astype(np.float32) * boost, 0, 255).astype(np.uint8)
+
+    # Keep the brightest of (decayed history, new light) -> persistent trails.
+    _light_canvas = np.maximum(_light_canvas, contrib)
+
+    # Bloom and composite over a dark version of the scene for context.
+    glow = cv2.GaussianBlur(_light_canvas, (0, 0), 6)
+    trails = cv2.addWeighted(_light_canvas, 1.0, glow, 0.9, 0)
+    output = cv2.add((frame * 0.10).astype(np.uint8), trails)
+    return output
+
+
+# =============================================================================
+# INK (black pen-and-ink sketch on white paper)
+# =============================================================================
+
+_ink_cache: dict = {}
+
+
+def draw_ink(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Ink: a clean black pen-and-ink drawing on white paper. Crisp contour lines
+    plus two layers of cross-hatching whose density follows shadow, for a
+    hand-drawn engraving feel. Pure black on white, high contrast and elegant.
+    """
+    h, w = frame.shape[:2]
+    hatch = max(4, int(preset.get("ink_hatch", 7)))
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
+    smooth = cv2.bilateralFilter(gray, 9, 75, 75)
+    lum = smooth.astype(np.float32) / 255.0
+
+    # Clean contour lines (multi-scale Canny, lightly cleaned).
+    edges = cv2.bitwise_or(cv2.Canny(smooth, 30, 90), cv2.Canny(smooth, 60, 150))
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8))
+
+    # Cached diagonal hatch line patterns (two opposing directions).
+    key = (h, w, hatch)
+    cached = _ink_cache.get(key)
+    if cached is None:
+        yy, xx = np.mgrid[0:h, 0:w]
+        h1 = ((xx + yy) % hatch) == 0          # "/" lines
+        h2 = ((xx - yy) % hatch) == 0          # "\" lines
+        h3 = ((xx + yy) % (hatch // 2 if hatch >= 8 else hatch)) == 0  # denser
+        cached = (h1, h2, h3)
+        _ink_cache[key] = cached
+    h1, h2, h3 = cached
+
+    output = np.full((h, w, 3), 255, dtype=np.uint8)  # white paper
+
+    # Shadow hatching: mids get one direction, darks get cross-hatch, deepest
+    # darks get a denser pass.
+    mid = lum < 0.62
+    dark = lum < 0.42
+    deep = lum < 0.22
+    output[mid & h1] = (0, 0, 0)
+    output[dark & h2] = (0, 0, 0)
+    output[deep & h3] = (0, 0, 0)
+
+    # Ink the contour lines last so they stay crisp on top.
+    output[edges > 0] = (0, 0, 0)
     return output

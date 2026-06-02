@@ -24,6 +24,8 @@ PresetName = Literal[
     "chromatic_ghost",
     "crystallize",
     "halftone",
+    "light_trails",
+    "ink",
 ]
 
 

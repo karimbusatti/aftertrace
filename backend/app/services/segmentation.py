@@ -51,12 +51,18 @@ def get_person_mask(frame: np.ndarray) -> np.ndarray | None:
         result = seg.process(rgb)
         if result.segmentation_mask is None:
             return None
-        mask = np.clip(result.segmentation_mask * 255.0, 0, 255).astype(np.uint8)
-        # Clean up: threshold + close small holes + soften edges.
-        _, mask = cv2.threshold(mask, 100, 255, cv2.THRESH_BINARY)
+
+        prob = np.clip(result.segmentation_mask, 0.0, 1.0).astype(np.float32)
+
+        # Sharpen the soft probability around the 0.5 boundary so the silhouette
+        # is decisive but edges (hair, fingers) stay feathered rather than jagged.
+        prob = np.clip((prob - 0.5) * 3.0 + 0.5, 0.0, 1.0)
+        mask = (prob * 255.0).astype(np.uint8)
+
+        # Close small holes inside the body, then feather the boundary.
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        mask = cv2.GaussianBlur(mask, (0, 0), 3)
+        mask = cv2.GaussianBlur(mask, (0, 0), 2.0)
         return mask
     except Exception as e:
         print(f"[segmentation] mask failed: {e}")

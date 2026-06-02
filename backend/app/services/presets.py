@@ -1113,10 +1113,86 @@ PRESETS: dict[str, dict[str, Any]] = {
 
         "darken_factor": 1.0,
 
-        # Halftone specific
+        # Halftone specific (black dots on white)
         "text_mode": "halftone",
-        "dot_spacing": 10,
-        "dot_gamma": 0.8,
+        "dot_spacing": 8,
+        "dot_gamma": 0.9,
+        "dot_contrast": 1.25,
+    },
+
+    # =========================================================================
+    # LIGHT TRAILS (long-exposure glowing motion trails)
+    # =========================================================================
+
+    "light_trails": {
+        "name": "Light Trails",
+        "description": "Long-exposure glow",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # Light Trails specific
+        "text_mode": "light_trails",
+        "trail_decay": 0.93,
+        "bright_pct": 85,        # only the brightest ~15% of pixels paint trails
+        "bright_thresh": 50,     # floor so dark scenes still need real highlights
+        "trail_boost": 1.3,
+    },
+
+    # =========================================================================
+    # INK (black pen-and-ink sketch on white paper)
+    # =========================================================================
+
+    "ink": {
+        "name": "Ink",
+        "description": "Pen sketch on white",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # Ink specific
+        "text_mode": "ink",
+        "ink_hatch": 7,
     },
 
     # =========================================================================
