@@ -1038,6 +1038,10 @@ def apply_text_effect(
         return draw_slit_scan(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "flow_particles":
         return draw_flow_particles(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "ascii_core":
+        return draw_ascii_core(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "xeno_core":
+        return draw_xeno_core(frame, preset, colors, frame_idx=frame_idx)
 
     return None
 
@@ -2845,3 +2849,157 @@ def reset_stateful_effects():
     _flow_part_prev = None
     _flow_part_pos = None
     _flow_part_canvas = None
+
+
+# =============================================================================
+# ASCII CORE (high-detail white ASCII on black)
+# =============================================================================
+
+def draw_ascii_core(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    ASCII Core: dense, detailed white ASCII characters on pure black.
+
+    Brightness is mapped to a fine character ramp and per-cell intensity, with
+    an edge-detection boost so contours render with denser glyphs. Built with
+    the NumPy glyph-tile technique (pre-render each char once, index into the
+    tile stack) so it stays crisp and fast even with small cells.
+    """
+    h, w = frame.shape[:2]
+
+    cell = max(4, int(preset.get("ascii_cell", 7)))
+    ramp = preset.get("ascii_ramp", " .`:-=+ic*tLCG#%@")
+    gamma = preset.get("ascii_gamma", 0.85)
+    n = len(ramp)
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
+
+    grid_h, grid_w = max(1, h // cell), max(1, w // cell)
+
+    # Per-cell luminance + edge density.
+    small = cv2.resize(gray, (grid_w, grid_h), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+    edges = cv2.Canny(gray, 60, 160)
+    edge_small = cv2.resize(edges, (grid_w, grid_h), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+
+    norm = np.clip(np.power(small, gamma) + edge_small * 0.35, 0.0, 1.0)
+    idx = np.clip((norm * (n - 1)).astype(np.int32), 0, n - 1)
+
+    # Pre-render each glyph to a white-on-black tile.
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    fs = cell / 22.0
+    tiles = np.zeros((n, cell, cell, 3), dtype=np.uint8)
+    for i, ch in enumerate(ramp):
+        if ch != " ":
+            cv2.putText(tiles[i], ch, (0, cell - 1), font, fs, (255, 255, 255), 1, cv2.LINE_AA)
+
+    mapped = tiles[idx]  # (grid_h, grid_w, cell, cell, 3)
+
+    # Tonal depth: dim each cell by its luminance so it isn't flat white.
+    inten = np.clip(0.35 + norm * 0.65, 0.0, 1.0)[:, :, None, None, None]
+    mapped = (mapped.astype(np.float32) * inten).astype(np.uint8)
+
+    out = mapped.transpose(0, 2, 1, 3, 4).reshape(grid_h * cell, grid_w * cell, 3)
+
+    if out.shape[0] != h or out.shape[1] != w:
+        canvas = np.zeros((h, w, 3), dtype=np.uint8)
+        canvas[:out.shape[0], :out.shape[1]] = out
+        out = canvas
+
+    return out
+
+
+# =============================================================================
+# XENO CORE (alien-technology scan: flowing energy + glowing node mesh)
+# =============================================================================
+
+def draw_xeno_core(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Xeno Core: an alien-tech scan that wraps the subject in flowing cyan/magenta
+    energy along its contours, a pulsing glowing node mesh at feature points,
+    chromatic-aberration bloom, and a sweeping scan beam over near-black.
+
+    Designed for the "how is this real" TouchDesigner look while staying CPU-fast
+    (contour/feature counts are capped).
+    """
+    h, w = frame.shape[:2]
+    phase = frame_idx * 0.25
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enh = clahe.apply(gray)
+
+    # Near-black base with a faint cold-teal tint and a ghost of the subject.
+    output = (frame * 0.12).astype(np.uint8)
+    output[:, :, 0] = np.clip(output[:, :, 0].astype(np.int16) + 12, 0, 255).astype(np.uint8)
+
+    layer = np.zeros_like(frame)
+
+    # --- Flowing energy along subject contours (cyan <-> magenta, pulsing) ---
+    edges = cv2.Canny(enh, 50, 150)
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours = sorted((c for c in contours if len(c) >= 10), key=len, reverse=True)[:80]
+
+    cyan = np.array([255, 255, 40], dtype=np.float32)   # BGR
+    mag = np.array([255, 40, 255], dtype=np.float32)
+    for ci, cnt in enumerate(contours):
+        pts = cnt.reshape(-1, 2)
+        step = max(1, len(pts) // 30)
+        for k in range(0, len(pts), step):
+            x, y = pts[k]
+            t = (k / len(pts) + phase * 0.1 + ci * 0.05) % 1.0
+            col = cyan * (1 - t) + mag * t
+            pulse = 0.4 + 0.6 * ((np.sin(k * 0.3 - phase * 2.0) + 1) / 2)
+            c = tuple(int(v * pulse) for v in col)
+            cv2.circle(layer, (int(x), int(y)), 1, c, -1, cv2.LINE_AA)
+
+    # --- Glowing node mesh at feature points ---
+    corners = cv2.goodFeaturesToTrack(enh, maxCorners=60, qualityLevel=0.02, minDistance=24)
+    nodes = [tuple(c.ravel().astype(int)) for c in corners] if corners is not None else []
+
+    for i in range(len(nodes)):
+        x1, y1 = nodes[i]
+        for j in range(i + 1, len(nodes)):
+            x2, y2 = nodes[j]
+            d = np.hypot(x1 - x2, y1 - y2)
+            if d < 160:
+                a = 1.0 - d / 160.0
+                cv2.line(layer, (x1, y1), (x2, y2),
+                         (int(255 * a), int(170 * a), int(255 * a)), 1, cv2.LINE_AA)
+
+    for ni, (x, y) in enumerate(nodes):
+        pr = 2 + int((np.sin(phase * 2.0 + ni) + 1) * 1.5)
+        cv2.circle(layer, (x, y), pr, (255, 255, 180), -1, cv2.LINE_AA)
+
+    # --- Bloom ---
+    glow = cv2.GaussianBlur(layer, (0, 0), 4)
+    layer = cv2.addWeighted(layer, 1.0, glow, 1.1, 0)
+    output = cv2.add(output, layer)
+
+    # --- Chromatic aberration ---
+    b, g, r = cv2.split(output)
+    sh = int(preset.get("xeno_chroma", 2))
+    if sh > 0:
+        r = np.roll(r, sh, axis=1)
+        b = np.roll(b, -sh, axis=1)
+        output = cv2.merge([b, g, r])
+
+    # --- Sweeping scan beam ---
+    scan_y = int((frame_idx * 6) % h)
+    y0 = max(0, scan_y - 1)
+    output[y0:scan_y + 1] = np.clip(
+        output[y0:scan_y + 1].astype(np.int16) + 30, 0, 255
+    ).astype(np.uint8)
+    cv2.line(output, (0, scan_y), (w, scan_y), (255, 255, 200), 1, cv2.LINE_AA)
+
+    return output

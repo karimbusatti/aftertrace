@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { ProcessResponse } from "@/lib/api";
 import { getDownloadUrl } from "@/lib/api";
 
@@ -11,14 +12,31 @@ interface ResultPanelProps {
 }
 
 export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPanelProps) {
+  // Live elapsed timer while the video is processing.
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isLoading) return;
+    startRef.current = Date.now();
+    setElapsed(0);
+    const id = setInterval(() => {
+      if (startRef.current !== null) {
+        setElapsed((Date.now() - startRef.current) / 1000);
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [isLoading]);
+
   if (isLoading) {
     return (
       <div className="card p-8 text-center">
         <div className="w-12 h-12 border-2 border-accent/30 border-t-accent rounded-full animate-spin mx-auto mb-4" />
         <p className="text-white font-medium">analyzing frame by frame...</p>
-        <p className="text-text-muted text-sm mt-2">
-          this usually takes about 30 seconds
+        <p className="text-accent text-2xl font-mono font-bold mt-3 tabular-nums">
+          {elapsed.toFixed(1)}s
         </p>
+        <p className="text-text-muted text-sm mt-1">elapsed</p>
       </div>
     );
   }
@@ -98,11 +116,17 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
             value={metadata?.frames_processed ?? 0} 
             label="frames" 
           />
-          <StatBlock 
-            value={metadata?.people_detected ?? 0} 
-            label="people detected" 
+          <StatBlock
+            value={metadata?.people_detected ?? 0}
+            label="people detected"
           />
         </div>
+
+        {metadata?.processing_time_seconds != null && (
+          <p className="text-text-muted text-xs text-center mt-4 font-mono">
+            rendered in {metadata.processing_time_seconds.toFixed(1)}s
+          </p>
+        )}
       </div>
 
       {/* Actions */}

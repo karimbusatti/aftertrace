@@ -20,6 +20,8 @@ PresetName = Literal[
     "pixel_sort",
     "slit_scan",
     "flow_particles",
+    "ascii_core",
+    "xeno_core",
 ]
 
 

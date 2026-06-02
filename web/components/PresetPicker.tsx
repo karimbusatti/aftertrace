@@ -73,6 +73,8 @@ const SECONDARY_PRESETS: Preset[] = [
   { id: "pixel_sort", name: "Pixel Sort", description: "glitch streaks" },
   { id: "slit_scan", name: "Slit Scan", description: "time warp" },
   { id: "flow_particles", name: "Flow Particles", description: "motion swarm" },
+  { id: "ascii_core", name: "ASCII Core", description: "white code on black" },
+  { id: "xeno_core", name: "Xeno Core", description: "alien tech scan" },
 ];
 
 // Combined list for lookups

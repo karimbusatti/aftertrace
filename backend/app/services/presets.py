@@ -1084,6 +1084,80 @@ PRESETS: dict[str, dict[str, Any]] = {
         "particle_fade": 0.85,
         "particle_color": (255, 200, 120),   # BGR (warm cyan)
     },
+
+    # =========================================================================
+    # ASCII CORE (high-detail white ASCII on black)
+    # =========================================================================
+
+    "ascii_core": {
+        "name": "ASCII Core",
+        "description": "White code on black",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # ASCII Core specific
+        "text_mode": "ascii_core",
+        "ascii_cell": 7,                              # smaller = more detail
+        "ascii_ramp": " .`:-=+ic*tLCG#%@",
+        "ascii_gamma": 0.85,
+    },
+
+    # =========================================================================
+    # XENO CORE (alien-technology scan)
+    # =========================================================================
+
+    "xeno_core": {
+        "name": "Xeno Core",
+        "description": "Alien tech scan",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # Xeno Core specific
+        "text_mode": "xeno_core",
+        "xeno_chroma": 2,
+    },
 }
 
 
