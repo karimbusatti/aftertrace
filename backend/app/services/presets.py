@@ -1306,6 +1306,43 @@ PRESETS: dict[str, dict[str, Any]] = {
         "ascii_ramp": " .`:-=+ic*tLCG#%@",
         "ascii_gamma": 0.85,
     },
+
+    # =========================================================================
+    # NEON GLOW (flowing rainbow neon outline)
+    # =========================================================================
+
+    "neon_glow": {
+        "name": "Neon Glow",
+        "description": "Flowing rainbow neon outline",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # Neon Glow specific
+        "text_mode": "neon_glow",
+        "neon_speed": 2.0,
+        "neon_thickness": 2,
+    },
 }
 
 

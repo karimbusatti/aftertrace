@@ -376,19 +376,30 @@ def process_video(
     print(f"[process] Mode: {mode}, Preset: {preset_name}, overlay: {overlay_mode}")
     
     # =========================================================================
-    # STEP 2: Extract and analyze audio
+    # STEP 2: Extract and analyze audio (only if an active effect spawns points)
     # =========================================================================
-    print("[process] Extracting audio...")
-    audio_path, _ = extract_audio(input_path)
-    
-    print("[process] Analyzing audio for beats...")
-    audio_data = analyze_audio(audio_path, fps)
-    metadata.beats_detected = len(audio_data["beat_frames"])
-    
-    # Determine spawn frames
-    spawn_rate = max(10, int(fps / 2))  # Fallback: ~2 spawns per second
-    spawn_frames = get_spawn_frames(audio_data, total_frames, spawn_rate)
-    print(f"[process] Found {metadata.beats_detected} beats, {len(spawn_frames)} spawn frames")
+    # Most "text_mode" effects don't track points (max_points == 0), so beat
+    # analysis is pure overhead for them. Skipping it is a big render-time win.
+    needs_beats = any(
+        p.get("max_points", 0) > 0 or p.get("spawn_per_beat", 0) > 0
+        for p in (preset_cache.values() if preset_cache else [preset_config])
+    )
+
+    if needs_beats:
+        print("[process] Extracting audio...")
+        audio_path, _ = extract_audio(input_path)
+
+        print("[process] Analyzing audio for beats...")
+        audio_data = analyze_audio(audio_path, fps)
+        metadata.beats_detected = len(audio_data["beat_frames"])
+
+        spawn_rate = max(10, int(fps / 2))  # Fallback: ~2 spawns per second
+        spawn_frames = get_spawn_frames(audio_data, total_frames, spawn_rate)
+        print(f"[process] Found {metadata.beats_detected} beats, {len(spawn_frames)} spawn frames")
+    else:
+        metadata.beats_detected = 0
+        spawn_frames = set()
+        print("[process] Skipping audio analysis (effect does not spawn points)")
     
     # =========================================================================
     # STEP 3: Setup output video writer(s)

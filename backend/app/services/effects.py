@@ -896,7 +896,31 @@ def draw_ocular_overload(
         # Expand mask to 3 channels for `where` operation
         mask_3d = eye_mask[:, :, np.newaxis] == 255
         output = np.where(mask_3d, eyes_layer, output)
-    
+
+        # Glow around the eyes so the glitch reads as "overloaded".
+        if eye_mask.any():
+            eye_glow = cv2.GaussianBlur(
+                cv2.bitwise_and(output, output, mask=eye_mask), (0, 0), 7
+            )
+            output = cv2.add(output, eye_glow)
+
+    # --- Post: CRT phosphor bloom so the red structure emits light ---
+    glow = cv2.GaussianBlur(output, (0, 0), 4)
+    output = cv2.addWeighted(output, 1.0, glow, 0.45, 0)
+
+    # Moving bright "overload" scan band sweeping down the frame.
+    band_y = int((frame_idx * 9) % h)
+    bh = max(8, h // 60)
+    y1b, y2b = band_y, min(h, band_y + bh)
+    output[y1b:y2b] = np.clip(output[y1b:y2b].astype(np.int16) + 40, 0, 255).astype(np.uint8)
+
+    # Subtle vignette for depth.
+    yy, xx = np.ogrid[:h, :w]
+    cyv, cxv = h / 2.0, w / 2.0
+    d = np.sqrt(((xx - cxv) / cxv) ** 2 + ((yy - cyv) / cyv) ** 2)
+    vig = np.clip(1.0 - (d - 0.6) * 0.5, 0.55, 1.0).astype(np.float32)
+    output = (output.astype(np.float32) * vig[:, :, None]).astype(np.uint8)
+
     return output
 
 
@@ -1052,6 +1076,8 @@ def apply_text_effect(
         return draw_light_trails(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "ink":
         return draw_ink(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "neon_glow":
+        return draw_neon_glow(frame, preset, colors, frame_idx=frame_idx)
 
     return None
 
@@ -1282,40 +1308,40 @@ def draw_blob_track(
         blob_centers.append((center_x, center_y))
         blob_boxes.append((x, y, bw, bh, idx, area))
     
-    # Draw WHITE connection lines first
+    # Distance-faded connection lines (mesh between nearby blobs).
     max_connection_dist = preset.get("max_connection_dist", 180)
     for i in range(len(blob_centers)):
         for j in range(i + 1, len(blob_centers)):
-            p1 = blob_centers[i]
-            p2 = blob_centers[j]
-            dist = np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+            p1, p2 = blob_centers[i], blob_centers[j]
+            dist = np.hypot(p1[0] - p2[0], p1[1] - p2[1])
             if dist < max_connection_dist:
-                cv2.line(output, p1, p2, (255, 255, 255), 1, cv2.LINE_AA)
-    
-    # Draw each blob - SIMPLE THIN RECTANGLES with coordinates
+                a = 1.0 - dist / max_connection_dist
+                c = int(40 + 180 * a)
+                cv2.line(output, p1, p2, (c, c, c), 1, cv2.LINE_AA)
+
+    accent = (255, 230, 120)  # soft cyan accent (BGR)
+    # Draw each blob as a corner-bracket box with an ID + center tick.
     for (x, y, bw, bh, idx, area) in blob_boxes:
-        # Simple thin rectangle outline
-        cv2.rectangle(output, (x, y), (x + bw, y + bh), box_color, 1, cv2.LINE_AA)
-        
-        # Font size proportional to box size (smaller box = smaller text)
+        cl = max(6, min(bw, bh) // 5)  # corner bracket length
+        x2, y2 = x + bw, y + bh
+        for (px, py, dx, dy) in [
+            (x, y, 1, 1), (x2, y, -1, 1), (x, y2, 1, -1), (x2, y2, -1, -1)
+        ]:
+            cv2.line(output, (px, py), (px + dx * cl, py), box_color, 1, cv2.LINE_AA)
+            cv2.line(output, (px, py), (px, py + dy * cl), box_color, 1, cv2.LINE_AA)
+
+        # Center tick.
+        ccx, ccy = blob_centers[idx]
+        cv2.drawMarker(output, (ccx, ccy), accent, cv2.MARKER_CROSS, 6, 1, cv2.LINE_AA)
+
+        # ID + size readout above the box (shadowed for legibility).
         box_size = min(bw, bh)
-        dynamic_font = max(0.15, min(0.3, box_size / 200.0))  # Scale between 0.15-0.3
-        
-        # Coordinate label: x:123;y:456 (ABOVE the box, top-left corner)
-        coord_label = f"x:{x};y:{y}"
-        label_x = x
-        label_y = y - 3  # Above the box
-        
-        # Make sure label doesn't go off screen
-        if label_y < 8:
-            label_y = y + int(box_size * 0.15) + 5  # Put inside if too close to top
-        
-        # Draw with shadow for readability
-        cv2.putText(output, coord_label, (label_x + 1, label_y + 1), font, dynamic_font, 
-                   (0, 0, 0), 1, cv2.LINE_AA)
-        cv2.putText(output, coord_label, (label_x, label_y), font, dynamic_font, 
-                   box_color, 1, cv2.LINE_AA)
-    
+        fscale = max(0.3, min(0.42, box_size / 220.0))
+        label = f"ID {idx:02d}"
+        ly = y - 5 if y > 14 else y + int(box_size * 0.2) + 6
+        cv2.putText(output, label, (x + 1, ly + 1), font, fscale, (0, 0, 0), 1, cv2.LINE_AA)
+        cv2.putText(output, label, (x, ly), font, fscale, box_color, 1, cv2.LINE_AA)
+
     return output
 
 
@@ -2123,6 +2149,9 @@ def draw_codenet_overlay(
 # CODESHADOW (ASCII/Matrix density effect)
 # =============================================================================
 
+_code_shadow_cache: dict = {}
+
+
 def draw_code_shadow(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -2137,79 +2166,57 @@ def draw_code_shadow(
     - Black background with CRT feel
     """
     h, w = frame.shape[:2]
-    
+
     # Parameters
-    cell_size = preset.get("cell_size", 8)
-    char_palette = preset.get("char_palette", " .·:;=+*#@")
-    color_dark = preset.get("color_dark", (0, 0, 140))      # Deep red BGR
-    color_bright = preset.get("color_bright", (0, 200, 0))   # Green BGR
-    threshold_split = preset.get("threshold_split", 0.45)
-    
-    # Convert to grayscale
+    cell_size = max(5, int(preset.get("cell_size", 9)))
+    char_palette = preset.get("char_palette", " .:-=+*o#%@")
+    color_dark = np.array(preset.get("color_dark", (0, 0, 170)), dtype=np.float32)    # red BGR
+    color_bright = np.array(preset.get("color_bright", (0, 220, 30)), dtype=np.float32)  # green BGR
+    threshold_split = float(preset.get("threshold_split", 0.45))
+    n = len(char_palette)
+
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    # Enhance contrast
     clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
-    
-    # Create output canvas (black background)
+
+    grid_h, grid_w = max(1, h // cell_size), max(1, w // cell_size)
+    cell_lum = cv2.resize(gray, (grid_w, grid_h), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+
+    # Pre-render the palette as white glyph tiles (cached); index by brightness.
+    key = (cell_size, char_palette)
+    tiles = _code_shadow_cache.get(key)
+    if tiles is None:
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fs = cell_size / 16.0
+        tiles = np.zeros((n, cell_size, cell_size, 3), dtype=np.uint8)
+        for i, ch in enumerate(char_palette):
+            if ch != " ":
+                cv2.putText(tiles[i], ch, (0, cell_size - 2), font, fs, (255, 255, 255), 1, cv2.LINE_AA)
+        _code_shadow_cache[key] = tiles
+
+    idx = np.clip((cell_lum * (n - 1)).astype(np.int32), 0, n - 1)
+    idx[cell_lum < 0.08] = 0  # very dark -> blank glyph
+    mapped = tiles[idx]  # (grid_h, grid_w, cell, cell, 3)
+    text_img = mapped.transpose(0, 2, 1, 3, 4).reshape(grid_h * cell_size, grid_w * cell_size, 3)
+
+    # Per-cell color: red below the split (background), green above (subject),
+    # scaled by brightness for depth.
+    b = cell_lum[:, :, None]
+    col = np.where(b < threshold_split, color_dark, color_bright)
+    inten = np.clip(0.45 + b * 1.1, 0.0, 1.0)
+    color_grid = (col * inten).astype(np.uint8)
+    color_full = cv2.resize(color_grid, (text_img.shape[1], text_img.shape[0]),
+                            interpolation=cv2.INTER_NEAREST)
+
+    # Use the white glyphs as an alpha mask over the per-cell color.
+    alpha = text_img[:, :, 0:1].astype(np.float32) / 255.0
+    tinted = (color_full.astype(np.float32) * alpha).astype(np.uint8)
+
     output = np.zeros((h, w, 3), dtype=np.uint8)
-    
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = cell_size / 18.0
-    
-    # Grid dimensions
-    rows = h // cell_size
-    cols = w // cell_size
-    
-    # Sample random characters for variety
-    random.seed(frame_idx + 42)
-    
-    # Map brightness to characters
-    for row in range(rows):
-        for col in range(cols):
-            # Sample center of cell
-            cy = row * cell_size + cell_size // 2
-            cx = col * cell_size + cell_size // 2
-            
-            if cy >= h or cx >= w:
-                continue
-            
-            # Get brightness (average of cell area)
-            y1, y2 = row * cell_size, min((row + 1) * cell_size, h)
-            x1, x2 = col * cell_size, min((col + 1) * cell_size, w)
-            cell_brightness = np.mean(gray[y1:y2, x1:x2]) / 255.0
-            
-            # Skip very dark areas (sparse)
-            if cell_brightness < 0.08:
-                continue
-            
-            # Choose character based on brightness
-            char_idx = int(cell_brightness * (len(char_palette) - 1))
-            char = char_palette[min(char_idx, len(char_palette) - 1)]
-            
-            # Add some randomness to characters for texture
-            if random.random() < 0.3:
-                char = random.choice("(){}[]<>/\\|!?@#$%&*+-=~")
-            
-            # Color: below threshold = red (background), above = green (subject)
-            if cell_brightness < threshold_split:
-                # Red with intensity variation
-                intensity = 0.4 + cell_brightness * 1.2
-                color = tuple(int(c * intensity) for c in color_dark)
-            else:
-                # Green with intensity variation
-                intensity = 0.5 + (cell_brightness - threshold_split) * 1.0
-                color = tuple(int(min(c * intensity, 255)) for c in color_bright)
-            
-            # Draw character
-            pos = (col * cell_size, (row + 1) * cell_size - 2)
-            cv2.putText(output, char, pos, font, font_scale, color, 1, cv2.LINE_AA)
-    
-    # Add subtle scanlines
-    for y in range(0, h, 3):
-        output[y, :] = (output[y, :] * 0.7).astype(np.uint8)
-    
+    output[:tinted.shape[0], :tinted.shape[1]] = tinted
+
+    # Subtle CRT scanlines.
+    output[::3] = (output[::3].astype(np.float32) * 0.7).astype(np.uint8)
     return output
 
 
@@ -2245,35 +2252,26 @@ def draw_binary_bloom(
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # =========================================================================
-    # SUBJECT MASK: blur → Canny → morph close → largest contour
+    # SUBJECT MASK: prefer real person segmentation, fall back to contours.
     # =========================================================================
-    # 1. Gaussian blur to reduce noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # 2. Canny edge detection
-    edges = cv2.Canny(blurred, 50, 150)
-    
-    # 3. Morphological close to connect edges into regions
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-    closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
-    
-    # 4. Find contours and keep the largest one
-    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    subject_mask = np.zeros((h, w), dtype=np.uint8)
-    
-    if contours:
-        # Find largest contour by area
-        best_contour = max(contours, key=lambda c: cv2.contourArea(c))
-        area = cv2.contourArea(best_contour)
-        
-        # Only use if reasonable size (3-90% of frame)
-        if h * w * 0.03 < area < h * w * 0.9:
-            cv2.drawContours(subject_mask, [best_contour], -1, 255, -1)
-    
-    # Fallback: center ellipse if no good contour found
-    mask_coverage = np.sum(subject_mask > 0) / (h * w)
-    if mask_coverage < 0.02:
-        cv2.ellipse(subject_mask, (w // 2, h // 2), (w // 3, h // 3), 0, 0, 360, 255, -1)
+    seg = get_person_mask(frame)
+    if seg is not None and np.count_nonzero(seg) > h * w * 0.02:
+        _, subject_mask = cv2.threshold(seg, 110, 255, cv2.THRESH_BINARY)
+    else:
+        # Fallback: blur -> Canny -> morph close -> largest reasonable contour.
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        edges = cv2.Canny(blurred, 50, 150)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+        closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
+        contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        subject_mask = np.zeros((h, w), dtype=np.uint8)
+        if contours:
+            best_contour = max(contours, key=lambda c: cv2.contourArea(c))
+            area = cv2.contourArea(best_contour)
+            if h * w * 0.03 < area < h * w * 0.9:
+                cv2.drawContours(subject_mask, [best_contour], -1, 255, -1)
+        if np.sum(subject_mask > 0) / (h * w) < 0.02:
+            cv2.ellipse(subject_mask, (w // 2, h // 2), (w // 3, h // 3), 0, 0, 360, 255, -1)
     
     # =========================================================================
     # EDGE MASK: detect edges of the silhouette for emphasis
@@ -2458,6 +2456,35 @@ def draw_signal_feedback(
 # SIGNAL BLOOM (Lava-red distortion)
 # =============================================================================
 
+_signal_bloom_lut_cache: np.ndarray | None = None
+
+
+def _signal_bloom_lut() -> np.ndarray:
+    """Build (once) the black -> red -> orange -> yellow -> white lava LUT."""
+    global _signal_bloom_lut_cache
+    if _signal_bloom_lut_cache is not None:
+        return _signal_bloom_lut_cache
+    lut = np.zeros((256, 1, 3), dtype=np.uint8)
+    for i in range(256):
+        if i < 40:
+            t = i / 40
+            lut[i, 0] = (0, 0, int(100 * t))
+        elif i < 120:
+            t = (i - 40) / 80
+            lut[i, 0] = (0, 0, 100 + int(155 * t))
+        elif i < 180:
+            t = (i - 120) / 60
+            lut[i, 0] = (0, int(128 * t), 255)
+        elif i < 230:
+            t = (i - 180) / 50
+            lut[i, 0] = (0, 128 + int(127 * t), 255)
+        else:
+            t = (i - 230) / 25
+            lut[i, 0] = (int(255 * t), 255, 255)
+    _signal_bloom_lut_cache = lut
+    return lut
+
+
 def draw_signal_bloom(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -2484,49 +2511,8 @@ def draw_signal_bloom(
     # Threshold out background noise to get deep black
     _, enhanced = cv2.threshold(enhanced, 50, 255, cv2.THRESH_TOZERO)
     
-    # 3. Create Custom Color Map (Strict Reference Palette)
-    lut = np.zeros((256, 1, 3), dtype=np.uint8)
-    
-    # The reference is NOT a smooth gradient. It is specific bands.
-    # Base: Black
-    # Mid: Pure Saturated Red (0, 0, 255)
-    # High: Pure Yellow (0, 255, 255)
-    # Peak: White (255, 255, 255)
-    
-    # We construct the LUT to ramp sharply between these points
-    for i in range(256):
-        if i < 40:
-            # Deep Black / Dark Red fade
-            t = i / 40
-            # From (0,0,0) to (0,0,100)
-            lut[i, 0] = (0, 0, int(100 * t))
-            
-        elif i < 120:
-            # The "Main Red" Body
-            # From (0,0,100) to (0,0,255) - Pure Red
-            t = (i - 40) / 80
-            lut[i, 0] = (0, 0, 100 + int(155 * t))
-            
-        elif i < 180:
-            # Red to Orange transition
-            # From (0,0,255) to (0,128,255)
-            t = (i - 120) / 60
-            lut[i, 0] = (0, int(128 * t), 255)
-            
-        elif i < 230:
-            # Orange to Pure Yellow
-            # From (0,128,255) to (0,255,255)
-            t = (i - 180) / 50
-            lut[i, 0] = (0, 128 + int(127 * t), 255)
-            
-        else:
-            # Yellow to White (The "Fried" Highlights)
-            # From (0,255,255) to (255,255,255)
-            t = (i - 230) / 25
-            lut[i, 0] = (int(255 * t), 255, 255)
-            
-    # Apply LUT
-    # Convert single channel to BGR first for LUT
+    # 3. Apply the cached lava-thermal color map.
+    lut = _signal_bloom_lut()
     enhanced_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
     output = cv2.LUT(enhanced_bgr, lut)
     
@@ -2549,14 +2535,15 @@ def draw_signal_bloom(
     # Apply edges
     # Where edges are strong, set color to Yellow (0, 255, 255)
     output[edge_mask > 0] = (0, 255, 255)
-    
-    # 5. Stability: No random noise flicker
-    # If noise is desired for texture, use a STATIC pattern
-    # h_n, w_n = h // 2, w // 2
-    # static_noise = np.indices((h_n, w_n)).sum(axis=0) % 2 * 20
-    # static_noise = cv2.resize(static_noise.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
-    # output = cv2.add(output, cv2.cvtColor(static_noise, cv2.COLOR_GRAY2BGR))
-    
+
+    # 5. Actual bloom: the hot (yellow/white) regions glow, for a molten,
+    #    light-emitting feel that lives up to the name.
+    hot = cv2.cvtColor(output, cv2.COLOR_BGR2GRAY)
+    _, hot = cv2.threshold(hot, 160, 255, cv2.THRESH_TOZERO)
+    hot_bgr = cv2.bitwise_and(output, output, mask=(hot > 0).astype(np.uint8))
+    bloom = cv2.GaussianBlur(hot_bgr, (0, 0), 9)
+    output = cv2.add(output, (bloom * 0.7).astype(np.uint8))
+
     return output
 
 
@@ -3257,4 +3244,54 @@ def draw_ink(
 
     # Ink the contour lines last so they stay crisp on top.
     output[edges > 0] = (0, 0, 0)
+    return output
+
+
+# =============================================================================
+# NEON GLOW (flowing rainbow neon outline with heavy bloom)
+# =============================================================================
+
+_neon_cache: dict = {}
+
+
+def draw_neon_glow(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Neon Glow: trace the subject as a glowing rainbow neon outline on black.
+    Edge lines are hue-cycled across the frame and over time so the outline
+    flows like animated neon tubing, finished with a heavy multi-pass bloom.
+    """
+    h, w = frame.shape[:2]
+    speed = float(preset.get("neon_speed", 2.0))
+    thickness = int(preset.get("neon_thickness", 2))
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    smooth = cv2.bilateralFilter(gray, 7, 60, 60)
+    edges = cv2.bitwise_or(cv2.Canny(smooth, 40, 110), cv2.Canny(smooth, 80, 180))
+    if thickness > 1:
+        edges = cv2.dilate(edges, np.ones((thickness, thickness), np.uint8))
+
+    # Cached diagonal hue ramp; shift it over time for the flowing-neon feel.
+    key = (h, w)
+    base_hue = _neon_cache.get(key)
+    if base_hue is None:
+        yy, xx = np.mgrid[0:h, 0:w]
+        base_hue = (((xx + yy) * 0.35) % 180).astype(np.float32)
+        _neon_cache[key] = base_hue
+
+    hue = ((base_hue + frame_idx * speed) % 180).astype(np.uint8)
+    sat = np.full((h, w), 255, dtype=np.uint8)
+    val = edges  # 0 off the lines, 255 on them
+    hsv = cv2.merge([hue, sat, val])
+    neon = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+    # Multi-pass bloom for the luminous tube glow.
+    glow1 = cv2.GaussianBlur(neon, (0, 0), 3)
+    glow2 = cv2.GaussianBlur(neon, (0, 0), 9)
+    output = cv2.addWeighted(neon, 1.0, glow1, 0.9, 0)
+    output = cv2.addWeighted(output, 1.0, glow2, 0.6, 0)
     return output

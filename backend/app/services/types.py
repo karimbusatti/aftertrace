@@ -26,6 +26,7 @@ PresetName = Literal[
     "halftone",
     "light_trails",
     "ink",
+    "neon_glow",
 ]
 
 

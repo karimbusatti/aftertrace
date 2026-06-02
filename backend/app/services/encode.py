@@ -28,8 +28,8 @@ def _ffmpeg_exe() -> str | None:
 def encode_h264(
     src_path: str,
     dst_path: str,
-    crf: int = 20,
-    preset: str = "veryfast",
+    crf: int = 18,
+    preset: str = "faster",
 ) -> bool:
     """
     Re-encode `src_path` to web-optimized H.264 at `dst_path`.
