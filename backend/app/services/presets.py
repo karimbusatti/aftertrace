@@ -973,44 +973,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
 
     # =========================================================================
-    # PIXEL SORT (viral glitch - vertical luminance sorting)
-    # =========================================================================
-
-    "pixel_sort": {
-        "name": "Pixel Sort",
-        "description": "Glitch streaks that drip down motion",
-
-        "spawn_per_beat": 0,
-        "max_points": 0,
-
-        "life_frames": 1,
-        "trail_length": 0,
-        "trail_fade": False,
-
-        "shape": "none",
-        "point_size": 0,
-        "trace_thickness": 0,
-
-        "connect_points": False,
-        "max_connect_distance": 0,
-        "connection_thickness": 0,
-
-        "color_mode": "clean_white",
-        "blur_radius": 0,
-        "glow_intensity": 0,
-        "scanlines": False,
-        "high_contrast_bw": False,
-
-        "darken_factor": 1.0,
-
-        # Pixel Sort specific
-        "text_mode": "pixel_sort",
-        "sort_low": 50,          # only sort pixels brighter than this
-        "sort_high": 255,
-        "sort_chroma": 2,        # chromatic-aberration shift (px)
-    },
-
-    # =========================================================================
     # SLIT SCAN (time displacement - each row from a different moment)
     # =========================================================================
 
@@ -1047,12 +1009,12 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
 
     # =========================================================================
-    # FLOW PARTICLES (optical-flow-driven particle swarm)
+    # ECHO TUNNEL (infinite recursive zoom/rotate feedback)
     # =========================================================================
 
-    "flow_particles": {
-        "name": "Flow Particles",
-        "description": "Particle swarm riding the motion field",
+    "echo_tunnel": {
+        "name": "Echo Tunnel",
+        "description": "Infinite feedback wormhole",
 
         "spawn_per_beat": 0,
         "max_points": 0,
@@ -1077,12 +1039,86 @@ PRESETS: dict[str, dict[str, Any]] = {
 
         "darken_factor": 1.0,
 
-        # Flow Particles specific
-        "text_mode": "flow_particles",
-        "num_particles": 6000,
-        "flow_speed": 2.4,
-        "particle_fade": 0.85,
-        "particle_color": (255, 200, 120),   # BGR (warm cyan)
+        # Echo Tunnel specific
+        "text_mode": "echo_tunnel",
+        "echo_zoom": 1.045,
+        "echo_rotate": 1.6,
+        "echo_decay": 0.94,
+        "echo_chroma": 3,
+    },
+
+    # =========================================================================
+    # KALEIDOSCOPE (radial mirror mandala)
+    # =========================================================================
+
+    "kaleidoscope": {
+        "name": "Kaleidoscope",
+        "description": "Rotating mirror mandala",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # Kaleidoscope specific
+        "text_mode": "kaleidoscope",
+        "kaleido_segments": 8,
+        "kaleido_spin": 1.5,
+    },
+
+    # =========================================================================
+    # TV STATIC (subject isolation -> broadcast static on the subject only)
+    # =========================================================================
+
+    "tv_static": {
+        "name": "TV Static",
+        "description": "Subject dissolves into dead signal",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # TV Static specific
+        "text_mode": "tv_static",
+        "static_block": 2,       # noise chunkiness (px)
+        "static_color": 0.35,    # 0 = gray static, 1 = full RGB
     },
 
     # =========================================================================

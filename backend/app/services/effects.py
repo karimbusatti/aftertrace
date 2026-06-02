@@ -1032,16 +1032,19 @@ def apply_text_effect(
     elif text_mode == "glyph_trace":
         return draw_glyph_trace(frame, preset, colors, frame_idx=frame_idx, points=points)
     # === VIRAL TOUCHDESIGNER EFFECTS v4 ===
-    elif text_mode == "pixel_sort":
-        return draw_pixel_sort(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "slit_scan":
         return draw_slit_scan(frame, preset, colors, frame_idx=frame_idx)
-    elif text_mode == "flow_particles":
-        return draw_flow_particles(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "ascii_core":
         return draw_ascii_core(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "xeno_core":
         return draw_xeno_core(frame, preset, colors, frame_idx=frame_idx)
+    # === VIRAL TOUCHDESIGNER EFFECTS v5 ===
+    elif text_mode == "echo_tunnel":
+        return draw_echo_tunnel(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "kaleidoscope":
+        return draw_kaleidoscope(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "tv_static":
+        return draw_tv_static(frame, preset, colors, frame_idx=frame_idx)
 
     return None
 
@@ -2627,57 +2630,6 @@ def draw_glyph_trace(
 
 
 # =============================================================================
-# PIXEL SORT (viral TouchDesigner glitch)
-# =============================================================================
-
-def draw_pixel_sort(
-    frame: np.ndarray,
-    preset: dict[str, Any],
-    colors: dict,
-    frame_idx: int = 0,
-) -> np.ndarray:
-    """
-    Pixel Sort: the classic Kim-Asendorf glitch look.
-
-    Sorts pixels vertically by luminance within an animated brightness band,
-    producing dripping/streaking smears that follow the subject. Fully
-    vectorized (one argsort + gather per frame) so it stays fast at 1080p.
-    """
-    h, w = frame.shape[:2]
-
-    low = preset.get("sort_low", 50)
-    high = preset.get("sort_high", 255)
-    chroma = preset.get("sort_chroma", 2)
-
-    # Animate the lower threshold so the sorted region breathes with time.
-    drift = int(25 * np.sin(frame_idx * 0.12))
-    low_t = int(np.clip(low + drift, 0, 254))
-
-    lum = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.int16)
-
-    # Sort every column by luminance (dark -> bright, top -> bottom).
-    order = np.argsort(lum, axis=0)
-    idx3 = np.broadcast_to(order[:, :, None], frame.shape)
-    sorted_frame = np.take_along_axis(frame, idx3, axis=0)
-
-    # Only reveal the sorted result inside the (animated) brightness band; the
-    # rest of the frame stays put. This is what makes it read as "sorting"
-    # rather than a full vertical blur.
-    band = (lum >= low_t) & (lum <= high)
-    band3 = np.repeat(band[:, :, None], 3, axis=2)
-    out = np.where(band3, sorted_frame, frame)
-
-    # Subtle chromatic shift for that fried-signal glitch flavor.
-    if chroma > 0:
-        b, g, r = cv2.split(out)
-        r = np.roll(r, chroma, axis=1)
-        b = np.roll(b, -chroma, axis=1)
-        out = cv2.merge([b, g, r])
-
-    return out
-
-
-# =============================================================================
 # SLIT SCAN / TIME DISPLACEMENT (iconic TouchDesigner time-warp)
 # =============================================================================
 
@@ -2729,105 +2681,6 @@ def draw_slit_scan(
     return np.ascontiguousarray(out)
 
 
-# =============================================================================
-# FLOW PARTICLES (GPU-particles-over-optical-flow look, on CPU)
-# =============================================================================
-
-_flow_part_prev: np.ndarray | None = None
-_flow_part_pos: np.ndarray | None = None
-_flow_part_canvas: np.ndarray | None = None
-
-
-def draw_flow_particles(
-    frame: np.ndarray,
-    preset: dict[str, Any],
-    colors: dict,
-    frame_idx: int = 0,
-) -> np.ndarray:
-    """
-    Flow Particles: a swarm of particles advected by dense optical flow, the
-    signature "particlesGPU + opticalFlow" TouchDesigner look.
-
-    Particles drift along the motion field, leaving fading glowing trails over
-    a darkened version of the original. Optical flow is computed at half
-    resolution for speed; particle updates are fully vectorized.
-    """
-    global _flow_part_prev, _flow_part_pos, _flow_part_canvas
-
-    h, w = frame.shape[:2]
-    num = int(preset.get("num_particles", 6000))
-    speed = preset.get("flow_speed", 2.4)
-    fade = preset.get("particle_fade", 0.85)
-    base_col = np.array(preset.get("particle_color", (255, 200, 120)), dtype=np.float32)  # BGR
-
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    sf = 0.5  # flow resolution scale
-    gray_small = cv2.resize(gray, (0, 0), fx=sf, fy=sf, interpolation=cv2.INTER_AREA)
-    hs, ws = gray_small.shape[:2]
-
-    # Initialize state (and reset if frame size changed mid-stream).
-    if (
-        _flow_part_canvas is None
-        or _flow_part_canvas.shape[:2] != (h, w)
-        or _flow_part_pos is None
-        or _flow_part_prev is None
-        or _flow_part_prev.shape[:2] != (hs, ws)
-    ):
-        _flow_part_canvas = np.zeros((h, w, 3), dtype=np.uint8)
-        _flow_part_pos = np.column_stack([
-            np.random.uniform(0, w, num),
-            np.random.uniform(0, h, num),
-        ]).astype(np.float32)
-        _flow_part_prev = gray_small.copy()
-        return (frame * 0.25).astype(np.uint8)
-
-    # Dense optical flow at half res.
-    flow = cv2.calcOpticalFlowFarneback(
-        _flow_part_prev, gray_small, None,
-        0.5, 3, 15, 3, 5, 1.2, 0,
-    )
-    _flow_part_prev = gray_small.copy()
-
-    # Fade existing trails.
-    _flow_part_canvas = (_flow_part_canvas.astype(np.float32) * fade).astype(np.uint8)
-
-    pos = _flow_part_pos
-    # Sample flow at each particle (in small-flow coordinates), scale back up.
-    sx = np.clip((pos[:, 0] * sf).astype(np.int32), 0, ws - 1)
-    sy = np.clip((pos[:, 1] * sf).astype(np.int32), 0, hs - 1)
-    fx = flow[sy, sx, 0] / sf
-    fy = flow[sy, sx, 1] / sf
-    mag = np.sqrt(fx * fx + fy * fy)
-
-    # Advect particles along the motion field.
-    pos[:, 0] += fx * speed
-    pos[:, 1] += fy * speed
-
-    # Respawn particles that leave the frame, plus a little random churn so
-    # the swarm keeps regenerating in still scenes.
-    oob = (pos[:, 0] < 0) | (pos[:, 0] >= w) | (pos[:, 1] < 0) | (pos[:, 1] >= h)
-    churn = np.random.random(num) < 0.01
-    respawn = oob | churn
-    n_resp = int(respawn.sum())
-    if n_resp:
-        pos[respawn, 0] = np.random.uniform(0, w, n_resp)
-        pos[respawn, 1] = np.random.uniform(0, h, n_resp)
-
-    # Draw particles, brighter where motion is stronger.
-    pxi = np.clip(pos[:, 0].astype(np.int32), 0, w - 1)
-    pyi = np.clip(pos[:, 1].astype(np.int32), 0, h - 1)
-    bright = np.clip(mag / 6.0, 0.18, 1.0)
-    part_colors = (base_col[None, :] * bright[:, None]).astype(np.uint8)
-    _flow_part_canvas[pyi, pxi] = part_colors
-
-    # Glow + composite over darkened original.
-    glow = cv2.GaussianBlur(_flow_part_canvas, (0, 0), 2.5)
-    trails = cv2.addWeighted(_flow_part_canvas, 1.0, glow, 0.85, 0)
-    output = cv2.addWeighted((frame * 0.22).astype(np.uint8), 1.0, trails, 1.0, 0)
-
-    return output
-
-
 def reset_stateful_effects():
     """
     Reset all module-level persistent buffers used by temporal effects.
@@ -2838,7 +2691,7 @@ def reset_stateful_effects():
     global _motion_trace_prev_frame, _motion_trace_trail_canvas
     global _signal_feedback_buffer, _signal_feedback_noise
     global _slit_scan_buffer, _slit_scan_pos
-    global _flow_part_prev, _flow_part_pos, _flow_part_canvas
+    global _echo_buffer
 
     _motion_trace_prev_frame = None
     _motion_trace_trail_canvas = None
@@ -2846,9 +2699,7 @@ def reset_stateful_effects():
     _signal_feedback_noise = None
     _slit_scan_buffer = None
     _slit_scan_pos = 0
-    _flow_part_prev = None
-    _flow_part_pos = None
-    _flow_part_canvas = None
+    _echo_buffer = None
 
 
 # =============================================================================
@@ -3001,5 +2852,228 @@ def draw_xeno_core(
         output[y0:scan_y + 1].astype(np.int16) + 30, 0, 255
     ).astype(np.uint8)
     cv2.line(output, (0, scan_y), (w, scan_y), (255, 255, 200), 1, cv2.LINE_AA)
+
+    return output
+
+
+# =============================================================================
+# ECHO TUNNEL (infinite recursive zoom/rotate feedback)
+# =============================================================================
+
+_echo_buffer: np.ndarray | None = None
+
+
+def draw_echo_tunnel(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Echo Tunnel: the hypnotic TouchDesigner feedback-zoom "wormhole".
+
+    Each frame the accumulated buffer is scaled + rotated about the center and
+    decayed, then the live frame is screened back in. The recursive transform
+    pulls imagery into an infinite spiraling tunnel. Chromatic aberration and
+    bloom finish the trippy look.
+    """
+    global _echo_buffer
+
+    h, w = frame.shape[:2]
+    zoom = preset.get("echo_zoom", 1.045)
+    rotate = preset.get("echo_rotate", 1.6)
+    decay = preset.get("echo_decay", 0.94)
+    chroma = int(preset.get("echo_chroma", 3))
+
+    if _echo_buffer is None or _echo_buffer.shape[:2] != (h, w):
+        _echo_buffer = frame.copy()
+        return frame
+
+    # Gentle pulse so the tunnel breathes.
+    z = zoom + 0.02 * np.sin(frame_idx * 0.08)
+
+    # Scale + rotate the previous buffer about the center, then decay it.
+    M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), rotate, z)
+    warped = cv2.warpAffine(
+        _echo_buffer, M, (w, h),
+        flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT,
+    )
+    warped = (warped.astype(np.float32) * decay).astype(np.uint8)
+
+    # Screen the live frame back in so new motion keeps feeding the tunnel.
+    combined = cv2.max(warped, frame)
+    _echo_buffer = combined
+
+    # Bloom.
+    glow = cv2.GaussianBlur(combined, (0, 0), 5)
+    output = cv2.addWeighted(combined, 1.0, glow, 0.6, 0)
+
+    # Chromatic aberration that grows toward the edges (radial feel via roll).
+    if chroma > 0:
+        b, g, r = cv2.split(output)
+        r = np.roll(r, chroma, axis=1)
+        b = np.roll(b, -chroma, axis=1)
+        output = cv2.merge([b, g, r])
+
+    return output
+
+
+# =============================================================================
+# KALEIDOSCOPE (radial mirror mandala)
+# =============================================================================
+
+def draw_kaleidoscope(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Kaleidoscope: fold the frame into a rotating radial mandala.
+
+    Uses a polar transform, takes one angular wedge, mirrors it, tiles it around
+    the full circle, then maps back to cartesian. The wedge is rotated over time
+    for a slowly turning, hypnotic symmetry.
+    """
+    h, w = frame.shape[:2]
+    segments = max(2, int(preset.get("kaleido_segments", 8)))
+    spin = preset.get("kaleido_spin", 1.5)
+
+    center = (w / 2.0, h / 2.0)
+    max_radius = float(np.hypot(w, h) / 2.0)
+
+    # To polar: rows = angle (0..360), cols = radius.
+    polar = cv2.warpPolar(
+        frame, (w, h), center, max_radius, cv2.WARP_POLAR_LINEAR
+    )
+
+    # One wedge of the angle axis, mirrored to make a seamless kaleidoscope cell.
+    seg = max(2, h // segments)
+    wedge = polar[:seg]
+    cell = np.concatenate([wedge, wedge[::-1]], axis=0)  # mirror
+
+    # Tile the cell to cover the full angle axis.
+    reps = h // cell.shape[0] + 2
+    tiled = np.tile(cell, (reps, 1, 1))[:h]
+
+    # Rotate the mandala over time by rolling the angle axis.
+    shift = int((frame_idx * spin) % h)
+    tiled = np.roll(tiled, shift, axis=0)
+
+    # Back to cartesian.
+    output = cv2.warpPolar(
+        tiled, (w, h), center, max_radius,
+        cv2.WARP_POLAR_LINEAR | cv2.WARP_INVERSE_MAP,
+    )
+
+    # Subtle bloom for richness.
+    glow = cv2.GaussianBlur(output, (0, 0), 3)
+    output = cv2.addWeighted(output, 1.0, glow, 0.35, 0)
+
+    return output
+
+
+# =============================================================================
+# SUBJECT ISOLATION + TV STATIC
+# =============================================================================
+
+def _subject_mask(frame: np.ndarray) -> np.ndarray:
+    """
+    Estimate a filled mask of the main subject (person/object) in the frame.
+
+    Heuristic, ML-free: enhance contrast, find edges, dilate into regions, then
+    pick the largest contour biased toward the center and fill its convex hull.
+    Falls back to a centered ellipse if nothing convincing is found.
+    """
+    h, w = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    edges = cv2.Canny(enhanced, 30, 100)
+
+    kernel = np.ones((25, 25), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=2)
+    dilated = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+    cx0, cy0 = w / 2.0, h / 2.0
+    best, best_score = None, 0.0
+    for c in contours:
+        area = cv2.contourArea(c)
+        if area < h * w * 0.02:
+            continue
+        M = cv2.moments(c)
+        if M["m00"] <= 0:
+            continue
+        cx, cy = M["m10"] / M["m00"], M["m01"] / M["m00"]
+        dist = np.hypot(cx - cx0, cy - cy0)
+        centrality = 1.0 - dist / np.hypot(cx0, cy0)
+        score = area * (0.4 + 0.6 * centrality)
+        if score > best_score:
+            best_score, best = score, c
+
+    if best is not None:
+        cv2.fillPoly(mask, [cv2.convexHull(best)], 255)
+
+    if np.count_nonzero(mask) < h * w * 0.02:
+        cv2.ellipse(mask, (int(cx0), int(cy0)), (w // 3, int(h * 0.45)), 0, 0, 360, 255, -1)
+
+    # Soften the boundary slightly for a cleaner composite.
+    mask = cv2.GaussianBlur(mask, (0, 0), 3)
+    return mask
+
+
+def draw_tv_static(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    TV Static: isolate the subject and dissolve ONLY them into broadcast static,
+    leaving the real background behind. The figure reads as a person-shaped hole
+    of dead signal — noise, scanlines, horizontal tearing and RGB fringing.
+    """
+    h, w = frame.shape[:2]
+    block = max(1, int(preset.get("static_block", 2)))   # noise chunkiness
+    color_amt = float(preset.get("static_color", 0.35))  # 0=gray .. 1=rgb
+
+    mask = _subject_mask(frame)
+    maskf = (mask.astype(np.float32) / 255.0)[:, :, None]
+
+    # --- Build TV static ---
+    nh, nw = max(1, h // block), max(1, w // block)
+    gray_noise = np.random.randint(0, 256, (nh, nw, 1), dtype=np.uint8).repeat(3, axis=2)
+    color_noise = np.random.randint(0, 256, (nh, nw, 3), dtype=np.uint8)
+    noise = cv2.addWeighted(gray_noise, 1.0 - color_amt, color_noise, color_amt, 0)
+    static = cv2.resize(noise, (w, h), interpolation=cv2.INTER_NEAREST)
+
+    # Occasional bright "signal bar" tearing bands.
+    rng = np.random.default_rng(frame_idx)
+    for _ in range(rng.integers(2, 6)):
+        by = int(rng.integers(0, h))
+        bh = int(rng.integers(2, max(3, h // 20)))
+        shift = int(rng.integers(-w // 10, w // 10))
+        static[by:by + bh] = np.roll(static[by:by + bh], shift, axis=1)
+
+    # Scanlines.
+    static[1::2] = (static[1::2].astype(np.float32) * 0.7).astype(np.uint8)
+
+    # RGB fringing on the static.
+    b, g, r = cv2.split(static)
+    static = cv2.merge([np.roll(b, -2, axis=1), g, np.roll(r, 2, axis=1)])
+
+    # --- Composite: static inside the subject, real video outside ---
+    output = frame.astype(np.float32) * (1.0 - maskf) + static.astype(np.float32) * maskf
+    output = output.astype(np.uint8)
+
+    # Glowing torn edge around the silhouette so it reads as "signal loss".
+    edge = cv2.morphologyEx(mask, cv2.MORPH_GRADIENT,
+                            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+    edge_glow = cv2.GaussianBlur(cv2.cvtColor(edge, cv2.COLOR_GRAY2BGR), (0, 0), 4)
+    output = cv2.addWeighted(output, 1.0, edge_glow, 0.5, 0)
 
     return output
