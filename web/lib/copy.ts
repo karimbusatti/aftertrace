@@ -19,9 +19,9 @@ export const tipsSections: TipSection[] = [
     intro: "The camera you carry is the one watching you most. Start here.",
     tips: [
       { text: "Audit camera & mic permissions: Settings → Privacy. Revoke access from every app that doesn't strictly need it.", impact: "high" },
-      { text: "Set location to \"While Using\" — never \"Always\". Most apps don't need your background location at all.", impact: "high" },
+      { text: "Set location to \"While Using\", never \"Always\". Most apps don't need your background location at all.", impact: "high" },
       { text: "Turn off photo cloud sync, or use end-to-end encrypted storage. Faceprints get built from cloud libraries.", impact: "medium" },
-      { text: "Strip EXIF metadata before sharing — photos carry GPS coordinates, device IDs and timestamps.", impact: "medium" },
+      { text: "Strip EXIF metadata before sharing, photos carry GPS coordinates, device IDs and timestamps.", impact: "medium" },
       { text: "Physically cover the front camera when idle. Low-tech, unbeatable.", impact: "low" },
     ],
   },
@@ -48,38 +48,46 @@ export const tipsSections: TipSection[] = [
       { text: "Use a different photo, handle, and email per service. Linkability is what makes you trackable.", impact: "high" },
       { text: "Kill geotags, check-ins, and location tags. They reconstruct your movements after the fact.", impact: "medium" },
       { text: "Opt out of data brokers (Clearview, PimEyes, etc. honor removal requests in many regions).", impact: "medium" },
-      { text: "Assume anything posted is permanent and scrapable — even after you delete it.", impact: "low" },
+      { text: "Assume anything posted is permanent and scrapable, even after you delete it.", impact: "low" },
     ],
   },
   {
     id: "awareness",
     title: "Know the threat model",
     icon: "🧠",
-    intro: "You can't opt out of everything — so spend effort where it counts.",
+    intro: "You can't opt out of everything, so spend effort where it counts.",
     tips: [
       { text: "Most surveillance is automated logging, not a person watching. The risk is the permanent record.", impact: "high" },
       { text: "Your faceprint can't be changed like a password. Protect it like one you can never reset.", impact: "high" },
       { text: "Gait, posture, tattoos, and clothing are all secondary identifiers when your face is hidden.", impact: "medium" },
-      { text: "Voice is biometric too — assume always-on mics can fingerprint how you speak.", impact: "medium" },
+      { text: "Voice is biometric too, assume always-on mics can fingerprint how you speak.", impact: "medium" },
       { text: "The goal isn't invisibility. It's raising the cost of tracking until you're not worth it.", impact: "low" },
     ],
   },
 ];
 
-// Rotating facts shown while a clip is processing.
+// Rotating facts shown while a clip is processing. (No em dashes.)
 export const surveillanceFacts: string[] = [
-  "Modern face recognition can identify you from a single frame — even partially turned or in a crowd.",
-  "The way you walk is nearly as unique as a fingerprint, and trackable from low-res CCTV at a distance.",
-  "Most public faceprint databases were built by scraping photos people posted publicly — including yours.",
+  "Modern face recognition can identify you from a single frame, even partially turned or in a crowd.",
+  "The way you walk is nearly as unique as a fingerprint, and trackable from low resolution CCTV at a distance.",
+  "Most public faceprint databases were built by scraping photos people posted publicly, including yours.",
   "Live facial recognition can scan thousands of faces a minute and flag matches in real time.",
-  "Features around your eyes stay identifiable even when you're wearing a mask.",
-  "Once your faceprint is in a database, you can't change it like a password — it's permanent.",
+  "Features around your eyes stay identifiable even when you are wearing a mask.",
+  "Once your faceprint is in a database, you cannot change it like a password. It is permanent.",
   "Some retailers track how long you look at a product and link your visits across different stores.",
   "Border and airport systems increasingly match your live face to your passport photo automatically.",
-  "Emotion-detection AI claims to read your mood from micro-expressions — and it's frequently wrong.",
+  "Emotion detection AI claims to read your mood from micro expressions, and it is frequently wrong.",
   "Citywide camera networks can hand a single person off from one camera to the next, automatically.",
   "Even blurred or pixelated faces can sometimes be reconstructed by AI upscalers.",
   "Your phone can be fingerprinted and tied to your face through tagged photos you never uploaded.",
+  "A face only needs to be a few dozen pixels wide for some systems to attempt a match.",
+  "Recognition models keep working in the dark using infrared and near infrared camera feeds.",
+  "Your unique pattern of veins, freckles, and skin texture can be enough to tell you apart.",
+  "Many doorbell and dashcam clips are uploaded to clouds that allow third party face search.",
+  "Social platforms can detect faces in the background of other people's photos and tag you.",
+  "3D face maps from phone unlock sensors describe the exact geometry of your face.",
+  "Gait, body shape, and clothing let systems re identify you after your face leaves the frame.",
+  "Training a model to recognize you can take as few as a handful of clear images.",
 ];
 
 export function getPersonalizedTips(score: number): string[] {
@@ -87,7 +95,7 @@ export function getPersonalizedTips(score: number): string[] {
     return [
       "Your video has high trackability. Multiple clear frames of identifying features.",
       "Consider recording in lower light or with partial face occlusion.",
-      "Reduce motion stability — smooth, predictable movement is easier to track.",
+      "Reduce motion stability, smooth, predictable movement is easier to track.",
       "Avoid static backgrounds that make subject isolation trivial.",
     ];
   } else if (score >= 40) {

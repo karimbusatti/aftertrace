@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ProcessResponse } from "@/lib/api";
 import { getDownloadUrl } from "@/lib/api";
-import { surveillanceFacts } from "@/lib/copy";
+import { surveillanceFacts, getTrackingLevel } from "@/lib/copy";
 
 interface ResultPanelProps {
   result: ProcessResponse | null;
@@ -94,11 +94,15 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
 
       {/* Stats */}
       <div className="card p-5">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-3">
           <span className="text-text-muted text-sm">analysis results</span>
           <TrackabilityBadge score={trackability} />
         </div>
-        
+
+        <p className="text-text-secondary text-sm leading-relaxed mb-4">
+          {getTrackingLevel(trackability).message}
+        </p>
+
         {metadata?.segments_applied && metadata.segments_applied.length > 0 && (
           <div className="mb-6 p-3 bg-white/5 rounded-lg">
              <p className="text-text-muted text-[10px] uppercase tracking-wider mb-2">Sequence</p>

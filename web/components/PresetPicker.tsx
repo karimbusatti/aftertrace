@@ -75,7 +75,8 @@ const SECONDARY_PRESETS: Preset[] = [
   { id: "kaleidoscope", name: "Kaleidoscope", description: "mirror mandala" },
   { id: "tv_static", name: "TV Static", description: "subject to static" },
   { id: "chromatic_ghost", name: "Chromatic Ghost", description: "rainbow motion trails" },
-  { id: "datamosh", name: "Datamosh", description: "melting pixels" },
+  { id: "crystallize", name: "Crystallize", description: "low-poly mosaic" },
+  { id: "halftone", name: "Halftone", description: "color dot pop-art" },
 ];
 
 // Combined list for lookups

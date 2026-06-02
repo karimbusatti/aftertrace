@@ -1046,12 +1046,12 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
 
     # =========================================================================
-    # DATAMOSH (optical-flow pixel melt)
+    # CRYSTALLIZE (low-poly Delaunay triangulation mosaic)
     # =========================================================================
 
-    "datamosh": {
-        "name": "Datamosh",
-        "description": "Melting pixel glitch",
+    "crystallize": {
+        "name": "Crystallize",
+        "description": "Low-poly mosaic",
 
         "spawn_per_beat": 0,
         "max_points": 0,
@@ -1076,10 +1076,47 @@ PRESETS: dict[str, dict[str, Any]] = {
 
         "darken_factor": 1.0,
 
-        # Datamosh specific
-        "text_mode": "datamosh",
-        "mosh_keyframe": 32,
-        "mosh_smear": 1.6,
+        # Crystallize specific
+        "text_mode": "crystallize",
+        "cells": 600,
+        "facet_edges": True,
+    },
+
+    # =========================================================================
+    # HALFTONE (color dot pop-art)
+    # =========================================================================
+
+    "halftone": {
+        "name": "Halftone",
+        "description": "Color dot pop-art",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # Halftone specific
+        "text_mode": "halftone",
+        "dot_spacing": 10,
+        "dot_gamma": 0.8,
     },
 
     # =========================================================================

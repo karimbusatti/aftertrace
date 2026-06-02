@@ -1044,8 +1044,10 @@ def apply_text_effect(
     # === VIRAL TOUCHDESIGNER EFFECTS v6 ===
     elif text_mode == "chromatic_ghost":
         return draw_chromatic_ghost(frame, preset, colors, frame_idx=frame_idx)
-    elif text_mode == "datamosh":
-        return draw_datamosh(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "crystallize":
+        return draw_crystallize(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "halftone":
+        return draw_halftone(frame, preset, colors, frame_idx=frame_idx)
 
     return None
 
@@ -2693,7 +2695,6 @@ def reset_stateful_effects():
     global _signal_feedback_buffer, _signal_feedback_noise
     global _slit_scan_buffer, _slit_scan_pos
     global _ghost_buffer, _ghost_pos
-    global _datamosh_acc, _datamosh_prev
 
     _motion_trace_prev_frame = None
     _motion_trace_trail_canvas = None
@@ -2703,8 +2704,6 @@ def reset_stateful_effects():
     _slit_scan_pos = 0
     _ghost_buffer = None
     _ghost_pos = 0
-    _datamosh_acc = None
-    _datamosh_prev = None
 
 
 # =============================================================================
@@ -3033,65 +3032,106 @@ def draw_chromatic_ghost(
 
 
 # =============================================================================
-# DATAMOSH (optical-flow pixel melt with periodic keyframe bloom)
+# CRYSTALLIZE (low-poly Delaunay triangulation mosaic)
 # =============================================================================
 
-_datamosh_acc: np.ndarray | None = None
-_datamosh_prev: np.ndarray | None = None
-
-
-def draw_datamosh(
+def draw_crystallize(
     frame: np.ndarray,
     preset: dict[str, Any],
     colors: dict,
     frame_idx: int = 0,
 ) -> np.ndarray:
     """
-    Datamosh: the iconic "melting pixels" glitch. Motion vectors (optical flow)
-    smear the accumulated frame so imagery drags and bleeds along movement;
-    fresh detail only enters where motion is strong. A periodic keyframe resets
-    the bloom so it pulses instead of turning to mush.
+    Crystallize: shatter the frame into a low-poly mosaic of flat-shaded
+    triangles. Feature points concentrate detail on the subject while a grid
+    guarantees full coverage; each triangle is filled with the color sampled at
+    its centroid. Premium generative-art look.
     """
-    global _datamosh_acc, _datamosh_prev
-
     h, w = frame.shape[:2]
-    keyframe = max(8, int(preset.get("mosh_keyframe", 32)))
-    smear = float(preset.get("mosh_smear", 1.6))
+    cells = int(preset.get("cells", 600))
+    grid_step = int(preset.get("grid_step", max(36, (w + h) // 34)))
+    facet_edges = bool(preset.get("facet_edges", True))
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    sf = 0.5
-    gray_small = cv2.resize(gray, (0, 0), fx=sf, fy=sf, interpolation=cv2.INTER_AREA)
-    hs, ws = gray_small.shape[:2]
+    corners = cv2.goodFeaturesToTrack(gray, maxCorners=cells, qualityLevel=0.01, minDistance=8)
 
-    # (Re)initialize, and force a keyframe periodically (the datamosh "I-frame").
-    if (_datamosh_acc is None or _datamosh_acc.shape[:2] != (h, w)
-            or _datamosh_prev is None or _datamosh_prev.shape[:2] != (hs, ws)
-            or frame_idx % keyframe == 0):
-        _datamosh_acc = frame.copy()
-        _datamosh_prev = gray_small.copy()
-        return frame
+    pts: list[tuple[float, float]] = []
+    if corners is not None:
+        pts.extend((float(c.ravel()[0]), float(c.ravel()[1])) for c in corners)
 
-    flow = cv2.calcOpticalFlowFarneback(
-        _datamosh_prev, gray_small, None, 0.5, 3, 15, 3, 5, 1.2, 0
-    )
-    _datamosh_prev = gray_small.copy()
+    # Grid + border points so the entire frame is tiled (no black gaps).
+    gx = list(range(0, w, grid_step)) + [w - 1]
+    gy = list(range(0, h, grid_step)) + [h - 1]
+    for y in gy:
+        for x in gx:
+            pts.append((float(x), float(y)))
 
-    # Upscale flow to full res and build a remap that drags pixels along motion.
-    flow_full = cv2.resize(flow, (w, h), interpolation=cv2.INTER_LINEAR) / sf
-    grid_x, grid_y = np.meshgrid(np.arange(w), np.arange(h))
-    map_x = (grid_x - flow_full[:, :, 0] * smear).astype(np.float32)
-    map_y = (grid_y - flow_full[:, :, 1] * smear).astype(np.float32)
+    subdiv = cv2.Subdiv2D((0, 0, w, h))
+    for (x, y) in pts:
+        if 0 <= x < w and 0 <= y < h:
+            subdiv.insert((float(x), float(y)))
 
-    warped = cv2.remap(_datamosh_acc, map_x, map_y, cv2.INTER_LINEAR,
-                       borderMode=cv2.BORDER_REFLECT)
+    output = np.zeros((h, w, 3), dtype=np.uint8)
+    for t in subdiv.getTriangleList():
+        tri = np.array([[t[0], t[1]], [t[2], t[3]], [t[4], t[5]]], dtype=np.float32)
+        if (tri[:, 0] < 0).any() or (tri[:, 0] > w - 1).any():
+            continue
+        if (tri[:, 1] < 0).any() or (tri[:, 1] > h - 1).any():
+            continue
+        cx = int(np.clip(tri[:, 0].mean(), 0, w - 1))
+        cy = int(np.clip(tri[:, 1].mean(), 0, h - 1))
+        color = frame[cy, cx].tolist()
+        poly = tri.astype(np.int32)
+        cv2.fillConvexPoly(output, poly, color, cv2.LINE_AA)
+        if facet_edges:
+            cv2.polylines(output, [poly], True, [int(c * 0.7) for c in color], 1, cv2.LINE_AA)
 
-    # Fresh detail bleeds in only where motion is strong.
-    mag = np.sqrt(flow_full[:, :, 0] ** 2 + flow_full[:, :, 1] ** 2)
-    alpha = np.clip(mag / 8.0, 0.0, 0.6)[:, :, None]
-    _datamosh_acc = (warped.astype(np.float32) * (1 - alpha)
-                     + frame.astype(np.float32) * alpha).astype(np.uint8)
+    return output
 
-    # RGB bleed for that decoded-wrong color smear.
-    b, g, r = cv2.split(_datamosh_acc)
-    output = cv2.merge([np.roll(b, 2, axis=1), g, np.roll(r, -2, axis=1)])
+
+# =============================================================================
+# HALFTONE (color CMYK-style dot pop-art)
+# =============================================================================
+
+_halftone_cache: dict = {}
+
+
+def draw_halftone(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Halftone: rebuild the frame from a grid of colored dots whose size tracks
+    local brightness, on black, with a soft emissive glow. Clean pop-art / LED
+    dot-matrix look. Fully vectorized via a cached radial cell pattern.
+    """
+    h, w = frame.shape[:2]
+    dot = max(4, int(preset.get("dot_spacing", 10)))
+    gamma = float(preset.get("dot_gamma", 0.8))
+
+    key = (h, w, dot)
+    patt = _halftone_cache.get(key)
+    if patt is None:
+        yy, xx = np.mgrid[0:h, 0:w]
+        cx = (xx % dot) - (dot - 1) / 2.0
+        cy = (yy % dot) - (dot - 1) / 2.0
+        patt = (np.sqrt(cx * cx + cy * cy) / ((dot / 2.0) * np.sqrt(2.0))).astype(np.float32)
+        _halftone_cache[key] = patt
+
+    # Per-cell color (blocky via downsample->nearest upsample) and brightness.
+    gw, gh = max(1, w // dot), max(1, h // dot)
+    small = cv2.resize(frame, (gw, gh), interpolation=cv2.INTER_AREA)
+    color_full = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+    lum = cv2.cvtColor(color_full, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+    radius = np.power(np.clip(lum, 0.0, 1.0), gamma)  # brighter -> larger dot
+
+    mask = patt <= radius
+    output = np.zeros((h, w, 3), dtype=np.uint8)
+    output[mask] = color_full[mask]
+
+    # Soft glow so the dots read as emissive.
+    glow = cv2.GaussianBlur(output, (0, 0), max(1.0, dot * 0.3))
+    output = cv2.addWeighted(output, 1.0, glow, 0.5, 0)
     return output

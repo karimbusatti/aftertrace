@@ -22,7 +22,8 @@ PresetName = Literal[
     "kaleidoscope",
     "tv_static",
     "chromatic_ghost",
-    "datamosh",
+    "crystallize",
+    "halftone",
 ]
 
 
