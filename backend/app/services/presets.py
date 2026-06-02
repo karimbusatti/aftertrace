@@ -971,6 +971,119 @@ PRESETS: dict[str, dict[str, Any]] = {
         "darken_factor": 1.0,
         "text_mode": "glyph_trace",
     },
+
+    # =========================================================================
+    # PIXEL SORT (viral glitch - vertical luminance sorting)
+    # =========================================================================
+
+    "pixel_sort": {
+        "name": "Pixel Sort",
+        "description": "Glitch streaks that drip down motion",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # Pixel Sort specific
+        "text_mode": "pixel_sort",
+        "sort_low": 50,          # only sort pixels brighter than this
+        "sort_high": 255,
+        "sort_chroma": 2,        # chromatic-aberration shift (px)
+    },
+
+    # =========================================================================
+    # SLIT SCAN (time displacement - each row from a different moment)
+    # =========================================================================
+
+    "slit_scan": {
+        "name": "Slit Scan",
+        "description": "Time-warp smear of motion",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # Slit Scan specific
+        "text_mode": "slit_scan",
+        "scan_frames": 24,       # depth of the time buffer (rows span this many frames)
+    },
+
+    # =========================================================================
+    # FLOW PARTICLES (optical-flow-driven particle swarm)
+    # =========================================================================
+
+    "flow_particles": {
+        "name": "Flow Particles",
+        "description": "Particle swarm riding the motion field",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # Flow Particles specific
+        "text_mode": "flow_particles",
+        "num_particles": 6000,
+        "flow_speed": 2.4,
+        "particle_fade": 0.85,
+        "particle_color": (255, 200, 120),   # BGR (warm cyan)
+    },
 }
 
 

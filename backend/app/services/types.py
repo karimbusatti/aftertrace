@@ -17,6 +17,9 @@ PresetName = Literal[
     "codenet_overlay",
     "code_shadow",
     "binary_bloom",
+    "pixel_sort",
+    "slit_scan",
+    "flow_particles",
 ]
 
 

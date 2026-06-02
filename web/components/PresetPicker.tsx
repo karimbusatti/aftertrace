@@ -70,6 +70,9 @@ const SECONDARY_PRESETS: Preset[] = [
   { id: "ocular_overload", name: "Ocular Overload", description: "retinal glitch" },
   { id: "signal_bloom", name: "Signal Bloom", description: "lava distortion" },
   { id: "glyph_trace", name: "Glyph Trace", description: "ascii ink" },
+  { id: "pixel_sort", name: "Pixel Sort", description: "glitch streaks" },
+  { id: "slit_scan", name: "Slit Scan", description: "time warp" },
+  { id: "flow_particles", name: "Flow Particles", description: "motion swarm" },
 ];
 
 // Combined list for lookups

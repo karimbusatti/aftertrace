@@ -44,8 +44,14 @@ from .types import ProcessingMetadata, CompositionSegment
 from .presets import get_preset, validate_preset
 from .audio import extract_audio, analyze_audio, get_spawn_frames
 from .tracking import PointTracker
-from .effects import draw_frame
+from .effects import draw_frame, reset_stateful_effects
 from .face_detection import FaceDetector
+from .encode import encode_h264
+
+
+# Cap the longest edge of the processed output. Keeps render time bounded and
+# files light for fast web playback while staying visibly high quality.
+MAX_OUTPUT_EDGE = 1080
 
 
 # =============================================================================
@@ -248,19 +254,37 @@ def process_video(
     """
     start_time = time.time()
     metadata = ProcessingMetadata()
-    
+
+    # Reset temporal-effect buffers so state never leaks between jobs.
+    reset_stateful_effects()
+
     # =========================================================================
     # STEP 1: Open input video (need fps/frames for sequence mode)
     # =========================================================================
     cap = cv2.VideoCapture(input_path)
     if not cap.isOpened():
         raise ValueError(f"Could not open video: {input_path}")
-    
+
     fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    in_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    in_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    
+
+    # Determine processing/output resolution: downscale so the longest edge is
+    # at most MAX_OUTPUT_EDGE. Dimensions are forced even for H.264 (yuv420p).
+    longest_edge = max(in_width, in_height)
+    if longest_edge > MAX_OUTPUT_EDGE:
+        scale = MAX_OUTPUT_EDGE / longest_edge
+        width = int(round(in_width * scale))
+        height = int(round(in_height * scale))
+    else:
+        width, height = in_width, in_height
+    width -= width % 2
+    height -= height % 2
+    width = max(2, width)
+    height = max(2, height)
+    needs_resize = (width, height) != (in_width, in_height)
+
     metadata.duration_seconds = total_frames / fps if fps > 0 else 0
     
     # =========================================================================
@@ -347,7 +371,8 @@ def process_video(
         metadata.preset_used = preset_name
         print(f"[process] preset={preset_name}")
     
-    print(f"[process] Input: {width}x{height} @ {fps:.1f}fps, {total_frames} frames")
+    print(f"[process] Input: {in_width}x{in_height} -> processing at {width}x{height} "
+          f"@ {fps:.1f}fps, {total_frames} frames")
     print(f"[process] Mode: {mode}, Preset: {preset_name}, overlay: {overlay_mode}")
     
     # =========================================================================
@@ -368,22 +393,28 @@ def process_video(
     # =========================================================================
     # STEP 3: Setup output video writer(s)
     # =========================================================================
+    # OpenCV writes an intermediate mp4v file; we re-encode to web-optimized
+    # H.264 at the very end (see STEP 8).
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-    
+    raw_output_path = output_path + ".raw.mp4"
+    out = cv2.VideoWriter(raw_output_path, fourcc, fps, (width, height))
+
     if not out.isOpened():
         cap.release()
-        raise ValueError(f"Could not create output video: {output_path}")
-    
+        raise ValueError(f"Could not create output video: {raw_output_path}")
+
     # Optional: also save a re-encoded copy of original for alternating playback
     out_original = None
+    raw_original_path = None
     if original_output_path:
-        out_original = cv2.VideoWriter(original_output_path, fourcc, fps, (width, height))
+        raw_original_path = original_output_path + ".raw.mp4"
+        out_original = cv2.VideoWriter(raw_original_path, fourcc, fps, (width, height))
         if out_original.isOpened():
             print(f"[process] Also saving original to: {original_output_path}")
         else:
             out_original.release()  # Release failed writer before discarding
             out_original = None  # Fallback: don't save original if failed
+            raw_original_path = None
     
     # =========================================================================
     # STEP 4: Initialize tracker with preset config
@@ -425,7 +456,11 @@ def process_video(
         ret, frame = cap.read()
         if not ret:
             break
-        
+
+        # Downscale to processing/output resolution if the input was larger.
+        if needs_resize:
+            frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+
         # Convert to grayscale for tracking
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
@@ -438,6 +473,16 @@ def process_video(
         if prev_gray is not None:
             alive_count = tracker.update(prev_gray, gray, frame_idx, (height, width))
             total_points_tracked += alive_count
+
+            # Adaptive top-up: if tracked density drops too low, re-detect so
+            # point-based effects stay continuous instead of flickering out.
+            if spawn_count > 0 and tracker.max_points > 0:
+                alive_now = len(tracker.get_alive_points())
+                if alive_now < tracker.max_points * 0.5:
+                    topped = tracker.spawn_points(
+                        gray, frame_idx, tracker.max_points - alive_now
+                    )
+                    metadata.total_points_spawned += topped
         
         # --- Detect faces if enabled ---
         face_data = None
@@ -514,12 +559,27 @@ def process_video(
     # =========================================================================
     cap.release()
     out.release()
-    
+
     if out_original is not None:
         out_original.release()
-    
+
     if face_detector:
         face_detector.close()
+
+    # =========================================================================
+    # STEP 8: Re-encode to web-optimized H.264 (better quality, smaller, fast
+    # to load and broadly browser-compatible). Falls back to the raw mp4v file
+    # if ffmpeg is unavailable.
+    # =========================================================================
+    import os
+    print("[process] Encoding output to H.264...")
+    encode_h264(raw_output_path, output_path)
+    if os.path.exists(raw_output_path):
+        os.unlink(raw_output_path)
+
+    if raw_original_path and os.path.exists(raw_original_path):
+        encode_h264(raw_original_path, original_output_path)
+        os.unlink(raw_original_path)
     
     # Basic stats
     metadata.frames_processed = frame_idx

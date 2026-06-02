@@ -7,7 +7,7 @@ services:
     dockerContext: ./backend
     envVars:
       - key: CORS_ORIGINS
-        value: https://aftertrace.vercel.app
+        value: https://after-trace.com,https://www.after-trace.com,https://aftertrace.vercel.app
       - key: DEBUG
         value: false
     healthCheckPath: /health

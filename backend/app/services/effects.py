@@ -1031,7 +1031,14 @@ def apply_text_effect(
         return draw_signal_bloom(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "glyph_trace":
         return draw_glyph_trace(frame, preset, colors, frame_idx=frame_idx, points=points)
-    
+    # === VIRAL TOUCHDESIGNER EFFECTS v4 ===
+    elif text_mode == "pixel_sort":
+        return draw_pixel_sort(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "slit_scan":
+        return draw_slit_scan(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "flow_particles":
+        return draw_flow_particles(frame, preset, colors, frame_idx=frame_idx)
+
     return None
 
 
@@ -2614,3 +2621,227 @@ def draw_glyph_trace(
         
     return output
 
+
+# =============================================================================
+# PIXEL SORT (viral TouchDesigner glitch)
+# =============================================================================
+
+def draw_pixel_sort(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Pixel Sort: the classic Kim-Asendorf glitch look.
+
+    Sorts pixels vertically by luminance within an animated brightness band,
+    producing dripping/streaking smears that follow the subject. Fully
+    vectorized (one argsort + gather per frame) so it stays fast at 1080p.
+    """
+    h, w = frame.shape[:2]
+
+    low = preset.get("sort_low", 50)
+    high = preset.get("sort_high", 255)
+    chroma = preset.get("sort_chroma", 2)
+
+    # Animate the lower threshold so the sorted region breathes with time.
+    drift = int(25 * np.sin(frame_idx * 0.12))
+    low_t = int(np.clip(low + drift, 0, 254))
+
+    lum = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.int16)
+
+    # Sort every column by luminance (dark -> bright, top -> bottom).
+    order = np.argsort(lum, axis=0)
+    idx3 = np.broadcast_to(order[:, :, None], frame.shape)
+    sorted_frame = np.take_along_axis(frame, idx3, axis=0)
+
+    # Only reveal the sorted result inside the (animated) brightness band; the
+    # rest of the frame stays put. This is what makes it read as "sorting"
+    # rather than a full vertical blur.
+    band = (lum >= low_t) & (lum <= high)
+    band3 = np.repeat(band[:, :, None], 3, axis=2)
+    out = np.where(band3, sorted_frame, frame)
+
+    # Subtle chromatic shift for that fried-signal glitch flavor.
+    if chroma > 0:
+        b, g, r = cv2.split(out)
+        r = np.roll(r, chroma, axis=1)
+        b = np.roll(b, -chroma, axis=1)
+        out = cv2.merge([b, g, r])
+
+    return out
+
+
+# =============================================================================
+# SLIT SCAN / TIME DISPLACEMENT (iconic TouchDesigner time-warp)
+# =============================================================================
+
+_slit_scan_buffer: np.ndarray | None = None
+_slit_scan_pos: int = 0
+
+
+def draw_slit_scan(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Slit Scan: each row of the output is sampled from a different moment in
+    time, so vertical motion smears into a flowing time-waterfall.
+
+    Keeps a small ring buffer of recent frames and gathers one row from each
+    via fancy indexing (single vectorized op per frame).
+    """
+    global _slit_scan_buffer, _slit_scan_pos
+
+    h, w = frame.shape[:2]
+    n = max(2, int(preset.get("scan_frames", 24)))
+
+    # (Re)initialize the ring buffer if shape or depth changed.
+    if (
+        _slit_scan_buffer is None
+        or _slit_scan_buffer.shape[0] != n
+        or _slit_scan_buffer.shape[1:3] != (h, w)
+    ):
+        _slit_scan_buffer = np.repeat(frame[None], n, axis=0).copy()
+        _slit_scan_pos = 0
+
+    # Write current frame as the newest slot.
+    _slit_scan_buffer[_slit_scan_pos] = frame
+
+    # Map each output row to an "age": row 0 = newest, last row = oldest.
+    age = np.linspace(0, n - 1, h).astype(np.int64)
+    buf_idx = (_slit_scan_pos - age) % n
+    rows = np.arange(h)
+
+    # out[k] = buffer[buf_idx[k]][row k]  -> (h, w, 3)
+    out = _slit_scan_buffer[buf_idx, rows]
+
+    # Advance ring head.
+    _slit_scan_pos = (_slit_scan_pos + 1) % n
+
+    return np.ascontiguousarray(out)
+
+
+# =============================================================================
+# FLOW PARTICLES (GPU-particles-over-optical-flow look, on CPU)
+# =============================================================================
+
+_flow_part_prev: np.ndarray | None = None
+_flow_part_pos: np.ndarray | None = None
+_flow_part_canvas: np.ndarray | None = None
+
+
+def draw_flow_particles(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Flow Particles: a swarm of particles advected by dense optical flow, the
+    signature "particlesGPU + opticalFlow" TouchDesigner look.
+
+    Particles drift along the motion field, leaving fading glowing trails over
+    a darkened version of the original. Optical flow is computed at half
+    resolution for speed; particle updates are fully vectorized.
+    """
+    global _flow_part_prev, _flow_part_pos, _flow_part_canvas
+
+    h, w = frame.shape[:2]
+    num = int(preset.get("num_particles", 6000))
+    speed = preset.get("flow_speed", 2.4)
+    fade = preset.get("particle_fade", 0.85)
+    base_col = np.array(preset.get("particle_color", (255, 200, 120)), dtype=np.float32)  # BGR
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    sf = 0.5  # flow resolution scale
+    gray_small = cv2.resize(gray, (0, 0), fx=sf, fy=sf, interpolation=cv2.INTER_AREA)
+    hs, ws = gray_small.shape[:2]
+
+    # Initialize state (and reset if frame size changed mid-stream).
+    if (
+        _flow_part_canvas is None
+        or _flow_part_canvas.shape[:2] != (h, w)
+        or _flow_part_pos is None
+        or _flow_part_prev is None
+        or _flow_part_prev.shape[:2] != (hs, ws)
+    ):
+        _flow_part_canvas = np.zeros((h, w, 3), dtype=np.uint8)
+        _flow_part_pos = np.column_stack([
+            np.random.uniform(0, w, num),
+            np.random.uniform(0, h, num),
+        ]).astype(np.float32)
+        _flow_part_prev = gray_small.copy()
+        return (frame * 0.25).astype(np.uint8)
+
+    # Dense optical flow at half res.
+    flow = cv2.calcOpticalFlowFarneback(
+        _flow_part_prev, gray_small, None,
+        0.5, 3, 15, 3, 5, 1.2, 0,
+    )
+    _flow_part_prev = gray_small.copy()
+
+    # Fade existing trails.
+    _flow_part_canvas = (_flow_part_canvas.astype(np.float32) * fade).astype(np.uint8)
+
+    pos = _flow_part_pos
+    # Sample flow at each particle (in small-flow coordinates), scale back up.
+    sx = np.clip((pos[:, 0] * sf).astype(np.int32), 0, ws - 1)
+    sy = np.clip((pos[:, 1] * sf).astype(np.int32), 0, hs - 1)
+    fx = flow[sy, sx, 0] / sf
+    fy = flow[sy, sx, 1] / sf
+    mag = np.sqrt(fx * fx + fy * fy)
+
+    # Advect particles along the motion field.
+    pos[:, 0] += fx * speed
+    pos[:, 1] += fy * speed
+
+    # Respawn particles that leave the frame, plus a little random churn so
+    # the swarm keeps regenerating in still scenes.
+    oob = (pos[:, 0] < 0) | (pos[:, 0] >= w) | (pos[:, 1] < 0) | (pos[:, 1] >= h)
+    churn = np.random.random(num) < 0.01
+    respawn = oob | churn
+    n_resp = int(respawn.sum())
+    if n_resp:
+        pos[respawn, 0] = np.random.uniform(0, w, n_resp)
+        pos[respawn, 1] = np.random.uniform(0, h, n_resp)
+
+    # Draw particles, brighter where motion is stronger.
+    pxi = np.clip(pos[:, 0].astype(np.int32), 0, w - 1)
+    pyi = np.clip(pos[:, 1].astype(np.int32), 0, h - 1)
+    bright = np.clip(mag / 6.0, 0.18, 1.0)
+    part_colors = (base_col[None, :] * bright[:, None]).astype(np.uint8)
+    _flow_part_canvas[pyi, pxi] = part_colors
+
+    # Glow + composite over darkened original.
+    glow = cv2.GaussianBlur(_flow_part_canvas, (0, 0), 2.5)
+    trails = cv2.addWeighted(_flow_part_canvas, 1.0, glow, 0.85, 0)
+    output = cv2.addWeighted((frame * 0.22).astype(np.uint8), 1.0, trails, 1.0, 0)
+
+    return output
+
+
+def reset_stateful_effects():
+    """
+    Reset all module-level persistent buffers used by temporal effects.
+
+    Called at the start of each process_video() run so state never leaks
+    between separate jobs (which would otherwise share these globals).
+    """
+    global _motion_trace_prev_frame, _motion_trace_trail_canvas
+    global _signal_feedback_buffer, _signal_feedback_noise
+    global _slit_scan_buffer, _slit_scan_pos
+    global _flow_part_prev, _flow_part_pos, _flow_part_canvas
+
+    _motion_trace_prev_frame = None
+    _motion_trace_trail_canvas = None
+    _signal_feedback_buffer = None
+    _signal_feedback_noise = None
+    _slit_scan_buffer = None
+    _slit_scan_pos = 0
+    _flow_part_prev = None
+    _flow_part_pos = None
+    _flow_part_canvas = None

@@ -48,23 +48,28 @@ def detect_features(
     Returns:
         Array of points, shape (N, 1, 2), or empty array if none found.
     """
+    # Enhance local contrast so feature detection stays robust in flat or
+    # low-light footage (more, better-distributed corners to track).
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray_frame)
+
     if use_edges:
         # Apply Canny edge detection and dilate to create edge mask
-        edges = cv2.Canny(gray_frame, 50, 150)
+        edges = cv2.Canny(enhanced, 50, 150)
         edges = cv2.dilate(edges, None, iterations=2)
-        
+
         # Combine with input mask if provided
         if mask is not None:
             edges = cv2.bitwise_and(edges, mask)
         detection_mask = edges
     else:
         detection_mask = mask
-    
+
     # Detect Shi-Tomasi corners
     params = FEATURE_PARAMS.copy()
     params["maxCorners"] = max_points
-    
-    points = cv2.goodFeaturesToTrack(gray_frame, mask=detection_mask, **params)
+
+    points = cv2.goodFeaturesToTrack(enhanced, mask=detection_mask, **params)
     
     if points is None:
         return np.array([]).reshape(0, 1, 2).astype(np.float32)
