@@ -128,25 +128,26 @@ def _draw_frame_replace(
     text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx, points=points, face_data=face_data)
     if text_result is not None:
         output = text_result
-        
-        # Still draw minimal point overlay for text modes
-        overlay = np.zeros_like(output)
-        _draw_all_elements(overlay, points, preset, colors)
-        
-        # Apply glow to points
-        glow_intensity = preset.get("glow_intensity", 0)
-        if glow_intensity > 0:
-            glow = cv2.GaussianBlur(overlay, (15, 15), 0)
-            overlay = cv2.addWeighted(overlay, 1.0, glow, glow_intensity, 0)
-        
-        output = cv2.add(output, overlay)
-        
+
+        # Minimal point overlay for text modes - skipped entirely when the
+        # effect tracks no points (saves full-frame allocs/blurs every frame).
+        if points:
+            overlay = np.zeros_like(output)
+            _draw_all_elements(overlay, points, preset, colors)
+
+            glow_intensity = preset.get("glow_intensity", 0)
+            if glow_intensity > 0:
+                glow = cv2.GaussianBlur(overlay, (15, 15), 0)
+                overlay = cv2.addWeighted(overlay, 1.0, glow, glow_intensity, 0)
+
+            output = cv2.add(output, overlay)
+
         # Scanlines still apply
         if preset.get("scanlines", False):
             draw_scanlines(output, frame_idx)
-        
+
         return output
-    
+
     # Check for cube/depth effects
     cube_result = apply_cube_effect(frame, preset, colors, frame_idx, points)
     if cube_result is not None:
@@ -237,17 +238,18 @@ def _draw_frame_overlay(
     if text_result is not None:
         # For text effects in overlay mode, blend text layer over original
         effect_layer = text_result
-        
-        # Add minimal point overlay
-        point_layer = np.zeros_like(frame)
-        _draw_all_elements(point_layer, points, preset, colors)
-        
-        glow_intensity = preset.get("glow_intensity", 0)
-        if glow_intensity > 0:
-            glow = cv2.GaussianBlur(point_layer, (15, 15), 0)
-            point_layer = cv2.addWeighted(point_layer, 1.0, glow, glow_intensity, 0)
-        
-        effect_layer = cv2.add(effect_layer, point_layer)
+
+        # Minimal point overlay - only when the effect actually tracks points.
+        if points:
+            point_layer = np.zeros_like(frame)
+            _draw_all_elements(point_layer, points, preset, colors)
+
+            glow_intensity = preset.get("glow_intensity", 0)
+            if glow_intensity > 0:
+                glow = cv2.GaussianBlur(point_layer, (15, 15), 0)
+                point_layer = cv2.addWeighted(point_layer, 1.0, glow, glow_intensity, 0)
+
+            effect_layer = cv2.add(effect_layer, point_layer)
         
         # Blend text effect over original at higher alpha (text needs to be visible)
         effect_mask = cv2.cvtColor(effect_layer, cv2.COLOR_BGR2GRAY) > 10
@@ -409,20 +411,19 @@ def draw_connections(
     max_dist = preset.get("max_connect_distance", 100)
     thickness = preset.get("connection_thickness", 1)
     base_color = np.array(colors["line"])
-    
+
     positions = np.array([p.position for p in alive_points])
-    
-    # O(n²) distance check - fine for <300 points
-    for i in range(len(positions)):
-        for j in range(i + 1, len(positions)):
-            dist = np.linalg.norm(positions[i] - positions[j])
-            if dist < max_dist:
-                # Fade line based on distance
-                alpha = 1.0 - (dist / max_dist)
-                color = (base_color * alpha).astype(int).tolist()
-                pt1 = tuple(positions[i].astype(int))
-                pt2 = tuple(positions[j].astype(int))
-                cv2.line(overlay, pt1, pt2, color, thickness, cv2.LINE_AA)
+
+    # Vectorized pairwise distances; only iterate the pairs that connect.
+    diff = positions[:, None, :] - positions[None, :, :]
+    dists = np.sqrt((diff ** 2).sum(axis=2))
+    ii, jj = np.where(np.triu(dists < max_dist, k=1))
+
+    pos_int = positions.astype(int)
+    for i, j in zip(ii, jj):
+        alpha = 1.0 - (dists[i, j] / max_dist)
+        color = (base_color * alpha).astype(int).tolist()
+        cv2.line(overlay, tuple(pos_int[i]), tuple(pos_int[j]), color, thickness, cv2.LINE_AA)
 
 
 # =============================================================================
@@ -506,6 +507,9 @@ def draw_scanlines(frame: np.ndarray, frame_idx: int):
 # TEXT-BASED EFFECTS
 # =============================================================================
 
+_data_body_cache: dict = {}
+
+
 def draw_data_body(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -513,70 +517,63 @@ def draw_data_body(
 ) -> np.ndarray:
     """
     Data Body effect: render the subject as a cloud of alphanumeric glyphs.
-    
-    Samples brightness on a grid and places characters where brightness
-    exceeds a threshold, forming the silhouette from text.
+
+    Vectorized glyph-tile renderer: brightness is sampled per cell, each cell
+    shows a stable pseudo-random glyph (no strobing) tinted by local
+    brightness, forming the silhouette from text.
     """
     h, w = frame.shape[:2]
-    
-    # Get preset params with defaults
+
     glyph_chars = preset.get("glyph_chars", "ABCDEF0123456789")
-    cell_size = preset.get("glyph_cell_size", 10)
-    jitter = preset.get("glyph_jitter", 2)
-    min_brightness = preset.get("min_brightness", 40)
-    font_scale = preset.get("glyph_font_scale", 0.35)
+    cell_size = max(5, int(preset.get("glyph_cell_size", 10)))
+    min_brightness = int(preset.get("min_brightness", 40))
     invert_bg = preset.get("invert_background", False)
-    
-    # Convert to grayscale for brightness sampling
+    n = len(glyph_chars)
+
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    # Create output: dark background (or white if inverted)
+    grid_h, grid_w = max(1, h // cell_size), max(1, w // cell_size)
+    cell_lum = cv2.resize(gray, (grid_w, grid_h), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+
     if invert_bg:
-        output = np.full((h, w, 3), 240, dtype=np.uint8)
-        text_color = (40, 40, 40)  # Dark text on light bg
+        bg_value, text_color = 240, np.array((40, 40, 40), dtype=np.float32)
     else:
-        output = np.zeros((h, w, 3), dtype=np.uint8)
-        text_color = colors.get("point", (80, 255, 80))
-    
-    # Font settings
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    thickness = 1
-    
-    # Sample grid and place glyphs
-    glyph_list = list(glyph_chars)
-    
-    for y in range(0, h, cell_size):
-        for x in range(0, w, cell_size):
-            # Sample brightness at cell center
-            cy = min(y + cell_size // 2, h - 1)
-            cx = min(x + cell_size // 2, w - 1)
-            brightness = gray[cy, cx]
-            
-            # Only draw if brightness exceeds threshold
-            if brightness < min_brightness:
-                continue
-            
-            # Pick random glyph
-            glyph = random.choice(glyph_list)
-            
-            # Apply jitter
-            jx = x + random.randint(-jitter, jitter)
-            jy = y + random.randint(-jitter, jitter)
-            
-            # Clamp to frame bounds
-            jx = max(0, min(jx, w - 1))
-            jy = max(0, min(jy, h - 1))
-            
-            # Scale color brightness with pixel brightness
-            brightness_factor = brightness / 255.0
-            scaled_color = tuple(int(c * brightness_factor) for c in text_color)
-            
-            cv2.putText(
-                output, glyph, (jx, jy),
-                font, font_scale, scaled_color,
-                thickness, cv2.LINE_AA
-            )
-    
+        bg_value = 0
+        text_color = np.array(colors.get("point", (80, 255, 80)), dtype=np.float32)
+
+    # Pre-render glyphs as white tiles (+ one blank tile at index n) - cached.
+    key = (cell_size, glyph_chars)
+    tiles = _data_body_cache.get(key)
+    if tiles is None:
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fs = cell_size / 16.0
+        tiles = np.zeros((n + 1, cell_size, cell_size, 3), dtype=np.uint8)
+        for i, ch in enumerate(glyph_chars):
+            cv2.putText(tiles[i], ch, (0, cell_size - 2), font, fs, (255, 255, 255), 1, cv2.LINE_AA)
+        _data_body_cache[key] = tiles
+
+    # Stable per-cell glyph choice (coordinate hash) so glyphs do not strobe.
+    gy, gx = np.indices((grid_h, grid_w))
+    idx = ((gx * 7 + gy * 13) % n).astype(np.int32)
+    idx[cell_lum * 255.0 < min_brightness] = n  # blank tile below threshold
+
+    mapped = tiles[idx]  # (grid_h, grid_w, cell, cell, 3)
+    text_img = mapped.transpose(0, 2, 1, 3, 4).reshape(grid_h * cell_size, grid_w * cell_size, 3)
+
+    # Tint white glyphs by per-cell brightness and the preset color.
+    inten = cv2.resize(cell_lum, (text_img.shape[1], text_img.shape[0]),
+                       interpolation=cv2.INTER_NEAREST)[:, :, None]
+    alpha = text_img[:, :, 0:1].astype(np.float32) / 255.0
+    tinted = (text_color[None, None, :] * inten * alpha).astype(np.uint8)
+
+    output = np.full((h, w, 3), bg_value, dtype=np.uint8)
+    if invert_bg:
+        # Dark glyphs on light paper: subtract the glyph alpha from the page.
+        region = output[:tinted.shape[0], :tinted.shape[1]].astype(np.float32)
+        region = region * (1.0 - alpha * inten) + text_color[None, None, :] * alpha * inten
+        output[:tinted.shape[0], :tinted.shape[1]] = region.astype(np.uint8)
+    else:
+        output[:tinted.shape[0], :tinted.shape[1]] = tinted
+
     return output
 
 
@@ -1609,9 +1606,14 @@ def draw_motion_trace(
         # Return original frame with empty trail on first frame
         return cv2.addWeighted(frame, frame_alpha, _motion_trace_trail_canvas, trail_alpha, 0)
     
-    # Compute dense optical flow (Farneback)
-    flow = cv2.calcOpticalFlowFarneback(
-        _motion_trace_prev_frame, gray,
+    # Compute dense optical flow (Farneback) at half resolution - visually
+    # identical for this effect but roughly 4x cheaper at 1080p.
+    sf = 0.5
+    prev_small = cv2.resize(_motion_trace_prev_frame, (0, 0), fx=sf, fy=sf,
+                            interpolation=cv2.INTER_AREA)
+    gray_small = cv2.resize(gray, (0, 0), fx=sf, fy=sf, interpolation=cv2.INTER_AREA)
+    flow_small = cv2.calcOpticalFlowFarneback(
+        prev_small, gray_small,
         None,
         pyr_scale=0.5,
         levels=3,
@@ -1621,7 +1623,8 @@ def draw_motion_trace(
         poly_sigma=1.2,
         flags=0
     )
-    
+    flow = cv2.resize(flow_small, (w, h), interpolation=cv2.INTER_LINEAR) / sf
+
     # Update previous frame
     _motion_trace_prev_frame = gray.copy()
     
@@ -1691,11 +1694,19 @@ def draw_motion_trace(
     # =========================================================================
     # DRAW NETWORK CONNECTIONS between nearby motion points
     # =========================================================================
-    if len(motion_points) > 1:
-        for i, (x1, y1, _, _, mag1, color1) in enumerate(motion_points):
-            for (x2, y2, _, _, mag2, _) in motion_points[i+1:]:
+    # Cap the O(n^2) pass: a subsample keeps the mesh look while bounding cost
+    # on busy frames (uncapped this could be tens of thousands of pairs).
+    conn_points = motion_points
+    max_conn_points = 120
+    if len(conn_points) > max_conn_points:
+        stride = len(conn_points) // max_conn_points
+        conn_points = conn_points[::stride]
+
+    if len(conn_points) > 1:
+        for i, (x1, y1, _, _, mag1, color1) in enumerate(conn_points):
+            for (x2, y2, _, _, mag2, _) in conn_points[i+1:]:
                 dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-                
+
                 if dist < max_connect_dist:
                     # Fainter connection lines
                     conn_alpha = 0.4 * (1 - dist / max_connect_dist)
@@ -1719,6 +1730,9 @@ def draw_motion_trace(
 # CONTOUR TRACE EFFECT (Edge-based visualization)
 # =============================================================================
 
+_contour_prev_edges: np.ndarray | None = None
+
+
 def draw_contour_trace(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -1726,36 +1740,41 @@ def draw_contour_trace(
 ) -> np.ndarray:
     """
     Contour Trace: Pure minimalist edge visualization.
-    
-    Creates clean white edges on black background with subtle glow.
+
+    Clean white edges on black with subtle glow. Edges are temporally blended
+    with the previous frame so lines breathe instead of strobing.
     """
+    global _contour_prev_edges
+
     h, w = frame.shape[:2]
-    
+
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
+
     # Apply bilateral filter to reduce noise while keeping edges
     filtered = cv2.bilateralFilter(gray, 9, 75, 75)
-    
+
     # Multi-scale edge detection for cleaner lines
     edges1 = cv2.Canny(filtered, 20, 60)
     edges2 = cv2.Canny(filtered, 40, 120)
-    
+
     # Combine edges
     edges = cv2.bitwise_or(edges1, edges2)
-    
+
     # Optional: thin edges using morphological operations
     if not preset.get("thick_edges", False):
         kernel = np.ones((2, 2), np.uint8)
         edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
-    
-    # Create output - pure black background
-    output = np.zeros((h, w, 3), dtype=np.uint8)
-    
-    # Pure white edges
-    line_color = (255, 255, 255)
-    output[edges > 0] = line_color
-    
+
+    # Temporal smoothing: carry a fading echo of the previous edges so the
+    # lines feel continuous frame-to-frame instead of flickering on/off.
+    if _contour_prev_edges is not None and _contour_prev_edges.shape == edges.shape:
+        edges = cv2.max(edges, (_contour_prev_edges * 0.55).astype(np.uint8))
+    _contour_prev_edges = edges.copy()
+
+    # Create output - pure black background, edge intensity preserved.
+    output = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+
     # Add glow for ethereal effect
     glow_intensity = preset.get("glow_intensity", 0.4)
     if glow_intensity > 0:
@@ -1764,7 +1783,7 @@ def draw_contour_trace(
         glow2 = cv2.GaussianBlur(output, (15, 15), 0)
         output = cv2.addWeighted(output, 1.0, glow1, glow_intensity * 0.6, 0)
         output = cv2.addWeighted(output, 1.0, glow2, glow_intensity * 0.3, 0)
-    
+
     return output
 
 
@@ -2002,6 +2021,10 @@ def apply_cube_effect(
 # CODENET OVERLAY (Feature network with Delaunay mesh + labels)
 # =============================================================================
 
+_codenet_pts: np.ndarray | None = None
+_codenet_prev_gray: np.ndarray | None = None
+
+
 def draw_codenet_overlay(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -2027,26 +2050,55 @@ def draw_codenet_overlay(
     label_scale = preset.get("label_font_scale", 0.28)
     blend_alpha = preset.get("blend_alpha", 0.85)
     
+    global _codenet_pts, _codenet_prev_gray
+
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
+
     # Enhance contrast for better feature detection
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
-    
-    # Detect Shi-Tomasi corners
-    corners = cv2.goodFeaturesToTrack(
-        enhanced,
-        maxCorners=max_points,
-        qualityLevel=0.02,
-        minDistance=20,
-        blockSize=7,
+
+    # Stabilized nodes: track existing corners with optical flow each frame and
+    # only re-detect periodically (or when too many are lost). The mesh then
+    # follows the image smoothly instead of jittering with fresh detections.
+    redetect = (
+        _codenet_pts is None
+        or _codenet_prev_gray is None
+        or _codenet_prev_gray.shape != gray.shape
+        or len(_codenet_pts) < max(8, max_points // 4)
+        or frame_idx % 12 == 0
     )
-    
-    if corners is None or len(corners) < 3:
+
+    if not redetect:
+        tracked, status, _ = cv2.calcOpticalFlowPyrLK(
+            _codenet_prev_gray, gray, _codenet_pts.reshape(-1, 1, 2), None,
+            winSize=(21, 21), maxLevel=2,
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.02),
+        )
+        if tracked is not None:
+            ok = status.flatten() == 1
+            _codenet_pts = tracked.reshape(-1, 2)[ok]
+        else:
+            redetect = True
+
+    if redetect:
+        corners = cv2.goodFeaturesToTrack(
+            enhanced,
+            maxCorners=max_points,
+            qualityLevel=0.02,
+            minDistance=20,
+            blockSize=7,
+        )
+        if corners is not None:
+            _codenet_pts = corners.reshape(-1, 2).astype(np.float32)
+
+    _codenet_prev_gray = gray.copy()
+
+    if _codenet_pts is None or len(_codenet_pts) < 3:
         return frame.copy()
-    
-    points = corners.reshape(-1, 2).astype(np.float32)
+
+    points = _codenet_pts.astype(np.float32)
     
     # Create overlay layer
     overlay = np.zeros_like(frame)
@@ -2687,6 +2739,8 @@ def reset_stateful_effects():
     global _slit_scan_buffer, _slit_scan_pos
     global _ghost_buffer, _ghost_pos
     global _light_canvas
+    global _contour_prev_edges
+    global _codenet_pts, _codenet_prev_gray
 
     _motion_trace_prev_frame = None
     _motion_trace_trail_canvas = None
@@ -2697,6 +2751,9 @@ def reset_stateful_effects():
     _ghost_buffer = None
     _ghost_pos = 0
     _light_canvas = None
+    _contour_prev_edges = None
+    _codenet_pts = None
+    _codenet_prev_gray = None
 
 
 # =============================================================================

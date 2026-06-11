@@ -35,7 +35,6 @@ Usage:
 """
 
 import time
-import random
 import cv2
 import numpy as np
 from typing import Any
@@ -439,12 +438,12 @@ def process_video(
     face_detector = None
     needs_faces = preset_config.get("detect_faces", False)
     needs_mesh = preset_config.get("detect_mesh", False)
-    
-    # In composition mode, check all presets for face detection
-    if composition_mode:
-        for p in preset_cache.values():
-            needs_faces = needs_faces or p.get("detect_faces", False)
-            needs_mesh = needs_mesh or p.get("detect_mesh", False)
+
+    # Check every active preset (covers sequence mode too, where a face effect
+    # may appear later in the chain without being the primary preset).
+    for p in preset_cache.values():
+        needs_faces = needs_faces or p.get("detect_faces", False)
+        needs_mesh = needs_mesh or p.get("detect_mesh", False)
     
     if needs_faces or needs_mesh:
         print("[process] Initializing face detection...")
@@ -633,8 +632,15 @@ def process_video(
             metadata.trackability_score = min(85, 50 + total_faces_detected * 15)
             metadata.people_detected = total_faces_detected
         else:
-            # Estimate based on processed frames (assume some detection happened)
-            metadata.trackability_score = random.randint(35, 65)  # Moderate trackability
+            # Deterministic, content-based estimate: edge density of the last
+            # frame is a decent proxy for how much trackable structure the
+            # footage contains (same video -> same score, unlike the old
+            # random number).
+            if prev_gray is not None:
+                edge_ratio = float(cv2.Canny(prev_gray, 50, 150).mean()) / 255.0
+                metadata.trackability_score = int(np.clip(35 + edge_ratio * 280, 35, 65))
+            else:
+                metadata.trackability_score = 50
             metadata.people_detected = 1
         metadata.total_points_spawned = frame_idx * 10  # Fake stat for display
     else:
