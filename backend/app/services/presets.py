@@ -1378,12 +1378,13 @@ PRESETS: dict[str, dict[str, Any]] = {
         # Point Cloud specific
         "text_mode": "point_cloud",
         "pc_step": 5,            # grid spacing (smaller = denser cloud)
-        "pc_min_bright": 30,     # skip points darker than this
+        "pc_min_bright": 28,     # skip points darker than this
         "pc_depth": 90.0,        # brightness -> depth amount
         "pc_pop": 10.0,          # upward relief from brightness
         "pc_noise": 2.5,         # animated jitter amplitude
         "pc_yaw": 0.42,          # rotation sweep (radians)
-        "pc_thin": 82,           # percent of points kept
+        "pc_thin": 86,           # percent of points kept
+        "pc_dot": 2,             # dot radius (fattens points into discs)
     },
 }
 

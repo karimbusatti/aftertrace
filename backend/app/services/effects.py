@@ -3439,10 +3439,12 @@ def draw_point_cloud(
     sx = sx + np.sin(frame_idx * 0.15 + phase) * noise_amp
     sy = sy + np.cos(frame_idx * 0.13 + phase * 1.3) * noise_amp
 
-    # Depth shading: points rotated toward the viewer are brighter.
+    # Bright WHITE points. Depth only nudges brightness a little (forward points
+    # the brightest) so the cloud always reads as crisp white, not grey.
     rng = float(np.ptp(view_depth)) + 1e-5
-    dv_norm = np.clip(0.55 + (view_depth - view_depth.min()) / rng * 0.45, 0.0, 1.0)
-    inten = np.clip(bright * dv_norm, 0, 255)
+    depth_fwd = (view_depth - view_depth.min()) / rng        # 0..1, 1 = toward viewer
+    inten = np.clip(205 + depth_fwd * 50, 0, 255)            # 205..255 = bright white
+    inten = inten * (0.9 + 0.1 * bright / 255.0)             # tiny source variation
 
     xs = sx[mask].astype(np.int32)
     ys = sy[mask].astype(np.int32)
@@ -3454,9 +3456,16 @@ def draw_point_cloud(
     # Scatter points (keep the brightest where they overlap).
     canvas = np.zeros((h * w,), dtype=np.float32)
     np.maximum.at(canvas, ys * w + xs, vals)
-    canvas = canvas.reshape(h, w).astype(np.uint8)
+    canvas = np.clip(canvas, 0, 255).reshape(h, w).astype(np.uint8)
+
+    # Fatten single pixels into visible round dots.
+    dot = int(preset.get("pc_dot", 2))
+    if dot >= 2:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dot + 1, dot + 1))
+        canvas = cv2.dilate(canvas, k)
 
     out = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
-    glow = cv2.GaussianBlur(out, (0, 0), 1.6)
-    out = cv2.addWeighted(out, 1.0, glow, 0.7, 0)
+    # Additive bloom so the white dots glow and pop (saturating add stays bright).
+    glow = cv2.GaussianBlur(out, (0, 0), 2.2)
+    out = cv2.add(out, (glow.astype(np.float32) * 0.85).astype(np.uint8))
     return out
