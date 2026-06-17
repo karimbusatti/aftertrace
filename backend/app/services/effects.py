@@ -1075,6 +1075,8 @@ def apply_text_effect(
         return draw_ink(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "neon_glow":
         return draw_neon_glow(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "point_cloud":
+        return draw_point_cloud(frame, preset, colors, frame_idx=frame_idx)
 
     return None
 
@@ -3352,3 +3354,109 @@ def draw_neon_glow(
     output = cv2.addWeighted(neon, 1.0, glow1, 0.9, 0)
     output = cv2.addWeighted(output, 1.0, glow2, 0.6, 0)
     return output
+
+
+# =============================================================================
+# POINT CLOUD (TouchDesigner-style 3D dotted scan, black & white)
+# =============================================================================
+
+_point_cloud_cache: dict = {}
+
+
+def draw_point_cloud(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Point Cloud: a TouchDesigner-style 3D point-cloud scan in black & white.
+
+    The subject is sampled on a grid into points; each point's brightness drives
+    its depth (Z), the whole cloud slowly yaws so depth reads as a rotating
+    volume (parallax), animated noise jitters the points, and random thinning
+    gives the sparse dotted look. White points on black, with a soft glow.
+
+    Mirrors the reference TD graph: threshold/isolate -> points with depth ->
+    4D noise displacement -> rotating 3D render -> thin -> glow.
+    """
+    h, w = frame.shape[:2]
+    step = max(3, int(preset.get("pc_step", 6)))
+    min_bright = int(preset.get("pc_min_bright", 32))
+    depth_scale = float(preset.get("pc_depth", 90.0))
+    pop = float(preset.get("pc_pop", 10.0))
+    noise_amp = float(preset.get("pc_noise", 2.5))
+    yaw_amp = float(preset.get("pc_yaw", 0.42))
+    thin_pct = int(preset.get("pc_thin", 78))   # percent of points kept
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
+
+    # Cached grid + per-point phase/thinning hash (depends only on h, w, step).
+    key = (h, w, step)
+    cached = _point_cloud_cache.get(key)
+    if cached is None:
+        gxs = np.arange(0, w, step)
+        gys = np.arange(0, h, step)
+        GX, GY = np.meshgrid(gxs, gys)
+        phase = (GX * 12.9 + GY * 78.2).astype(np.float32)
+        keep_hash = ((GX * 73 + GY * 131) % 100).astype(np.int32)
+        cached = (GX.astype(np.float32), GY.astype(np.float32), phase, keep_hash,
+                  GX.astype(np.int32), GY.astype(np.int32))
+        _point_cloud_cache[key] = cached
+    GXf, GYf, phase, keep_hash, GXi, GYi = cached
+
+    bright = gray[GYi, GXi].astype(np.float32)
+
+    # Subject isolation: real person mask when available, else brightness.
+    seg = get_person_mask(frame)
+    if seg is not None:
+        subject = seg[GYi, GXi] > 110
+    else:
+        subject = bright > min_bright
+
+    mask = subject & (bright > min_bright) & (keep_hash < thin_pct)
+    if not mask.any():
+        return np.zeros((h, w, 3), dtype=np.uint8)
+
+    cx = w / 2.0
+    theta = np.sin(frame_idx * 0.02) * yaw_amp   # slow oscillating yaw
+    ct, st = np.cos(theta), np.sin(theta)
+
+    # Brightness -> depth (centered so mid-grey sits near the pivot).
+    z = (bright / 255.0 - 0.4) * depth_scale
+    X = GXf - cx
+
+    # Yaw about the vertical axis: project to screen x + a view-depth term.
+    sx = cx + X * ct + z * st
+    view_depth = -X * st + z * ct
+
+    # Brightness also pops points slightly upward for relief.
+    sy = GYf - (bright / 255.0) * pop
+
+    # Animated noise jitter (stable per-point phase, evolves over time).
+    sx = sx + np.sin(frame_idx * 0.15 + phase) * noise_amp
+    sy = sy + np.cos(frame_idx * 0.13 + phase * 1.3) * noise_amp
+
+    # Depth shading: points rotated toward the viewer are brighter.
+    rng = float(np.ptp(view_depth)) + 1e-5
+    dv_norm = np.clip(0.55 + (view_depth - view_depth.min()) / rng * 0.45, 0.0, 1.0)
+    inten = np.clip(bright * dv_norm, 0, 255)
+
+    xs = sx[mask].astype(np.int32)
+    ys = sy[mask].astype(np.int32)
+    vals = inten[mask].astype(np.float32)
+
+    valid = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+    xs, ys, vals = xs[valid], ys[valid], vals[valid]
+
+    # Scatter points (keep the brightest where they overlap).
+    canvas = np.zeros((h * w,), dtype=np.float32)
+    np.maximum.at(canvas, ys * w + xs, vals)
+    canvas = canvas.reshape(h, w).astype(np.uint8)
+
+    out = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
+    glow = cv2.GaussianBlur(out, (0, 0), 1.6)
+    out = cv2.addWeighted(out, 1.0, glow, 0.7, 0)
+    return out

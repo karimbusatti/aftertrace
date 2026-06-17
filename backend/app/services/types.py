@@ -27,6 +27,7 @@ PresetName = Literal[
     "light_trails",
     "ink",
     "neon_glow",
+    "point_cloud",
 ]
 
 

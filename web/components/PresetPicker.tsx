@@ -80,6 +80,7 @@ const SECONDARY_PRESETS: Preset[] = [
   { id: "light_trails", name: "Light Trails", description: "long-exposure glow" },
   { id: "ink", name: "Ink", description: "pen sketch on white" },
   { id: "neon_glow", name: "Neon Glow", description: "rainbow neon outline" },
+  { id: "point_cloud", name: "Point Cloud", description: "3D dotted scan" },
 ];
 
 // Combined list for lookups

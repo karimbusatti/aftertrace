@@ -1343,6 +1343,48 @@ PRESETS: dict[str, dict[str, Any]] = {
         "neon_speed": 2.0,
         "neon_thickness": 2,
     },
+
+    # =========================================================================
+    # POINT CLOUD (TouchDesigner-style 3D dotted scan, black & white)
+    # =========================================================================
+
+    "point_cloud": {
+        "name": "Point Cloud",
+        "description": "3D dotted scan (B&W)",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+
+        "darken_factor": 1.0,
+
+        # Point Cloud specific
+        "text_mode": "point_cloud",
+        "pc_step": 5,            # grid spacing (smaller = denser cloud)
+        "pc_min_bright": 30,     # skip points darker than this
+        "pc_depth": 90.0,        # brightness -> depth amount
+        "pc_pop": 10.0,          # upward relief from brightness
+        "pc_noise": 2.5,         # animated jitter amplitude
+        "pc_yaw": 0.42,          # rotation sweep (radians)
+        "pc_thin": 82,           # percent of points kept
+    },
 }
 
 
