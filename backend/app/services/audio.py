@@ -110,6 +110,50 @@ def analyze_audio(audio_path: str | None, fps: float) -> dict:
             os.unlink(audio_path)
 
 
+def get_amplitude_envelope(audio_path: str | None, total_frames: int) -> np.ndarray:
+    """
+    Per-video-frame loudness envelope in 0..1, for audio-reactive effects.
+
+    Returns an array of length `total_frames`. All zeros if there's no audio.
+    The envelope is RMS energy, smoothed slightly and normalized so the loudest
+    moment maps to 1.0.
+    """
+    if total_frames <= 0:
+        return np.zeros(0, dtype=np.float32)
+    if audio_path is None or not os.path.exists(audio_path):
+        return np.zeros(total_frames, dtype=np.float32)
+
+    try:
+        y, sr = librosa.load(audio_path, sr=22050, mono=True)
+        if y.size == 0:
+            return np.zeros(total_frames, dtype=np.float32)
+
+        # One RMS value per video frame.
+        hop = max(1, len(y) // total_frames)
+        rms = librosa.feature.rms(y=y, frame_length=hop * 2, hop_length=hop)[0]
+
+        # Resample RMS to exactly total_frames.
+        if len(rms) < 2:
+            env = np.full(total_frames, float(rms[0]) if len(rms) else 0.0, dtype=np.float32)
+        else:
+            env = np.interp(
+                np.linspace(0, len(rms) - 1, total_frames),
+                np.arange(len(rms)),
+                rms,
+            ).astype(np.float32)
+
+        # Light smoothing + normalize to 0..1.
+        kernel = np.ones(3, dtype=np.float32) / 3.0
+        env = np.convolve(env, kernel, mode="same")
+        peak = float(env.max())
+        if peak > 1e-6:
+            env = env / peak
+        return np.clip(env, 0.0, 1.0).astype(np.float32)
+    except Exception as e:
+        print(f"[audio] Envelope failed: {e}")
+        return np.zeros(total_frames, dtype=np.float32)
+
+
 def get_spawn_frames(audio_data: dict, total_frames: int, spawn_rate: int = 15) -> set[int]:
     """
     Determine which frames should spawn new tracking points.

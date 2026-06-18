@@ -82,19 +82,19 @@ export async function processVideo(
   file: File,
   preset: string,
   overlayMode: boolean = false,
-  sequenceConfig: { effects: string[]; segmentDuration: number } | null = null
+  multiConfig: { mode: "sequence" | "overlay"; effects: string[]; segmentDuration: number } | null = null
 ): Promise<ProcessResponse> {
   const formData = new FormData();
   formData.append("file", file);
-  
-  if (sequenceConfig && sequenceConfig.effects.length > 0) {
-    // New Sequence Mode Payload
-    formData.append("mode", "sequence");
-    formData.append("effects", JSON.stringify(sequenceConfig.effects));
-    formData.append("segment_duration_s", sequenceConfig.segmentDuration.toString());
-    
+
+  if (multiConfig && multiConfig.effects.length > 0) {
+    // Sequence (alternate over time) or Overlay (stack every frame) payload.
+    formData.append("mode", multiConfig.mode);
+    formData.append("effects", JSON.stringify(multiConfig.effects));
+    formData.append("segment_duration_s", multiConfig.segmentDuration.toString());
+
     // Fallback preset for backend tracking initialization (use first effect)
-    formData.append("preset", sequenceConfig.effects[0]);
+    formData.append("preset", multiConfig.effects[0]);
   } else {
     // Standard Single Preset Mode
     formData.append("mode", "single");

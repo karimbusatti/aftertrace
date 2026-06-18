@@ -34,6 +34,7 @@ Usage:
     )
 """
 
+import os
 import time
 import cv2
 import numpy as np
@@ -41,7 +42,7 @@ from typing import Any
 
 from .types import ProcessingMetadata, CompositionSegment
 from .presets import get_preset, validate_preset
-from .audio import extract_audio, analyze_audio, get_spawn_frames
+from .audio import extract_audio, analyze_audio, get_spawn_frames, get_amplitude_envelope
 from .tracking import PointTracker
 from .effects import draw_frame, reset_stateful_effects
 from .face_detection import FaceDetector
@@ -291,11 +292,35 @@ def process_video(
     # =========================================================================
     preset_cache: dict[str, dict] = {}
     sequence_mode = False
+    overlay_compose = False  # True when stacking multiple effects every frame
     composition_mode = False  # True if using legacy composition system
     sequence_effects: list[str] = []
+    overlay_effects: list[str] = []
     segment_frames = 1
-    
-    if mode == "sequence" and effects and len(effects) > 0:
+
+    if mode == "overlay" and effects and len(effects) > 0:
+        # =================================================================
+        # OVERLAY MODE: render every effect each frame and stack them
+        # =================================================================
+        overlay_compose = True
+        overlay_effects = effects
+
+        print(f"[process] === OVERLAY MODE ===")
+        print(f"[process] effects={effects}")
+
+        for eff_id in effects:
+            if eff_id not in preset_cache:
+                preset_cache[eff_id] = validate_preset(get_preset(eff_id))
+
+        preset_name = f"overlay({'+'.join(effects)})"
+        preset_config = preset_cache[effects[0]]
+        metadata.composition_mode = True
+        metadata.preset_used = preset_name
+        metadata.segments_applied = [
+            {"effect": e, "start_frame": 0, "end_frame": total_frames} for e in effects
+        ]
+
+    elif mode == "sequence" and effects and len(effects) > 0:
         # =================================================================
         # SEQUENCE MODE: Direct frame-based effect alternation
         # =================================================================
@@ -379,26 +404,44 @@ def process_video(
     # =========================================================================
     # Most "text_mode" effects don't track points (max_points == 0), so beat
     # analysis is pure overhead for them. Skipping it is a big render-time win.
+    active_presets = list(preset_cache.values()) if preset_cache else [preset_config]
     needs_beats = any(
         p.get("max_points", 0) > 0 or p.get("spawn_per_beat", 0) > 0
-        for p in (preset_cache.values() if preset_cache else [preset_config])
+        for p in active_presets
     )
+    needs_audio_level = any(p.get("audio_reactive", False) for p in active_presets)
 
-    if needs_beats:
+    audio_envelope = np.zeros(total_frames, dtype=np.float32)
+
+    if needs_beats or needs_audio_level:
         print("[process] Extracting audio...")
         audio_path, _ = extract_audio(input_path)
 
-        print("[process] Analyzing audio for beats...")
-        audio_data = analyze_audio(audio_path, fps)
-        metadata.beats_detected = len(audio_data["beat_frames"])
+        if needs_audio_level:
+            audio_envelope = get_amplitude_envelope(audio_path, total_frames)
+            print(f"[process] Computed audio envelope (peak frame "
+                  f"{int(np.argmax(audio_envelope)) if total_frames else 0})")
 
-        spawn_rate = max(10, int(fps / 2))  # Fallback: ~2 spawns per second
-        spawn_frames = get_spawn_frames(audio_data, total_frames, spawn_rate)
-        print(f"[process] Found {metadata.beats_detected} beats, {len(spawn_frames)} spawn frames")
+        if needs_beats:
+            print("[process] Analyzing audio for beats...")
+            audio_data = analyze_audio(audio_path, fps)
+            metadata.beats_detected = len(audio_data["beat_frames"])
+            spawn_rate = max(10, int(fps / 2))  # Fallback: ~2 spawns per second
+            spawn_frames = get_spawn_frames(audio_data, total_frames, spawn_rate)
+            print(f"[process] Found {metadata.beats_detected} beats, {len(spawn_frames)} spawn frames")
+        else:
+            # analyze_audio cleans up the temp file; do it here when we skip it.
+            metadata.beats_detected = 0
+            spawn_frames = set()
+            if audio_path and os.path.exists(audio_path):
+                try:
+                    os.unlink(audio_path)
+                except OSError:
+                    pass
     else:
         metadata.beats_detected = 0
         spawn_frames = set()
-        print("[process] Skipping audio analysis (effect does not spawn points)")
+        print("[process] Skipping audio analysis (no beats / not audio-reactive)")
     
     # =========================================================================
     # STEP 3: Setup output video writer(s)
@@ -500,25 +543,43 @@ def process_video(
             face_data = face_detector.detect(frame)
             total_faces_detected = max(total_faces_detected, face_data["face_count"])
         
+        # Per-frame audio loudness (0..1) for audio-reactive effects.
+        audio_level = float(audio_envelope[frame_idx]) if frame_idx < len(audio_envelope) else 0.0
+
         # --- Draw the frame ---
-        if sequence_mode:
+        if overlay_compose:
+            # =============================================================
+            # OVERLAY MODE: render every effect and stack them (screen/max)
+            # =============================================================
+            if frame_idx == 0:
+                print(f"[process] mode=overlay, effects={overlay_effects}")
+            all_points = tracker.get_all_points()
+            output_frame = None
+            for eff_id in overlay_effects:
+                layer = draw_frame(
+                    frame, all_points, preset_cache[eff_id], frame_idx, overlay_mode,
+                    face_data=face_data, audio_level=audio_level,
+                )
+                output_frame = layer if output_frame is None else np.maximum(output_frame, layer)
+
+        elif sequence_mode:
             # =============================================================
             # SEQUENCE MODE: Direct frame-based effect selection
             # =============================================================
             segment_idx = (frame_idx // segment_frames) % len(sequence_effects)
             current_effect_id = sequence_effects[segment_idx]
             current_preset = preset_cache[current_effect_id]
-            
+
             # Log effect transitions
             if frame_idx == 0 or frame_idx % 30 == 0:
                 print(f"[process] mode=sequence, effect={current_effect_id}, frame={frame_idx}, segment={segment_idx}")
-            
+
             all_points = tracker.get_all_points()
             output_frame = draw_frame(
                 frame, all_points, current_preset, frame_idx, overlay_mode,
-                face_data=face_data
+                face_data=face_data, audio_level=audio_level,
             )
-        
+
         elif composition is not None and len(composition) > 0:
             # =============================================================
             # LEGACY COMPOSITION MODE
@@ -544,9 +605,9 @@ def process_video(
             all_points = tracker.get_all_points()
             output_frame = draw_frame(
                 frame, all_points, preset_config, frame_idx, overlay_mode,
-                face_data=face_data
+                face_data=face_data, audio_level=audio_level,
             )
-        
+
         # --- Write output ---
         out.write(output_frame)
         
@@ -581,7 +642,6 @@ def process_video(
     # to load and broadly browser-compatible). Falls back to the raw mp4v file
     # if ffmpeg is unavailable.
     # =========================================================================
-    import os
     print("[process] Encoding output to H.264...")
     encode_h264(raw_output_path, output_path)
     if os.path.exists(raw_output_path):

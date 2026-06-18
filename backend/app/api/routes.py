@@ -145,26 +145,26 @@ async def process_video_endpoint(
             )
     
     # Validate based on mode
-    if mode == "sequence":
-        # Sequence mode: require effects array
+    if mode in ("sequence", "overlay"):
+        # Sequence/overlay modes: require an effects array
         if not effects_list or len(effects_list) == 0:
             raise HTTPException(
                 status_code=400,
-                detail="Sequence mode requires 'effects' array with at least one effect ID."
+                detail=f"{mode.capitalize()} mode requires 'effects' array with at least one effect ID."
             )
-        
+
         # Validate all effects exist
         for eff in effects_list:
             if eff not in PRESETS:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Unknown effect '{eff}' in sequence. Available: {list(PRESETS.keys())}"
+                    detail=f"Unknown effect '{eff}' in {mode}. Available: {list(PRESETS.keys())}"
                 )
-        
+
         # Use first effect as primary preset for tracking config
         preset = effects_list[0]
-        print(f"[API /process] SEQUENCE MODE: effects={effects_list}, segment_duration_s={segment_duration_s}")
-    
+        print(f"[API /process] {mode.upper()} MODE: effects={effects_list}, segment_duration_s={segment_duration_s}")
+
     elif mode == "single" and not composition_list:
         # Single mode: require valid preset
         if preset not in PRESETS:

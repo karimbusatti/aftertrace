@@ -16,8 +16,8 @@ export default function Home() {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isTipsOpen, setIsTipsOpen] = useState(false);
   
-  // Sequence mode state
-  const [mode, setMode] = useState<'single' | 'sequence'>('single');
+  // Sequence / overlay mode state
+  const [mode, setMode] = useState<'single' | 'sequence' | 'overlay'>('single');
   const [sequence, setSequence] = useState<string[]>([]);
   const [maxSlots, setMaxSlots] = useState(3); // Default 3 slots, can choose 2-5
   const [segmentDuration, setSegmentDuration] = useState(0.5); // Default 0.5s per segment
@@ -31,13 +31,14 @@ export default function Home() {
     setResult(null);
 
     try {
-      // Build sequence config if in sequence mode
-      const sequenceConfig = mode === 'sequence' ? {
+      // Build multi-effect config for sequence (alternate) or overlay (stack).
+      const multiConfig = (mode === 'sequence' || mode === 'overlay') ? {
+        mode,
         effects: sequence,
-        segmentDuration: segmentDuration
+        segmentDuration: segmentDuration,
       } : null;
-      
-      const response = await processVideo(file, preset, false, sequenceConfig);
+
+      const response = await processVideo(file, preset, false, multiConfig);
       setResult(response);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Something went wrong";
@@ -57,6 +58,7 @@ export default function Home() {
   };
 
   const canSubmit = file && !isLoading && (mode === 'single' || sequence.length > 0);
+  // 'sequence' and 'overlay' both pick a list of effects; 'overlay' stacks them.
 
   return (
     <main className="min-h-dvh flex flex-col">

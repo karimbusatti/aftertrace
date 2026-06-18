@@ -30,10 +30,11 @@ def draw_frame(
     frame_idx: int,
     overlay_mode: bool = False,
     face_data: dict | None = None,
+    audio_level: float = 0.0,
 ) -> np.ndarray:
     """
     Draw all visual elements on a frame according to the preset.
-    
+
     Args:
         frame: Original video frame (BGR)
         points: List of tracked points (alive and fading)
@@ -42,18 +43,19 @@ def draw_frame(
         overlay_mode: If True, blend effects at 40% over original frame
                       If False, replace background with darkened/tinted version
         face_data: Optional face detection results
-    
+        audio_level: Per-frame audio loudness (0..1) for audio-reactive effects
+
     Returns:
         Rendered frame with effects applied
     """
     colors = get_preset_colors(preset)
-    
+
     if overlay_mode:
         # OVERLAY MODE: Keep original visible, blend effects on top
-        output = _draw_frame_overlay(frame, points, preset, colors, frame_idx, face_data)
+        output = _draw_frame_overlay(frame, points, preset, colors, frame_idx, face_data, audio_level)
     else:
         # NORMAL MODE: Replace background with effect
-        output = _draw_frame_replace(frame, points, preset, colors, frame_idx, face_data)
+        output = _draw_frame_replace(frame, points, preset, colors, frame_idx, face_data, audio_level)
     
     # Apply face detection overlays
     if face_data:
@@ -121,11 +123,12 @@ def _draw_frame_replace(
     colors: dict,
     frame_idx: int,
     face_data: dict | None = None,
+    audio_level: float = 0.0,
 ) -> np.ndarray:
     """Normal mode: darken background and draw effects on top."""
-    
+
     # Check for text-based effects first (they replace the entire pipeline)
-    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx, points=points, face_data=face_data)
+    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx, points=points, face_data=face_data, audio_level=audio_level)
     if text_result is not None:
         output = text_result
 
@@ -225,6 +228,7 @@ def _draw_frame_overlay(
     colors: dict,
     frame_idx: int,
     face_data: dict | None = None,
+    audio_level: float = 0.0,
 ) -> np.ndarray:
     """
     Overlay mode: blend effects at ~40% over the original frame.
@@ -232,9 +236,9 @@ def _draw_frame_overlay(
     """
     # Keep original frame intact
     original = frame.copy()
-    
+
     # Check for text-based effects
-    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx, points=points, face_data=face_data)
+    text_result = apply_text_effect(frame, preset, colors, frame_idx=frame_idx, points=points, face_data=face_data, audio_level=audio_level)
     if text_result is not None:
         # For text effects in overlay mode, blend text layer over original
         effect_layer = text_result
@@ -1012,6 +1016,7 @@ def apply_text_effect(
     frame_idx: int = 0,
     points: list[TrackedPoint] | None = None,
     face_data: dict | None = None,
+    audio_level: float = 0.0,
 ) -> np.ndarray | None:
     """
     Apply text-based effect if preset has text_mode set.
@@ -1076,7 +1081,7 @@ def apply_text_effect(
     elif text_mode == "neon_glow":
         return draw_neon_glow(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "point_cloud":
-        return draw_point_cloud(frame, preset, colors, frame_idx=frame_idx)
+        return draw_point_cloud(frame, preset, colors, frame_idx=frame_idx, audio_level=audio_level)
 
     return None
 
@@ -3368,46 +3373,51 @@ def draw_point_cloud(
     preset: dict[str, Any],
     colors: dict,
     frame_idx: int = 0,
+    audio_level: float = 0.0,
 ) -> np.ndarray:
     """
     Point Cloud: a TouchDesigner-style 3D point-cloud scan in black & white.
 
-    The subject is sampled on a grid into points; each point's brightness drives
-    its depth (Z), the whole cloud slowly yaws so depth reads as a rotating
-    volume (parallax), animated noise jitters the points, and random thinning
-    gives the sparse dotted look. White points on black, with a soft glow.
-
-    Mirrors the reference TD graph: threshold/isolate -> points with depth ->
-    4D noise displacement -> rotating 3D render -> thin -> glow.
+    The face emerges from POINT DENSITY: a point's chance of existing scales with
+    local brightness, so highlights pack densely while shadows stay empty - the
+    core of the reference look. A fine grid with slightly taller rows gives the
+    horizontal scan-line weave; brightness drives depth (Z) and a slow yaw makes
+    the cloud read as a rotating volume; noise jitter + gentle re-rolling make it
+    twinkle. Audio-reactive: louder audio expands depth, adds shimmer, packs in
+    more points and brightens. Bright white dots on black.
     """
     h, w = frame.shape[:2]
-    step = max(3, int(preset.get("pc_step", 6)))
-    min_bright = int(preset.get("pc_min_bright", 32))
-    depth_scale = float(preset.get("pc_depth", 90.0))
-    pop = float(preset.get("pc_pop", 10.0))
-    noise_amp = float(preset.get("pc_noise", 2.5))
-    yaw_amp = float(preset.get("pc_yaw", 0.42))
-    thin_pct = int(preset.get("pc_thin", 78))   # percent of points kept
+    hstep = max(2, int(preset.get("pc_step", 3)))
+    vstep = max(2, int(preset.get("pc_row", hstep + 1)))
+    min_bright = int(preset.get("pc_min_bright", 24))
+    depth_scale = float(preset.get("pc_depth", 80.0))
+    pop = float(preset.get("pc_pop", 8.0))
+    noise_amp = float(preset.get("pc_noise", 2.0))
+    yaw_amp = float(preset.get("pc_yaw", 0.30))
+    density_gamma = float(preset.get("pc_density_gamma", 1.5))
+    dot = int(preset.get("pc_dot", 2))
+
+    a = float(np.clip(audio_level, 0.0, 1.0))   # 0..1 audio envelope
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
 
-    # Cached grid + per-point phase/thinning hash (depends only on h, w, step).
-    key = (h, w, step)
+    # Cached grid (depends only on h, w, hstep, vstep).
+    key = (h, w, hstep, vstep)
     cached = _point_cloud_cache.get(key)
     if cached is None:
-        gxs = np.arange(0, w, step)
-        gys = np.arange(0, h, step)
+        gxs = np.arange(0, w, hstep)
+        gys = np.arange(0, h, vstep)
         GX, GY = np.meshgrid(gxs, gys)
         phase = (GX * 12.9 + GY * 78.2).astype(np.float32)
-        keep_hash = ((GX * 73 + GY * 131) % 100).astype(np.int32)
-        cached = (GX.astype(np.float32), GY.astype(np.float32), phase, keep_hash,
-                  GX.astype(np.int32), GY.astype(np.int32))
+        cached = (GX.astype(np.float32), GY.astype(np.float32), phase,
+                  GX.astype(np.int32), GY.astype(np.int32), GX.shape)
         _point_cloud_cache[key] = cached
-    GXf, GYf, phase, keep_hash, GXi, GYi = cached
+    GXf, GYf, phase, GXi, GYi, gshape = cached
 
     bright = gray[GYi, GXi].astype(np.float32)
+    bnorm = bright / 255.0
 
     # Subject isolation: real person mask when available, else brightness.
     seg = get_person_mask(frame)
@@ -3416,40 +3426,38 @@ def draw_point_cloud(
     else:
         subject = bright > min_bright
 
-    mask = subject & (bright > min_bright) & (keep_hash < thin_pct)
+    # DENSITY MODULATION: keep-probability scales with brightness so the face is
+    # built from dot density (dense highlights, empty shadows). Re-rolled a few
+    # times per second so the cloud twinkles instead of sitting static.
+    prob = np.power(np.clip(bnorm, 0.0, 1.0), density_gamma)
+    prob = np.clip(prob * (1.0 + a * 0.5), 0.0, 1.0)   # audio packs more points
+    rng = np.random.default_rng(frame_idx // 2)
+    r = rng.random(gshape).astype(np.float32)
+    mask = subject & (bright > min_bright) & (r < prob)
     if not mask.any():
         return np.zeros((h, w, 3), dtype=np.uint8)
 
     cx = w / 2.0
-    theta = np.sin(frame_idx * 0.02) * yaw_amp   # slow oscillating yaw
+    theta = np.sin(frame_idx * 0.025) * (yaw_amp + a * 0.15)
     ct, st = np.cos(theta), np.sin(theta)
 
-    # Brightness -> depth (centered so mid-grey sits near the pivot).
-    z = (bright / 255.0 - 0.4) * depth_scale
+    # Brightness -> depth; audio inflates the volume on the beat.
+    depth = (bnorm - 0.45) * depth_scale * (1.0 + a * 0.7)
     X = GXf - cx
+    sx = cx + X * ct + depth * st
+    sy = GYf - bnorm * pop
 
-    # Yaw about the vertical axis: project to screen x + a view-depth term.
-    sx = cx + X * ct + z * st
-    view_depth = -X * st + z * ct
+    # Noise jitter (audio adds shimmer).
+    jit = noise_amp * (1.0 + a * 1.2)
+    sx = sx + np.sin(frame_idx * 0.18 + phase) * jit
+    sy = sy + np.cos(frame_idx * 0.15 + phase * 1.3) * jit
 
-    # Brightness also pops points slightly upward for relief.
-    sy = GYf - (bright / 255.0) * pop
-
-    # Animated noise jitter (stable per-point phase, evolves over time).
-    sx = sx + np.sin(frame_idx * 0.15 + phase) * noise_amp
-    sy = sy + np.cos(frame_idx * 0.13 + phase * 1.3) * noise_amp
-
-    # Bright WHITE points. Depth only nudges brightness a little (forward points
-    # the brightest) so the cloud always reads as crisp white, not grey.
-    rng = float(np.ptp(view_depth)) + 1e-5
-    depth_fwd = (view_depth - view_depth.min()) / rng        # 0..1, 1 = toward viewer
-    inten = np.clip(205 + depth_fwd * 50, 0, 255)            # 205..255 = bright white
-    inten = inten * (0.9 + 0.1 * bright / 255.0)             # tiny source variation
+    # Bright white, lifted by source brightness so highlights pop; audio boosts.
+    inten = np.clip(165 + bnorm * 90 + a * 35, 0, 255)
 
     xs = sx[mask].astype(np.int32)
     ys = sy[mask].astype(np.int32)
     vals = inten[mask].astype(np.float32)
-
     valid = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
     xs, ys, vals = xs[valid], ys[valid], vals[valid]
 
@@ -3458,14 +3466,13 @@ def draw_point_cloud(
     np.maximum.at(canvas, ys * w + xs, vals)
     canvas = np.clip(canvas, 0, 255).reshape(h, w).astype(np.uint8)
 
-    # Fatten single pixels into visible round dots.
-    dot = int(preset.get("pc_dot", 2))
+    # Fatten into clean SQUARE dots (RECT kernel - avoids the plus/cross shape a
+    # 3x3 ellipse produces).
     if dot >= 2:
-        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dot + 1, dot + 1))
+        k = cv2.getStructuringElement(cv2.MORPH_RECT, (dot, dot))
         canvas = cv2.dilate(canvas, k)
 
     out = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
-    # Additive bloom so the white dots glow and pop (saturating add stays bright).
-    glow = cv2.GaussianBlur(out, (0, 0), 2.2)
-    out = cv2.add(out, (glow.astype(np.float32) * 0.85).astype(np.uint8))
+    glow = cv2.GaussianBlur(out, (0, 0), 1.4)
+    out = cv2.add(out, (glow.astype(np.float32) * 0.6).astype(np.uint8))
     return out

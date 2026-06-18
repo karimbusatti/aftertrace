@@ -91,9 +91,9 @@ interface PresetPickerProps {
   onChange: (preset: string) => void;
   disabled?: boolean;
 
-  // Sequence mode props
-  mode: 'single' | 'sequence';
-  onModeChange: (mode: 'single' | 'sequence') => void;
+  // Sequence / overlay mode props
+  mode: 'single' | 'sequence' | 'overlay';
+  onModeChange: (mode: 'single' | 'sequence' | 'overlay') => void;
   sequence: string[];
   onSequenceChange: (seq: string[]) => void;
   maxSlots: number;
@@ -116,11 +116,13 @@ export function PresetPicker({
   onSegmentDurationChange
 }: PresetPickerProps) {
 
+  const isMulti = mode === 'sequence' || mode === 'overlay';
+
   const handlePresetClick = (presetId: string) => {
     if (mode === 'single') {
       onChange(presetId);
     } else {
-      // Sequence mode: append if under limit
+      // Sequence / overlay: append if under the chosen limit.
       if (sequence.length < maxSlots) {
         onSequenceChange([...sequence, presetId]);
       }
@@ -170,17 +172,35 @@ export function PresetPicker({
           >
             Sequence
           </button>
+          <button
+            onClick={() => onModeChange('overlay')}
+            disabled={disabled}
+            className={`px-3 py-1.5 rounded-md transition-all duration-200 ${mode === 'overlay'
+              ? 'bg-white/10 text-white shadow-sm'
+              : 'text-text-secondary hover:text-white'
+              }`}
+          >
+            Overlay
+          </button>
         </div>
       </div>
 
-      {/* Sequence Timeline (only in sequence mode) */}
-      {mode === 'sequence' && (
+      {/* Multi-effect panel (sequence alternates over time; overlay stacks them) */}
+      {isMulti && (
         <div className="animate-fade-in">
+          <p className="text-text-muted text-[11px] mb-3 leading-relaxed">
+            {mode === 'overlay'
+              ? 'Tap effects to layer them on top of each other, all at once.'
+              : 'Tap effects to chain them; the clip alternates between them over time.'}
+          </p>
+
           {/* Slot count & Duration selectors */}
           <div className="flex flex-col gap-3 mb-4">
             {/* Row 1: How many effects? */}
             <div className="flex items-center justify-between">
-              <span className="text-text-muted text-xs">Effects in sequence:</span>
+              <span className="text-text-muted text-xs">
+                {mode === 'overlay' ? 'Effects to overlay:' : 'Effects in sequence:'}
+              </span>
               <div className="flex gap-1">
                 {[2, 3, 4, 5].map((num) => (
                   <button
@@ -199,26 +219,28 @@ export function PresetPicker({
               </div>
             </div>
 
-            {/* Row 2: Switch speed */}
-            <div className="flex items-center justify-between">
-              <span className="text-text-muted text-xs">Switch every:</span>
-              <div className="flex gap-1">
-                {[0.25, 0.5, 1, 2].map((dur) => (
-                  <button
-                    key={dur}
-                    onClick={() => onSegmentDurationChange(dur)}
-                    disabled={disabled}
-                    className={`px-2 h-7 rounded-md text-xs font-medium transition-all duration-150 min-w-[3rem]
-                      ${segmentDuration === dur
-                        ? 'bg-white/20 text-white border border-white/30'
-                        : 'bg-white/5 text-text-secondary hover:bg-white/10 hover:text-white border border-transparent'
-                      }`}
-                  >
-                    {dur}s
-                  </button>
-                ))}
+            {/* Row 2: Switch speed (sequence only) */}
+            {mode === 'sequence' && (
+              <div className="flex items-center justify-between">
+                <span className="text-text-muted text-xs">Switch every:</span>
+                <div className="flex gap-1">
+                  {[0.25, 0.5, 1, 2].map((dur) => (
+                    <button
+                      key={dur}
+                      onClick={() => onSegmentDurationChange(dur)}
+                      disabled={disabled}
+                      className={`px-2 h-7 rounded-md text-xs font-medium transition-all duration-150 min-w-[3rem]
+                        ${segmentDuration === dur
+                          ? 'bg-white/20 text-white border border-white/30'
+                          : 'bg-white/5 text-text-secondary hover:bg-white/10 hover:text-white border border-transparent'
+                        }`}
+                    >
+                      {dur}s
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           <SequenceTimeline
@@ -234,13 +256,13 @@ export function PresetPicker({
       <div className="grid grid-cols-2 gap-2 mb-2">
         {MAIN_PRESETS.map((preset) => {
           const isSelected = mode === 'single' ? value === preset.id : false;
-          const isInSequence = mode === 'sequence' ? sequence.includes(preset.id) : false;
+          const isInSequence = isMulti ? sequence.includes(preset.id) : false;
 
           return (
             <button
               key={preset.id}
               onClick={() => handlePresetClick(preset.id)}
-              disabled={disabled || (mode === 'sequence' && sequence.length >= maxSlots)}
+              disabled={disabled || (isMulti && sequence.length >= maxSlots)}
               className={`
                 relative overflow-hidden py-3 px-3 rounded-lg text-left transition-all duration-200 group
                 active:scale-[0.98] hover:scale-[1.01]
@@ -249,7 +271,7 @@ export function PresetPicker({
                   ? "bg-white/10 border border-white/30"
                   : "bg-white/5 border border-transparent hover:bg-white/8"
                 }
-                ${isInSequence && mode === 'sequence' ? "ring-1 ring-accent/40" : ""}
+                ${isInSequence ? "ring-1 ring-accent/40" : ""}
               `}
             >
               {/* Background Animation for Binary Bloom */}
@@ -310,13 +332,13 @@ export function PresetPicker({
       <div className="flex flex-wrap gap-1.5 justify-center">
         {SECONDARY_PRESETS.map((preset) => {
           const isSelected = mode === 'single' ? value === preset.id : false;
-          const isInSequence = mode === 'sequence' ? sequence.includes(preset.id) : false;
+          const isInSequence = isMulti ? sequence.includes(preset.id) : false;
 
           return (
             <button
               key={preset.id}
               onClick={() => handlePresetClick(preset.id)}
-              disabled={disabled || (mode === 'sequence' && sequence.length >= maxSlots)}
+              disabled={disabled || (isMulti && sequence.length >= maxSlots)}
               className={`
                 py-2 px-3 rounded-lg text-center text-xs leading-tight whitespace-nowrap transition-all duration-200
                 active:scale-[0.96] hover:scale-[1.03]
@@ -325,7 +347,7 @@ export function PresetPicker({
                   ? "bg-white/10 border border-white/30 text-white"
                   : "bg-white/5 border border-transparent text-text-secondary hover:bg-white/8 hover:text-white"
                 }
-                ${isInSequence && mode === 'sequence' ? "ring-1 ring-accent/40" : ""}
+                ${isInSequence ? "ring-1 ring-accent/40" : ""}
               `}
             >
               {preset.name}
