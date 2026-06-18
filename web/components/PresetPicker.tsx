@@ -173,13 +173,13 @@ export function PresetPicker({
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-between items-center gap-2 mb-4 flex-wrap">
         <p className="text-text-muted text-xs font-mono uppercase tracking-widest">
           Choose Effect
         </p>
 
         {/* Mode Toggle */}
-        <div className="bg-white/5 rounded-lg p-0.5 flex text-xs font-medium">
+        <div className="bg-white/5 rounded-lg p-0.5 flex text-xs font-medium shrink-0">
           <button
             onClick={() => onModeChange('single')}
             disabled={disabled}

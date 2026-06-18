@@ -259,16 +259,30 @@ def process_video(
     reset_stateful_effects()
 
     # =========================================================================
-    # STEP 0: Normalize the upload via ffmpeg. Phone clips are usually HEVC/.mov
-    # which OpenCV often can't decode (the "load failed" on 4K/1080p). ffmpeg
-    # decodes anything and downscales to 1080p here, so we then process a clean,
-    # light H.264 file.
+    # STEP 0: Normalize the upload ONLY when needed. Phone clips are often
+    # HEVC/.mov (OpenCV can't decode => "load failed") or 4K (slow/heavy). We
+    # transcode just those cases. A normal <=1080p mp4 OpenCV can already read
+    # skips the extra ffmpeg pass entirely, so typical renders stay fast and
+    # don't time out on the free tier.
     # =========================================================================
     source_path = input_path
-    norm_path, did_transcode = transcode_for_processing(input_path, MAX_OUTPUT_EDGE)
-    if did_transcode:
-        source_path = norm_path
-        print(f"[process] Normalized input via ffmpeg -> {norm_path}")
+    norm_path = input_path
+    did_transcode = False
+
+    _probe = cv2.VideoCapture(input_path)
+    _opened = _probe.isOpened()
+    _longest = max(int(_probe.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                   int(_probe.get(cv2.CAP_PROP_FRAME_HEIGHT))) if _opened else 0
+    _frames = int(_probe.get(cv2.CAP_PROP_FRAME_COUNT)) if _opened else 0
+    _probe.release()
+
+    if (not _opened) or _frames <= 0 or _longest > int(MAX_OUTPUT_EDGE * 1.1):
+        norm_path, did_transcode = transcode_for_processing(input_path, MAX_OUTPUT_EDGE)
+        if did_transcode:
+            source_path = norm_path
+            print(f"[process] Normalized input via ffmpeg -> {norm_path}")
+        elif not _opened:
+            raise ValueError(f"Could not open or transcode video: {input_path}")
 
     # =========================================================================
     # STEP 1: Open input video (need fps/frames for sequence mode)

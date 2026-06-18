@@ -32,83 +32,49 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
   if (isLoading) {
     const factIndex = Math.floor(elapsed / 4.5) % surveillanceFacts.length;
     const stages = [
-      "ACQUIRING FRAMES",
-      "ISOLATING SUBJECT",
-      "MAPPING MOTION VECTORS",
-      "BUILDING POINT FIELD",
-      "TRACKING SUBJECT",
-      "RENDERING EFFECT",
-      "ENCODING OUTPUT",
+      "reading frames",
+      "isolating subject",
+      "mapping motion",
+      "building points",
+      "tracking subject",
+      "rendering",
+      "encoding",
     ];
     const stageIdx = Math.min(stages.length - 1, Math.floor(elapsed / 3.2));
-    // Static binary columns for the surveillance backdrop.
-    const cols = 7;
-    const rows = 9;
+    const pct = ((stageIdx + 1) / stages.length) * 100;
 
     return (
-      <div className="card relative overflow-hidden font-mono">
-        {/* binary rain backdrop */}
-        <div className="absolute inset-0 pointer-events-none select-none opacity-[0.06] leading-3 text-[10px] text-accent flex justify-between px-3">
-          {Array.from({ length: cols }).map((_, c) => (
-            <div key={c} className="animate-ascii-fall" style={{ animationDuration: `${3 + (c % 4) * 0.8}s`, animationDelay: `${c * 0.3}s` }}>
-              {Array.from({ length: rows }).map((_, r) => (
-                <div key={r}>{(c * 7 + r * 3 + stageIdx) % 2 === 0 ? "1" : "0"}</div>
-              ))}
-            </div>
-          ))}
+      <div className="card relative overflow-hidden px-8 py-12 text-center">
+        {/* one hairline sweeping the panel - the only motion besides the timer */}
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent animate-scanline pointer-events-none" />
+
+        {/* thin minimal ring */}
+        <div className="w-12 h-12 mx-auto rounded-full border border-white/10 border-t-white/70 animate-spin [animation-duration:1.4s]" />
+
+        {/* big light timer */}
+        <p className="text-white text-5xl font-light tabular-nums mt-8 tracking-tight">
+          {elapsed.toFixed(1)}
+          <span className="text-lg text-text-muted ml-1 font-normal">s</span>
+        </p>
+
+        <p key={stageIdx} className="text-text-muted text-[11px] tracking-[0.3em] uppercase mt-3 animate-fade-in">
+          {stages[stageIdx]}
+        </p>
+
+        {/* hairline progress */}
+        <div className="h-px bg-white/10 rounded-full mt-7 overflow-hidden max-w-[200px] mx-auto">
+          <div className="h-full bg-accent transition-all duration-700 ease-out" style={{ width: `${pct}%` }} />
         </div>
 
-        {/* CCTV corner brackets */}
-        <span className="absolute top-2 left-2 w-4 h-4 border-l-2 border-t-2 border-accent/60" />
-        <span className="absolute top-2 right-2 w-4 h-4 border-r-2 border-t-2 border-accent/60" />
-        <span className="absolute bottom-2 left-2 w-4 h-4 border-l-2 border-b-2 border-accent/60" />
-        <span className="absolute bottom-2 right-2 w-4 h-4 border-r-2 border-b-2 border-accent/60" />
-
-        {/* sweeping scan line */}
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent to-transparent animate-scanline pointer-events-none" />
-
-        <div className="relative p-6">
-          {/* status bar */}
-          <div className="flex items-center justify-between text-[10px] tracking-widest">
-            <span className="flex items-center gap-1.5 text-accent">
-              <span className="w-2 h-2 rounded-full bg-accent animate-pulse" /> REC
-            </span>
-            <span className="text-text-muted">AFTERTRACE · CAM 01</span>
-          </div>
-
-          {/* big timer */}
-          <div className="text-center mt-6">
-            <p className="text-accent text-4xl font-bold tabular-nums tracking-tight">
-              {elapsed.toFixed(1)}<span className="text-xl">s</span>
-            </p>
-            <p key={stageIdx} className="text-white text-xs tracking-[0.25em] mt-2 animate-fade-in">
-              {stages[stageIdx]}
-              <span className="animate-pulse">_</span>
-            </p>
-          </div>
-
-          {/* stepped progress */}
-          <div className="flex justify-center gap-1 mt-4">
-            {stages.map((_, i) => (
-              <span
-                key={i}
-                className={`h-[3px] rounded-full transition-all duration-500 ${
-                  i < stageIdx ? "w-5 bg-accent" : i === stageIdx ? "w-7 bg-accent animate-pulse" : "w-2 bg-white/15"
-                }`}
-              />
-            ))}
-          </div>
-
-          {/* terminal fact log */}
-          <div className="mt-6 pt-4 border-t border-white/10">
-            <p className="text-accent/70 text-[10px] tracking-widest mb-2">{">"} DID YOU KNOW</p>
-            <p
-              key={factIndex}
-              className="text-text-secondary text-sm leading-relaxed animate-fade-in min-h-[2.5rem]"
-            >
-              {surveillanceFacts[factIndex]}
-            </p>
-          </div>
+        {/* one quiet fact */}
+        <div className="mt-9">
+          <p className="text-text-muted/60 text-[10px] uppercase tracking-[0.3em] mb-2.5">did you know</p>
+          <p
+            key={factIndex}
+            className="text-text-secondary text-sm leading-relaxed animate-fade-in min-h-[2.5rem] max-w-sm mx-auto"
+          >
+            {surveillanceFacts[factIndex]}
+          </p>
         </div>
       </div>
     );
