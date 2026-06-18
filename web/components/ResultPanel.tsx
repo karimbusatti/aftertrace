@@ -101,7 +101,7 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
 
           {/* terminal fact log */}
           <div className="mt-6 pt-4 border-t border-white/10">
-            <p className="text-accent/70 text-[10px] tracking-widest mb-2">{">"} INTEL</p>
+            <p className="text-accent/70 text-[10px] tracking-widest mb-2">{">"} DID YOU KNOW</p>
             <p
               key={factIndex}
               className="text-text-secondary text-sm leading-relaxed animate-fade-in min-h-[2.5rem]"

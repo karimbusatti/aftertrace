@@ -1453,9 +1453,9 @@ PRESETS: dict[str, dict[str, Any]] = {
 
         # Cursor Cloud specific
         "text_mode": "cursor_cloud",
-        "cur_cell": 16,
-        "cur_density_gamma": 1.3,
-        "cur_min_bright": 26,
+        "cur_cell": 11,          # smaller cell = far more cursors / more detail
+        "cur_density_gamma": 1.25,
+        "cur_min_bright": 22,
     },
 }
 

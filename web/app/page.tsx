@@ -124,7 +124,7 @@ export default function Home() {
                 )}
               </button>
               <p className="text-text-muted text-xs text-center mt-3">
-                frame-by-frame analysis. takes a moment.
+                25 effects · audio-reactive · runs frame-by-frame on our servers
               </p>
             </div>
           </div>
