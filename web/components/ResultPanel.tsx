@@ -31,22 +31,59 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
 
   if (isLoading) {
     const factIndex = Math.floor(elapsed / 4.5) % surveillanceFacts.length;
+    const stages = [
+      "extracting frames",
+      "isolating the subject",
+      "mapping motion vectors",
+      "building the point field",
+      "tracking you across frames",
+      "rendering the effect",
+      "encoding the output",
+    ];
+    // Walk through stages over time, holding on the last one until done.
+    const stageIdx = Math.min(stages.length - 1, Math.floor(elapsed / 3.2));
+
     return (
-      <div className="card p-8 text-center">
-        <div className="w-12 h-12 border-2 border-accent/30 border-t-accent rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-white font-medium">analyzing frame by frame...</p>
-        <p className="text-accent text-2xl font-mono font-bold mt-3 tabular-nums">
+      <div className="card p-8 text-center overflow-hidden relative">
+        {/* sweeping scan line */}
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent to-transparent animate-scanline pointer-events-none" />
+
+        {/* concentric radar pulse */}
+        <div className="relative w-16 h-16 mx-auto mb-5">
+          <div className="absolute inset-0 rounded-full border border-accent/40 animate-ping" />
+          <div className="absolute inset-2 rounded-full border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+          <div className="absolute inset-[38%] rounded-full bg-accent animate-pulse" />
+        </div>
+
+        <p className="text-accent text-3xl font-mono font-bold tabular-nums">
           {elapsed.toFixed(1)}s
         </p>
-        <p className="text-text-muted text-sm mt-1">elapsed</p>
+
+        {/* live processing stage */}
+        <p key={stageIdx} className="text-white font-medium mt-2 animate-fade-in">
+          {stages[stageIdx]}
+          <span className="inline-block w-4 text-left animate-pulse">…</span>
+        </p>
+
+        {/* stepped progress dots */}
+        <div className="flex justify-center gap-1.5 mt-4">
+          {stages.map((_, i) => (
+            <span
+              key={i}
+              className={`h-1 rounded-full transition-all duration-500 ${
+                i <= stageIdx ? "w-5 bg-accent" : "w-2 bg-white/15"
+              }`}
+            />
+          ))}
+        </div>
 
         <div className="mt-6 pt-6 border-t border-white/5 text-left">
-          <p className="text-text-muted text-[10px] uppercase tracking-widest font-mono mb-2">
+          <p className="text-accent/80 text-[10px] uppercase tracking-widest font-mono mb-2">
             did you know
           </p>
           <p
             key={factIndex}
-            className="text-text-secondary text-sm leading-relaxed animate-fade-in"
+            className="text-text-secondary text-sm leading-relaxed animate-fade-in min-h-[2.5rem]"
           >
             {surveillanceFacts[factIndex]}
           </p>

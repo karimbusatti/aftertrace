@@ -1312,33 +1312,32 @@ def draw_blob_track(
         blob_centers.append((center_x, center_y))
         blob_boxes.append((x, y, bw, bh, idx, area))
     
-    # Distance-faded connection lines (mesh between nearby blobs).
-    max_connection_dist = preset.get("max_connection_dist", 180)
+    # White connection mesh between nearby blobs (bright, lightly distance-faded).
+    max_connection_dist = preset.get("max_connection_dist", 200)
     for i in range(len(blob_centers)):
         for j in range(i + 1, len(blob_centers)):
             p1, p2 = blob_centers[i], blob_centers[j]
             dist = np.hypot(p1[0] - p2[0], p1[1] - p2[1])
             if dist < max_connection_dist:
                 a = 1.0 - dist / max_connection_dist
-                c = int(40 + 180 * a)
+                c = int(150 + 105 * a)   # bright white, only gently faded
                 cv2.line(output, p1, p2, (c, c, c), 1, cv2.LINE_AA)
 
-    accent = (255, 230, 120)  # soft cyan accent (BGR)
-    # Draw each blob as a corner-bracket box with an ID + center tick.
+    # Draw each blob as a clean white square (no centre crosshair) + ID label,
+    # with a small corner-tick accent so it still reads as a tracking box.
     for (x, y, bw, bh, idx, area) in blob_boxes:
-        cl = max(6, min(bw, bh) // 5)  # corner bracket length
         x2, y2 = x + bw, y + bh
+        cv2.rectangle(output, (x, y), (x2, y2), box_color, 1, cv2.LINE_AA)
+
+        # Subtle corner ticks (no plus in the middle).
+        cl = max(4, min(bw, bh) // 6)
         for (px, py, dx, dy) in [
             (x, y, 1, 1), (x2, y, -1, 1), (x, y2, 1, -1), (x2, y2, -1, -1)
         ]:
-            cv2.line(output, (px, py), (px + dx * cl, py), box_color, 1, cv2.LINE_AA)
-            cv2.line(output, (px, py), (px, py + dy * cl), box_color, 1, cv2.LINE_AA)
+            cv2.line(output, (px, py), (px + dx * cl, py), box_color, 2, cv2.LINE_AA)
+            cv2.line(output, (px, py), (px, py + dy * cl), box_color, 2, cv2.LINE_AA)
 
-        # Center tick.
-        ccx, ccy = blob_centers[idx]
-        cv2.drawMarker(output, (ccx, ccy), accent, cv2.MARKER_CROSS, 6, 1, cv2.LINE_AA)
-
-        # ID + size readout above the box (shadowed for legibility).
+        # ID + coordinate readout above the box (shadowed for legibility).
         box_size = min(bw, bh)
         fscale = max(0.3, min(0.42, box_size / 220.0))
         label = f"ID {idx:02d}"
@@ -2748,6 +2747,7 @@ def reset_stateful_effects():
     global _light_canvas
     global _contour_prev_edges
     global _codenet_pts, _codenet_prev_gray
+    global _pc_prev_small, _pc_energy
 
     _motion_trace_prev_frame = None
     _motion_trace_trail_canvas = None
@@ -2761,6 +2761,8 @@ def reset_stateful_effects():
     _contour_prev_edges = None
     _codenet_pts = None
     _codenet_prev_gray = None
+    _pc_prev_small = None
+    _pc_energy = None
 
 
 # =============================================================================
@@ -3366,6 +3368,8 @@ def draw_neon_glow(
 # =============================================================================
 
 _point_cloud_cache: dict = {}
+_pc_prev_small: np.ndarray | None = None
+_pc_energy: np.ndarray | None = None
 
 
 def draw_point_cloud(
@@ -3378,32 +3382,38 @@ def draw_point_cloud(
     """
     Point Cloud: a TouchDesigner-style 3D point-cloud scan in black & white.
 
-    The face emerges from POINT DENSITY: a point's chance of existing scales with
-    local brightness, so highlights pack densely while shadows stay empty - the
-    core of the reference look. A fine grid with slightly taller rows gives the
-    horizontal scan-line weave; brightness drives depth (Z) and a slow yaw makes
-    the cloud read as a rotating volume; noise jitter + gentle re-rolling make it
-    twinkle. Audio-reactive: louder audio expands depth, adds shimmer, packs in
-    more points and brightens. Bright white dots on black.
+    Detail comes from POINT DENSITY (stable, hash-based) tracking local
+    brightness, so highlights pack densely and shadows stay empty. The cloud has
+    life: a motion-fed energy field pushes points like RIPPLES IN WATER where the
+    subject moves, a slow buoyancy makes the whole cloud float in gravity, and a
+    gentle yaw gives it volume. Strongly audio-reactive: loudness expands depth,
+    blasts points radially outward on the beat, supercharges the ripples, packs
+    in more points and brightens. Bright white dots on black.
     """
-    h, w = frame.shape[:2]
-    hstep = max(2, int(preset.get("pc_step", 3)))
-    vstep = max(2, int(preset.get("pc_row", hstep + 1)))
-    min_bright = int(preset.get("pc_min_bright", 24))
-    depth_scale = float(preset.get("pc_depth", 80.0))
-    pop = float(preset.get("pc_pop", 8.0))
-    noise_amp = float(preset.get("pc_noise", 2.0))
-    yaw_amp = float(preset.get("pc_yaw", 0.30))
-    density_gamma = float(preset.get("pc_density_gamma", 1.5))
-    dot = int(preset.get("pc_dot", 2))
+    global _pc_prev_small, _pc_energy
 
-    a = float(np.clip(audio_level, 0.0, 1.0))   # 0..1 audio envelope
+    h, w = frame.shape[:2]
+    hstep = max(2, int(preset.get("pc_step", 2)))
+    vstep = max(2, int(preset.get("pc_row", 3)))
+    min_bright = int(preset.get("pc_min_bright", 22))
+    depth_scale = float(preset.get("pc_depth", 85.0))
+    pop = float(preset.get("pc_pop", 8.0))
+    noise_amp = float(preset.get("pc_noise", 1.6))
+    yaw_amp = float(preset.get("pc_yaw", 0.28))
+    density_gamma = float(preset.get("pc_density_gamma", 1.25))
+    dot = int(preset.get("pc_dot", 2))
+    float_amp = float(preset.get("pc_float", 6.0))     # buoyancy / floating
+    ripple_amp = float(preset.get("pc_ripple", 26.0))  # water-ripple displacement
+
+    # Punchy audio response (emphasize peaks).
+    a = float(np.clip(audio_level, 0.0, 1.0)) ** 0.6
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
 
-    # Cached grid (depends only on h, w, hstep, vstep).
+    # Cached grid + stable per-cell hash (deterministic density => readable,
+    # stable detail that tracks the subject instead of random strobing).
     key = (h, w, hstep, vstep)
     cached = _point_cloud_cache.get(key)
     if cached is None:
@@ -3411,10 +3421,11 @@ def draw_point_cloud(
         gys = np.arange(0, h, vstep)
         GX, GY = np.meshgrid(gxs, gys)
         phase = (GX * 12.9 + GY * 78.2).astype(np.float32)
-        cached = (GX.astype(np.float32), GY.astype(np.float32), phase,
-                  GX.astype(np.int32), GY.astype(np.int32), GX.shape)
+        khash = (((GX * 131 + GY * 71) % 1000) / 1000.0).astype(np.float32)
+        cached = (GX.astype(np.float32), GY.astype(np.float32), phase, khash,
+                  GX.astype(np.int32), GY.astype(np.int32))
         _point_cloud_cache[key] = cached
-    GXf, GYf, phase, GXi, GYi, gshape = cached
+    GXf, GYf, phase, khash, GXi, GYi = cached
 
     bright = gray[GYi, GXi].astype(np.float32)
     bnorm = bright / 255.0
@@ -3426,34 +3437,70 @@ def draw_point_cloud(
     else:
         subject = bright > min_bright
 
-    # DENSITY MODULATION: keep-probability scales with brightness so the face is
-    # built from dot density (dense highlights, empty shadows). Re-rolled a few
-    # times per second so the cloud twinkles instead of sitting static.
+    # Density follows brightness (stable hash, so the face is consistent/detailed
+    # and only changes as the subject moves). Audio packs in extra points.
     prob = np.power(np.clip(bnorm, 0.0, 1.0), density_gamma)
-    prob = np.clip(prob * (1.0 + a * 0.5), 0.0, 1.0)   # audio packs more points
-    rng = np.random.default_rng(frame_idx // 2)
-    r = rng.random(gshape).astype(np.float32)
-    mask = subject & (bright > min_bright) & (r < prob)
+    prob = np.clip(prob * (1.0 + a * 0.6), 0.0, 1.0)
+    mask = subject & (bright > min_bright) & (khash < prob)
     if not mask.any():
         return np.zeros((h, w, 3), dtype=np.uint8)
 
-    cx = w / 2.0
-    theta = np.sin(frame_idx * 0.025) * (yaw_amp + a * 0.15)
+    # --- WATER-RIPPLE ENERGY FIELD (fed by motion, diffuses outward) ---
+    ef_w, ef_h = max(8, w // 8), max(8, h // 8)
+    gsmall = cv2.resize(gray, (ef_w, ef_h), interpolation=cv2.INTER_AREA)
+    if (_pc_prev_small is None or _pc_prev_small.shape != gsmall.shape
+            or _pc_energy is None or _pc_energy.shape != gsmall.shape):
+        _pc_prev_small = gsmall.copy()
+        _pc_energy = np.zeros((ef_h, ef_w), dtype=np.float32)
+    motion = cv2.absdiff(gsmall, _pc_prev_small).astype(np.float32) / 255.0
+    _pc_prev_small = gsmall.copy()
+    # Accumulate + diffuse: impulses where the subject moves spread like ripples.
+    _pc_energy = _pc_energy * 0.86 + motion * 2.2
+    _pc_energy = cv2.GaussianBlur(_pc_energy, (0, 0), 2.0)
+    np.clip(_pc_energy, 0.0, 4.0, out=_pc_energy)
+    # Ripple displacement = gradient of the energy field (push from wave fronts),
+    # oscillating in time so the surface undulates.
+    gxE = cv2.Sobel(_pc_energy, cv2.CV_32F, 1, 0, ksize=3)
+    gyE = cv2.Sobel(_pc_energy, cv2.CV_32F, 0, 1, ksize=3)
+    fy = np.clip(GYi // 8, 0, ef_h - 1)
+    fx = np.clip(GXi // 8, 0, ef_w - 1)
+    e_here = _pc_energy[fy, fx]
+    wave = np.sin(e_here * 6.0 - frame_idx * 0.4)
+    rip_scale = ripple_amp * (1.0 + a * 2.5) * (0.5 + 0.5 * wave)
+    rip_x = gxE[fy, fx] * rip_scale
+    rip_y = gyE[fy, fx] * rip_scale
+
+    cx, cy = w / 2.0, h / 2.0
+    theta = np.sin(frame_idx * 0.025) * (yaw_amp + a * 0.2)
     ct, st = np.cos(theta), np.sin(theta)
 
-    # Brightness -> depth; audio inflates the volume on the beat.
-    depth = (bnorm - 0.45) * depth_scale * (1.0 + a * 0.7)
+    # Brightness -> depth; audio inflates the whole volume.
+    depth = (bnorm - 0.45) * depth_scale * (1.0 + a * 1.6)
     X = GXf - cx
     sx = cx + X * ct + depth * st
     sy = GYf - bnorm * pop
 
-    # Noise jitter (audio adds shimmer).
-    jit = noise_amp * (1.0 + a * 1.2)
-    sx = sx + np.sin(frame_idx * 0.18 + phase) * jit
-    sy = sy + np.cos(frame_idx * 0.15 + phase * 1.3) * jit
+    # Floating gravity: a slow buoyant swell makes the cloud drift like it's
+    # suspended in fluid (rows bob out of phase).
+    sy = sy + np.sin(frame_idx * 0.05 + GXf * 0.012) * float_amp
+    sx = sx + np.cos(frame_idx * 0.04 + GYf * 0.010) * (float_amp * 0.4)
 
-    # Bright white, lifted by source brightness so highlights pop; audio boosts.
-    inten = np.clip(165 + bnorm * 90 + a * 35, 0, 255)
+    # Noise shimmer (audio adds life) + the ripple push.
+    jit = noise_amp * (1.0 + a * 1.5)
+    sx = sx + np.sin(frame_idx * 0.18 + phase) * jit + rip_x
+    sy = sy + np.cos(frame_idx * 0.15 + phase * 1.3) * jit + rip_y
+
+    # Audio BEAT BLAST: shove every point radially outward from the centre on
+    # loud moments, so the cloud visibly bursts with the music.
+    if a > 0.02:
+        dx, dy = GXf - cx, GYf - cy
+        dist = np.sqrt(dx * dx + dy * dy) + 1e-3
+        blast = a * 55.0
+        sx = sx + (dx / dist) * blast
+        sy = sy + (dy / dist) * blast
+
+    # Bright white, lifted by source brightness; audio boosts brightness hard.
+    inten = np.clip(170 + bnorm * 85 + a * 60, 0, 255)
 
     xs = sx[mask].astype(np.int32)
     ys = sy[mask].astype(np.int32)
@@ -3466,13 +3513,12 @@ def draw_point_cloud(
     np.maximum.at(canvas, ys * w + xs, vals)
     canvas = np.clip(canvas, 0, 255).reshape(h, w).astype(np.uint8)
 
-    # Fatten into clean SQUARE dots (RECT kernel - avoids the plus/cross shape a
-    # 3x3 ellipse produces).
+    # Clean SQUARE dots (RECT kernel - no plus/cross artifact).
     if dot >= 2:
         k = cv2.getStructuringElement(cv2.MORPH_RECT, (dot, dot))
         canvas = cv2.dilate(canvas, k)
 
     out = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
-    glow = cv2.GaussianBlur(out, (0, 0), 1.4)
-    out = cv2.add(out, (glow.astype(np.float32) * 0.6).astype(np.uint8))
+    glow = cv2.GaussianBlur(out, (0, 0), 1.4 + a * 1.5)
+    out = cv2.add(out, (glow.astype(np.float32) * (0.6 + a * 0.5)).astype(np.uint8))
     return out

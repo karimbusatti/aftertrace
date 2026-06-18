@@ -88,6 +88,17 @@ export const surveillanceFacts: string[] = [
   "3D face maps from phone unlock sensors describe the exact geometry of your face.",
   "Gait, body shape, and clothing let systems re identify you after your face leaves the frame.",
   "Training a model to recognize you can take as few as a handful of clear images.",
+  "Optical flow lets a camera track exactly how every part of you moves between frames.",
+  "A point cloud turns your body into thousands of 3D coordinates that can be stored forever.",
+  "Crowd cameras can count, track, and follow individuals through a packed venue in real time.",
+  "Number plate readers log where your car has been, building a timeline of your movements.",
+  "Wifi and bluetooth signals from your phone can track your path through a building without a camera.",
+  "Smart billboards can detect your age, gender, and attention, then change the ad just for you.",
+  "Thermal cameras can pick out a person in total darkness from their body heat alone.",
+  "Depth sensors see the shape of your face even behind a flat photo, so pictures cannot fool them.",
+  "Your typing rhythm and how you hold your phone can identify you without any camera at all.",
+  "Deleting a photo rarely deletes the copies that backups, caches, and scrapers already made.",
+  "The more unique your look, the easier you are to single out in a crowd of faces.",
 ];
 
 export function getPersonalizedTips(score: number): string[] {

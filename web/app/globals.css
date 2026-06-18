@@ -197,3 +197,14 @@ body {
 .animate-pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
 }
+
+@keyframes scanline {
+  0% { transform: translateY(0); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(360px); opacity: 0; }
+}
+
+.animate-scanline {
+  animation: scanline 2.2s ease-in-out infinite;
+}

@@ -549,18 +549,30 @@ def process_video(
         # --- Draw the frame ---
         if overlay_compose:
             # =============================================================
-            # OVERLAY MODE: render every effect and stack them (screen/max)
+            # OVERLAY MODE: the FIRST effect owns the background; each later
+            # effect contributes only its marks (high-pass removes its own
+            # background) lightened on top. So Point Cloud first => black bg
+            # stays black with the other effects' lines/boxes/dots layered in.
             # =============================================================
             if frame_idx == 0:
                 print(f"[process] mode=overlay, effects={overlay_effects}")
             all_points = tracker.get_all_points()
             output_frame = None
-            for eff_id in overlay_effects:
+            for i, eff_id in enumerate(overlay_effects):
                 layer = draw_frame(
                     frame, all_points, preset_cache[eff_id], frame_idx, overlay_mode,
                     face_data=face_data, audio_level=audio_level,
                 )
-                output_frame = layer if output_frame is None else np.maximum(output_frame, layer)
+                if i == 0:
+                    output_frame = layer
+                else:
+                    # High-pass keeps sharp marks (dots/lines/boxes), drops the
+                    # layer's own smooth background (e.g. blob_track's video).
+                    # Threshold zeros faint residual so the first effect's
+                    # background (e.g. Point Cloud's black) stays clean.
+                    marks = cv2.subtract(layer, cv2.GaussianBlur(layer, (0, 0), 21))
+                    marks[marks < 30] = 0
+                    output_frame = np.maximum(output_frame, marks)
 
         elif sequence_mode:
             # =============================================================

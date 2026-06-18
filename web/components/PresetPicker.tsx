@@ -1,90 +1,67 @@
 "use client";
 
 import { SequenceTimeline } from "./SequenceTimeline";
-import { motion } from "framer-motion";
 
 type Preset = {
   id: string;
   name: string;
   description: string;
-  icon?: React.ReactNode;
 };
 
-const MAIN_PRESETS: Preset[] = [
+// Effects grouped into ordered categories for a clean, organised picker.
+const CATEGORIES: { label: string; presets: Preset[] }[] = [
   {
-    id: "codenet_overlay",
-    name: "CodeNet",
-    description: "feature network",
-    icon: (
-      <div className="relative w-6 h-6 flex items-center justify-center opacity-50">
-        <div className="absolute w-1.5 h-1.5 bg-white rounded-full top-1 left-1" />
-        <div className="absolute w-1.5 h-1.5 bg-white rounded-full bottom-1 right-1" />
-        <div className="absolute w-1 h-1 bg-white/50 rounded-full top-1 right-2" />
-        <svg className="absolute inset-0 w-full h-full text-white/30" viewBox="0 0 24 24">
-          <path d="M6 6 L18 18 M6 6 L16 6" stroke="currentColor" strokeWidth="1" />
-        </svg>
-      </div>
-    )
+    label: "Point & Depth",
+    presets: [
+      { id: "point_cloud", name: "Point Cloud", description: "3D dotted scan" },
+      { id: "crystallize", name: "Crystallize", description: "low-poly mosaic" },
+      { id: "neon_glow", name: "Neon Glow", description: "neon outline" },
+      { id: "light_trails", name: "Light Trails", description: "long-exposure glow" },
+    ],
   },
   {
-    id: "motion_trace",  // Backend uses motion_trace
-    name: "Motion Flow",
-    description: "curving lines trace movement",
-    icon: (
-      <svg className="w-6 h-6 text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M4 12C4 12 8 8 12 12C16 16 20 12 20 12" />
-        <path d="M4 16C4 16 8 12 12 16C16 20 20 16 20 16" opacity="0.5" />
-      </svg>
-    )
+    label: "Tracking",
+    presets: [
+      { id: "blob_track", name: "Blob Track", description: "coordinate boxes" },
+      { id: "codenet_overlay", name: "CodeNet", description: "feature network" },
+      { id: "motion_trace", name: "Motion Flow", description: "flowing trails" },
+      { id: "signal_map", name: "Signal Map", description: "data overlay" },
+      { id: "ocular_overload", name: "Ocular Overload", description: "retinal glitch" },
+    ],
   },
   {
-    id: "binary_bloom",
-    name: "Binary Bloom",
-    description: "0/1 silhouette",
-    icon: (
-      <div className="text-[8px] font-mono leading-none opacity-50 text-center">
-        010<br />101<br />010
-      </div>
-    )
+    label: "Code & Data",
+    presets: [
+      { id: "binary_bloom", name: "Binary Bloom", description: "0/1 silhouette" },
+      { id: "code_shadow", name: "Code Shadow", description: "ascii matrix" },
+      { id: "data_body", name: "Matrix Mode", description: "data rain" },
+      { id: "glyph_trace", name: "Glyph Trace", description: "ascii ink" },
+      { id: "ascii_core", name: "ASCII Core", description: "white on black" },
+    ],
   },
   {
-    id: "blob_track",
-    name: "Blob Track",
-    description: "coordinate tracking",
-    icon: (
-      <svg className="w-6 h-6 text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <rect x="3" y="3" width="7" height="7" rx="1" />
-        <rect x="14" y="14" width="7" height="7" rx="1" />
-        <path d="M10 6.5 L14 17.5" strokeDasharray="2 2" />
-      </svg>
-    )
+    label: "Glitch & Signal",
+    presets: [
+      { id: "signal_bloom", name: "Signal Bloom", description: "lava distortion" },
+      { id: "chromatic_ghost", name: "Chromatic Ghost", description: "rainbow trails" },
+      { id: "slit_scan", name: "Slit Scan", description: "time warp" },
+      { id: "tv_static", name: "TV Static", description: "subject to static" },
+    ],
+  },
+  {
+    label: "Artistic",
+    presets: [
+      { id: "halftone", name: "Halftone", description: "b&w dots" },
+      { id: "ink", name: "Ink", description: "pen sketch" },
+      { id: "dither_trace", name: "Dither Trace", description: "ink flow" },
+      { id: "contour_trace", name: "Ghost Trace", description: "edge silhouette" },
+      { id: "kaleidoscope", name: "Kaleidoscope", description: "mirror mandala" },
+    ],
   },
 ];
 
-const SECONDARY_PRESETS: Preset[] = [
-  { id: "code_shadow", name: "Code Shadow", description: "ascii matrix" },
-  { id: "contour_trace", name: "Ghost Trace", description: "edge silhouette" },
-  { id: "data_body", name: "Matrix Mode", description: "data rain" },
-  { id: "dither_trace", name: "Dither Trace", description: "ink flow" },
-  { id: "signal_map", name: "Signal Map", description: "data overlay" },
-  { id: "ocular_overload", name: "Ocular Overload", description: "retinal glitch" },
-  { id: "signal_bloom", name: "Signal Bloom", description: "lava distortion" },
-  { id: "glyph_trace", name: "Glyph Trace", description: "ascii ink" },
-  { id: "slit_scan", name: "Slit Scan", description: "time warp" },
-  { id: "ascii_core", name: "ASCII Core", description: "white code on black" },
-  { id: "kaleidoscope", name: "Kaleidoscope", description: "mirror mandala" },
-  { id: "tv_static", name: "TV Static", description: "subject to static" },
-  { id: "chromatic_ghost", name: "Chromatic Ghost", description: "rainbow motion trails" },
-  { id: "crystallize", name: "Crystallize", description: "low-poly mosaic" },
-  { id: "halftone", name: "Halftone", description: "black & white dots" },
-  { id: "light_trails", name: "Light Trails", description: "long-exposure glow" },
-  { id: "ink", name: "Ink", description: "pen sketch on white" },
-  { id: "neon_glow", name: "Neon Glow", description: "rainbow neon outline" },
-  { id: "point_cloud", name: "Point Cloud", description: "3D dotted scan" },
-];
-
-// Combined list for lookups
-const ALL_PRESETS = [...MAIN_PRESETS, ...SECONDARY_PRESETS];
+// Combined list for lookups (timeline, etc.)
+const ALL_PRESETS: Preset[] = CATEGORIES.flatMap((c) => c.presets);
 
 interface PresetPickerProps {
   value: string;
@@ -252,108 +229,54 @@ export function PresetPicker({
         </div>
       )}
 
-      {/* Main 4 presets - 2x2 grid, compact */}
-      <div className="grid grid-cols-2 gap-2 mb-2">
-        {MAIN_PRESETS.map((preset) => {
-          const isSelected = mode === 'single' ? value === preset.id : false;
-          const isInSequence = isMulti ? sequence.includes(preset.id) : false;
+      {/* Effects, grouped into ordered categories for a clean, organised grid */}
+      <div className="space-y-4">
+        {CATEGORIES.map((cat) => (
+          <div key={cat.label}>
+            <p className="text-text-muted text-[10px] font-mono uppercase tracking-widest mb-2">
+              {cat.label}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {cat.presets.map((preset) => {
+                const isSelected = mode === 'single' ? value === preset.id : false;
+                const isInSequence = isMulti ? sequence.includes(preset.id) : false;
+                const count = isInSequence ? sequence.filter((id) => id === preset.id).length : 0;
 
-          return (
-            <button
-              key={preset.id}
-              onClick={() => handlePresetClick(preset.id)}
-              disabled={disabled || (isMulti && sequence.length >= maxSlots)}
-              className={`
-                relative overflow-hidden py-3 px-3 rounded-lg text-left transition-all duration-200 group
-                active:scale-[0.98] hover:scale-[1.01]
-                disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:active:scale-100
-                ${isSelected
-                  ? "bg-white/10 border border-white/30"
-                  : "bg-white/5 border border-transparent hover:bg-white/8"
-                }
-                ${isInSequence ? "ring-1 ring-accent/40" : ""}
-              `}
-            >
-              {/* Background Animation for Binary Bloom */}
-              {preset.id === "binary_bloom" && (
-                <div className="absolute inset-0 opacity-[0.03] pointer-events-none overflow-hidden">
-                  <div className="animate-scroll-text text-[8px] leading-[8px] font-mono whitespace-pre">
-                    {`01010101010101010101010101
-10101010101010101010101010
-01010101010101010101010101
-10101010101010101010101010`.repeat(5)}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-between items-start relative z-10">
-                <span className="block text-white text-sm font-medium">{preset.name}</span>
-
-                {/* Sequence Badge */}
-                {isInSequence && (
-                  <span className="text-[10px] bg-accent/20 text-accent px-1.5 rounded-full font-mono">
-                    {sequence.filter(id => id === preset.id).length}
-                  </span>
-                )}
-
-                {/* Animated Icon */}
-                {!isInSequence && preset.icon && (
-                  <div className="text-white/40 group-hover:text-white/80 transition-colors">
-                    {preset.id === "codenet_overlay" ? (
-                      <motion.div
-                        animate={{ scale: [1, 1.1, 1] }}
-                        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                      >
-                        {preset.icon}
-                      </motion.div>
-                    ) : preset.id === "motion_trace" ? (
-                      <motion.div
-                        animate={{ x: [0, 2, 0] }}
-                        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                      >
-                        {preset.icon}
-                      </motion.div>
-                    ) : (
-                      preset.icon
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <span className="block text-text-muted text-xs font-mono mt-0.5 relative z-10">
-                {preset.description}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Secondary presets - flexible row */}
-      <div className="flex flex-wrap gap-1.5 justify-center">
-        {SECONDARY_PRESETS.map((preset) => {
-          const isSelected = mode === 'single' ? value === preset.id : false;
-          const isInSequence = isMulti ? sequence.includes(preset.id) : false;
-
-          return (
-            <button
-              key={preset.id}
-              onClick={() => handlePresetClick(preset.id)}
-              disabled={disabled || (isMulti && sequence.length >= maxSlots)}
-              className={`
-                py-2 px-3 rounded-lg text-center text-xs leading-tight whitespace-nowrap transition-all duration-200
-                active:scale-[0.96] hover:scale-[1.03]
-                disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:active:scale-100
-                ${isSelected
-                  ? "bg-white/10 border border-white/30 text-white"
-                  : "bg-white/5 border border-transparent text-text-secondary hover:bg-white/8 hover:text-white"
-                }
-                ${isInSequence ? "ring-1 ring-accent/40" : ""}
-              `}
-            >
-              {preset.name}
-            </button>
-          );
-        })}
+                return (
+                  <button
+                    key={preset.id}
+                    onClick={() => handlePresetClick(preset.id)}
+                    disabled={disabled || (isMulti && sequence.length >= maxSlots)}
+                    className={`
+                      relative overflow-hidden py-2.5 px-3 rounded-lg text-left transition-all duration-200
+                      active:scale-[0.98] hover:scale-[1.01]
+                      disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:active:scale-100
+                      ${isSelected
+                        ? "bg-white/10 border border-white/30"
+                        : "bg-white/5 border border-transparent hover:bg-white/[0.09]"
+                      }
+                      ${isInSequence ? "ring-1 ring-accent/50" : ""}
+                    `}
+                  >
+                    <div className="flex justify-between items-center gap-1">
+                      <span className="block text-white text-sm font-medium leading-tight truncate">
+                        {preset.name}
+                      </span>
+                      {count > 0 && (
+                        <span className="shrink-0 text-[10px] bg-accent/20 text-accent px-1.5 rounded-full font-mono">
+                          {count}
+                        </span>
+                      )}
+                    </div>
+                    <span className="block text-text-muted text-[11px] font-mono mt-0.5 truncate">
+                      {preset.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

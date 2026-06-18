@@ -20,8 +20,8 @@ TEMP_DIR = Path(tempfile.gettempdir()) / "aftertrace"
 TEMP_DIR.mkdir(exist_ok=True)
 
 # Upload limits
-MAX_DURATION_SECONDS = 30.0
-MAX_DIMENSION = 2160  # Longest edge - 4K (works for both portrait and landscape)
+MAX_DURATION_SECONDS = 60.0
+MAX_DIMENSION = 4096  # Longest edge - up to 4K/DCI (downscaled to 1080p internally)
 
 
 def check_video_limits(video_path: str) -> dict | None:
@@ -42,16 +42,16 @@ def check_video_limits(video_path: str) -> dict | None:
         issues = []
         
         if duration > MAX_DURATION_SECONDS:
-            issues.append(f"{duration:.0f}s is a bit long")
-        
+            issues.append(f"{duration:.0f}s is over the {MAX_DURATION_SECONDS:.0f}s limit")
+
         # Check if longest edge exceeds limit (handles both portrait and landscape)
         longest_edge = max(width, height)
         if longest_edge > MAX_DIMENSION:
-            issues.append(f"{width}×{height} is higher res than we need")
-        
+            issues.append(f"{width}×{height} is larger than 4K")
+
         if issues:
             return {
-                "error": f"this clip is a bit too heavy ({', '.join(issues)}). try something under 20 seconds or 1080p.",
+                "error": f"this clip is a bit too heavy ({', '.join(issues)}). try a clip under {MAX_DURATION_SECONDS:.0f}s and up to 4K.",
                 "validation": True,
                 "duration": round(duration, 1),
                 "width": width,

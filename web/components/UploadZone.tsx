@@ -11,7 +11,37 @@ interface UploadZoneProps {
 export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Inspect the clip client-side and warn if it'll be slow to process.
+  const inspectFile = useCallback((file: File) => {
+    setNotice(null);
+    try {
+      const url = URL.createObjectURL(file);
+      const v = document.createElement("video");
+      v.preload = "metadata";
+      v.onloadedmetadata = () => {
+        const longest = Math.max(v.videoWidth, v.videoHeight);
+        const dur = v.duration || 0;
+        const sizeMB = file.size / (1024 * 1024);
+        const bits: string[] = [];
+        if (longest >= 2000) bits.push("4K");
+        else if (longest >= 1400) bits.push("1080p+");
+        if (dur >= 15) bits.push(`${Math.round(dur)}s`);
+        if (bits.length) {
+          setNotice(
+            `${bits.join(" · ")} clip detected (${sizeMB.toFixed(0)}MB). Higher quality and longer videos look great but take longer to render.`
+          );
+        }
+        URL.revokeObjectURL(url);
+      };
+      v.onerror = () => URL.revokeObjectURL(url);
+      v.src = url;
+    } catch {
+      /* metadata probe is best-effort */
+    }
+  }, []);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -21,10 +51,11 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
       const file = e.dataTransfer.files[0];
       if (file && file.type.startsWith("video/")) {
         setFileName(file.name);
+        inspectFile(file);
         onFileSelect(file);
       }
     },
-    [disabled, onFileSelect]
+    [disabled, onFileSelect, inspectFile]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -47,6 +78,7 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
     const file = e.target.files?.[0];
     if (file) {
       setFileName(file.name);
+      inspectFile(file);
       onFileSelect(file);
     }
   };
@@ -69,8 +101,7 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
         <input
           ref={inputRef}
           type="file"
-          accept="video/*,video/mp4,video/quicktime,video/webm"
-          capture="environment"
+          accept="video/*"
           onChange={handleChange}
           className="hidden"
           disabled={disabled}
@@ -97,14 +128,21 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
               upload a clip
             </p>
             <p className="text-text-secondary text-sm mt-1">
-              drag & drop, tap to browse, or record
+              drag & drop, or pick from your camera roll
             </p>
             <p className="text-text-muted text-xs mt-2">
-              processed server-side, deleted after download
+              up to 4K · processed server-side, deleted after download
             </p>
           </div>
         )}
       </div>
+
+      {notice && !error && (
+        <p className="text-warning/90 text-xs mt-2 flex items-start gap-1.5">
+          <span aria-hidden>⏳</span>
+          <span>{notice}</span>
+        </p>
+      )}
 
       {error && (
         <p className="text-danger text-sm mt-2">

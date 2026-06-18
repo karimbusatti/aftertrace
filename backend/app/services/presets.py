@@ -1376,16 +1376,18 @@ PRESETS: dict[str, dict[str, Any]] = {
         "darken_factor": 1.0,
 
         # Point Cloud specific
-        "audio_reactive": True,  # cloud pulses/expands with the music
+        "audio_reactive": True,  # cloud pulses/expands/blasts with the music
         "text_mode": "point_cloud",
-        "pc_step": 3,            # horizontal grid spacing (smaller = denser)
-        "pc_row": 4,             # vertical row spacing (slightly taller = scan rows)
-        "pc_min_bright": 24,     # skip points darker than this
-        "pc_density_gamma": 1.5, # how hard density falls off in shadow (detail)
-        "pc_depth": 80.0,        # brightness -> depth amount
+        "pc_step": 2,            # horizontal grid spacing (smaller = denser)
+        "pc_row": 3,             # vertical row spacing (taller = scan rows)
+        "pc_min_bright": 22,     # skip points darker than this
+        "pc_density_gamma": 1.25, # how hard density falls off in shadow (detail)
+        "pc_depth": 85.0,        # brightness -> depth amount
         "pc_pop": 8.0,           # upward relief from brightness
-        "pc_noise": 2.0,         # animated jitter amplitude
-        "pc_yaw": 0.30,          # rotation sweep (radians)
+        "pc_noise": 1.6,         # animated jitter amplitude
+        "pc_yaw": 0.28,          # rotation sweep (radians)
+        "pc_float": 6.0,         # floating-gravity buoyancy amount
+        "pc_ripple": 26.0,       # water-ripple displacement on movement
         "pc_dot": 2,             # dot size (square, in px)
     },
 }
