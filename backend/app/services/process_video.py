@@ -46,7 +46,7 @@ from .audio import extract_audio, analyze_audio, get_spawn_frames, get_amplitude
 from .tracking import PointTracker
 from .effects import draw_frame, reset_stateful_effects
 from .face_detection import FaceDetector
-from .encode import encode_h264
+from .encode import encode_h264, transcode_for_processing
 
 
 # Cap the longest edge of the processed output. Keeps render time bounded and
@@ -259,10 +259,27 @@ def process_video(
     reset_stateful_effects()
 
     # =========================================================================
+    # STEP 0: Normalize the upload via ffmpeg. Phone clips are usually HEVC/.mov
+    # which OpenCV often can't decode (the "load failed" on 4K/1080p). ffmpeg
+    # decodes anything and downscales to 1080p here, so we then process a clean,
+    # light H.264 file.
+    # =========================================================================
+    source_path = input_path
+    norm_path, did_transcode = transcode_for_processing(input_path, MAX_OUTPUT_EDGE)
+    if did_transcode:
+        source_path = norm_path
+        print(f"[process] Normalized input via ffmpeg -> {norm_path}")
+
+    # =========================================================================
     # STEP 1: Open input video (need fps/frames for sequence mode)
     # =========================================================================
-    cap = cv2.VideoCapture(input_path)
+    cap = cv2.VideoCapture(source_path)
     if not cap.isOpened():
+        if did_transcode and os.path.exists(norm_path):
+            try:
+                os.unlink(norm_path)
+            except OSError:
+                pass
         raise ValueError(f"Could not open video: {input_path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -415,7 +432,7 @@ def process_video(
 
     if needs_beats or needs_audio_level:
         print("[process] Extracting audio...")
-        audio_path, _ = extract_audio(input_path)
+        audio_path, _ = extract_audio(source_path)
 
         if needs_audio_level:
             audio_envelope = get_amplitude_envelope(audio_path, total_frames)
@@ -648,6 +665,13 @@ def process_video(
 
     if face_detector:
         face_detector.close()
+
+    # Remove the normalized temp input now that decoding is done.
+    if did_transcode and norm_path != input_path and os.path.exists(norm_path):
+        try:
+            os.unlink(norm_path)
+        except OSError:
+            pass
 
     # =========================================================================
     # STEP 8: Re-encode to web-optimized H.264 (better quality, smaller, fast

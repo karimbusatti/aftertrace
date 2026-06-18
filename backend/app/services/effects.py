@@ -1082,6 +1082,10 @@ def apply_text_effect(
         return draw_neon_glow(frame, preset, colors, frame_idx=frame_idx)
     elif text_mode == "point_cloud":
         return draw_point_cloud(frame, preset, colors, frame_idx=frame_idx, audio_level=audio_level)
+    elif text_mode == "blacktone":
+        return draw_blacktone(frame, preset, colors, frame_idx=frame_idx)
+    elif text_mode == "cursor_cloud":
+        return draw_cursor_cloud(frame, preset, colors, frame_idx=frame_idx, audio_level=audio_level)
 
     return None
 
@@ -3519,6 +3523,152 @@ def draw_point_cloud(
         canvas = cv2.dilate(canvas, k)
 
     out = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
-    glow = cv2.GaussianBlur(out, (0, 0), 1.4 + a * 1.5)
-    out = cv2.add(out, (glow.astype(np.float32) * (0.6 + a * 0.5)).astype(np.uint8))
+    # Crisp near-glow on each dot...
+    near = cv2.GaussianBlur(out, (0, 0), 1.4 + a * 1.5)
+    out = cv2.add(out, (near.astype(np.float32) * (0.55 + a * 0.45)).astype(np.uint8))
+    # ...plus a wide soft AURA / halo that breathes around the whole cloud so it
+    # glows like a suspended energy field.
+    aura = cv2.GaussianBlur(out, (0, 0), 13.0 + a * 8.0)
+    out = cv2.add(out, (aura.astype(np.float32) * (0.30 + a * 0.35)).astype(np.uint8))
+    return out
+
+
+# =============================================================================
+# BLACKTONE (halftone inverted: glowing white dots on black)
+# =============================================================================
+
+_blacktone_cache: dict = {}
+
+
+def draw_blacktone(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Blacktone: halftone flipped to a black page with glowing WHITE dots whose
+    size grows with brightness. Dot-matrix / LED-panel look in pure B&W.
+    """
+    h, w = frame.shape[:2]
+    dot = max(4, int(preset.get("dot_spacing", 8)))
+    gamma = float(preset.get("dot_gamma", 0.85))
+    contrast = float(preset.get("dot_contrast", 1.3))
+
+    key = (h, w, dot)
+    patt = _blacktone_cache.get(key)
+    if patt is None:
+        yy, xx = np.mgrid[0:h, 0:w]
+        cx = (xx % dot) - (dot - 1) / 2.0
+        cy = (yy % dot) - (dot - 1) / 2.0
+        patt = (np.sqrt(cx * cx + cy * cy) / ((dot / 2.0) * np.sqrt(2.0))).astype(np.float32)
+        _blacktone_cache[key] = patt
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
+    gw, gh = max(1, w // dot), max(1, h // dot)
+    small = cv2.resize(gray, (gw, gh), interpolation=cv2.INTER_AREA)
+    lum = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST).astype(np.float32) / 255.0
+
+    lum = np.clip((lum - 0.5) * contrast + 0.5, 0.0, 1.0)
+    radius = np.power(np.clip(lum, 0.0, 1.0), gamma)   # brighter -> bigger white dot
+
+    mask = patt <= radius
+    canvas = np.zeros((h, w), dtype=np.uint8)
+    canvas[mask] = (lum[mask] * 255).astype(np.uint8)
+    canvas = np.maximum(canvas, (mask * 200).astype(np.uint8))  # keep dots bright
+
+    out = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
+    glow = cv2.GaussianBlur(out, (0, 0), max(1.0, dot * 0.4))
+    out = cv2.add(out, (glow.astype(np.float32) * 0.55).astype(np.uint8))
+    return out
+
+
+# =============================================================================
+# CURSOR CLOUD (subject built from tiny white pixel cursors on black)
+# =============================================================================
+
+_cursor_cache: dict = {}
+
+
+def _cursor_sprite(size: int) -> np.ndarray:
+    """A small white pixel-cursor (classic arrow outline) as a uint8 mask."""
+    cached = _cursor_cache.get(("sprite", size))
+    if cached is not None:
+        return cached
+    sh = size
+    sw = max(4, int(size * 0.66))
+    spr = np.zeros((sh, sw), dtype=np.uint8)
+    # Classic arrow silhouette in a normalized box.
+    norm = [
+        (0.00, 0.00), (0.00, 0.80), (0.22, 0.62), (0.36, 0.98),
+        (0.52, 0.90), (0.38, 0.55), (0.66, 0.55),
+    ]
+    pts = np.array([[int(x * (sw - 1)), int(y * (sh - 1))] for x, y in norm], dtype=np.int32)
+    cv2.polylines(spr, [pts], True, 255, 1, cv2.LINE_AA)  # outline = reads as a cursor
+    _cursor_cache[("sprite", size)] = spr
+    return spr
+
+
+def draw_cursor_cloud(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+    audio_level: float = 0.0,
+) -> np.ndarray:
+    """
+    Cursor Cloud: the subject is filled in with hundreds of tiny white pixel
+    cursors on black - like Point Cloud / Halftone, but every "dot" is a little
+    arrow cursor. Density follows brightness; audio brightens and jitters them.
+    """
+    h, w = frame.shape[:2]
+    cell = max(8, int(preset.get("cur_cell", 16)))
+    gamma = float(preset.get("cur_density_gamma", 1.3))
+    min_bright = int(preset.get("cur_min_bright", 26))
+    a = float(np.clip(audio_level, 0.0, 1.0)) ** 0.6
+
+    sprite = _cursor_sprite(max(6, cell - 3))
+    sh, sw = sprite.shape
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
+
+    gw, gh = max(1, w // cell), max(1, h // cell)
+    cell_lum = cv2.resize(gray, (gw, gh), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+
+    seg = get_person_mask(frame)
+    seg_small = cv2.resize(seg, (gw, gh), interpolation=cv2.INTER_AREA) if seg is not None else None
+
+    # Stable per-cell hash so cursors are consistent (no strobing).
+    gy, gx = np.indices((gh, gw))
+    khash = ((gx * 131 + gy * 71) % 1000) / 1000.0
+    prob = np.power(np.clip(cell_lum, 0, 1), gamma) * (1.0 + a * 0.5)
+
+    out = np.zeros((h, w, 3), dtype=np.uint8)
+    spr3 = cv2.cvtColor(sprite, cv2.COLOR_GRAY2BGR)
+
+    # Small per-frame jitter (audio adds life).
+    jit = int(1 + a * 3)
+    rng = np.random.default_rng(frame_idx // 2)
+
+    for r in range(gh):
+        for c in range(gw):
+            lum = cell_lum[r, c]
+            if lum * 255 < min_bright or khash[r, c] >= prob[r, c]:
+                continue
+            if seg_small is not None and seg_small[r, c] < 110:
+                continue
+            x = c * cell + (int(rng.integers(-jit, jit + 1)) if jit > 0 else 0)
+            y = r * cell + (int(rng.integers(-jit, jit + 1)) if jit > 0 else 0)
+            x = max(0, min(w - sw, x))
+            y = max(0, min(h - sh, y))
+            bright = int(np.clip(150 + lum * 105 + a * 50, 0, 255))
+            region = out[y:y + sh, x:x + sw]
+            np.maximum(region, (spr3 * (bright / 255.0)).astype(np.uint8), out=region)
+
+    glow = cv2.GaussianBlur(out, (0, 0), 1.6 + a * 1.5)
+    out = cv2.add(out, (glow.astype(np.float32) * (0.5 + a * 0.4)).astype(np.uint8))
     return out

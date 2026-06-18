@@ -32,61 +32,83 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
   if (isLoading) {
     const factIndex = Math.floor(elapsed / 4.5) % surveillanceFacts.length;
     const stages = [
-      "extracting frames",
-      "isolating the subject",
-      "mapping motion vectors",
-      "building the point field",
-      "tracking you across frames",
-      "rendering the effect",
-      "encoding the output",
+      "ACQUIRING FRAMES",
+      "ISOLATING SUBJECT",
+      "MAPPING MOTION VECTORS",
+      "BUILDING POINT FIELD",
+      "TRACKING SUBJECT",
+      "RENDERING EFFECT",
+      "ENCODING OUTPUT",
     ];
-    // Walk through stages over time, holding on the last one until done.
     const stageIdx = Math.min(stages.length - 1, Math.floor(elapsed / 3.2));
+    // Static binary columns for the surveillance backdrop.
+    const cols = 7;
+    const rows = 9;
 
     return (
-      <div className="card p-8 text-center overflow-hidden relative">
-        {/* sweeping scan line */}
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent to-transparent animate-scanline pointer-events-none" />
-
-        {/* concentric radar pulse */}
-        <div className="relative w-16 h-16 mx-auto mb-5">
-          <div className="absolute inset-0 rounded-full border border-accent/40 animate-ping" />
-          <div className="absolute inset-2 rounded-full border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
-          <div className="absolute inset-[38%] rounded-full bg-accent animate-pulse" />
-        </div>
-
-        <p className="text-accent text-3xl font-mono font-bold tabular-nums">
-          {elapsed.toFixed(1)}s
-        </p>
-
-        {/* live processing stage */}
-        <p key={stageIdx} className="text-white font-medium mt-2 animate-fade-in">
-          {stages[stageIdx]}
-          <span className="inline-block w-4 text-left animate-pulse">…</span>
-        </p>
-
-        {/* stepped progress dots */}
-        <div className="flex justify-center gap-1.5 mt-4">
-          {stages.map((_, i) => (
-            <span
-              key={i}
-              className={`h-1 rounded-full transition-all duration-500 ${
-                i <= stageIdx ? "w-5 bg-accent" : "w-2 bg-white/15"
-              }`}
-            />
+      <div className="card relative overflow-hidden font-mono">
+        {/* binary rain backdrop */}
+        <div className="absolute inset-0 pointer-events-none select-none opacity-[0.06] leading-3 text-[10px] text-accent flex justify-between px-3">
+          {Array.from({ length: cols }).map((_, c) => (
+            <div key={c} className="animate-ascii-fall" style={{ animationDuration: `${3 + (c % 4) * 0.8}s`, animationDelay: `${c * 0.3}s` }}>
+              {Array.from({ length: rows }).map((_, r) => (
+                <div key={r}>{(c * 7 + r * 3 + stageIdx) % 2 === 0 ? "1" : "0"}</div>
+              ))}
+            </div>
           ))}
         </div>
 
-        <div className="mt-6 pt-6 border-t border-white/5 text-left">
-          <p className="text-accent/80 text-[10px] uppercase tracking-widest font-mono mb-2">
-            did you know
-          </p>
-          <p
-            key={factIndex}
-            className="text-text-secondary text-sm leading-relaxed animate-fade-in min-h-[2.5rem]"
-          >
-            {surveillanceFacts[factIndex]}
-          </p>
+        {/* CCTV corner brackets */}
+        <span className="absolute top-2 left-2 w-4 h-4 border-l-2 border-t-2 border-accent/60" />
+        <span className="absolute top-2 right-2 w-4 h-4 border-r-2 border-t-2 border-accent/60" />
+        <span className="absolute bottom-2 left-2 w-4 h-4 border-l-2 border-b-2 border-accent/60" />
+        <span className="absolute bottom-2 right-2 w-4 h-4 border-r-2 border-b-2 border-accent/60" />
+
+        {/* sweeping scan line */}
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent to-transparent animate-scanline pointer-events-none" />
+
+        <div className="relative p-6">
+          {/* status bar */}
+          <div className="flex items-center justify-between text-[10px] tracking-widest">
+            <span className="flex items-center gap-1.5 text-accent">
+              <span className="w-2 h-2 rounded-full bg-accent animate-pulse" /> REC
+            </span>
+            <span className="text-text-muted">AFTERTRACE · CAM 01</span>
+          </div>
+
+          {/* big timer */}
+          <div className="text-center mt-6">
+            <p className="text-accent text-4xl font-bold tabular-nums tracking-tight">
+              {elapsed.toFixed(1)}<span className="text-xl">s</span>
+            </p>
+            <p key={stageIdx} className="text-white text-xs tracking-[0.25em] mt-2 animate-fade-in">
+              {stages[stageIdx]}
+              <span className="animate-pulse">_</span>
+            </p>
+          </div>
+
+          {/* stepped progress */}
+          <div className="flex justify-center gap-1 mt-4">
+            {stages.map((_, i) => (
+              <span
+                key={i}
+                className={`h-[3px] rounded-full transition-all duration-500 ${
+                  i < stageIdx ? "w-5 bg-accent" : i === stageIdx ? "w-7 bg-accent animate-pulse" : "w-2 bg-white/15"
+                }`}
+              />
+            ))}
+          </div>
+
+          {/* terminal fact log */}
+          <div className="mt-6 pt-4 border-t border-white/10">
+            <p className="text-accent/70 text-[10px] tracking-widest mb-2">{">"} INTEL</p>
+            <p
+              key={factIndex}
+              className="text-text-secondary text-sm leading-relaxed animate-fade-in min-h-[2.5rem]"
+            >
+              {surveillanceFacts[factIndex]}
+            </p>
+          </div>
         </div>
       </div>
     );

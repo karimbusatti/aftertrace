@@ -28,6 +28,8 @@ PresetName = Literal[
     "ink",
     "neon_glow",
     "point_cloud",
+    "blacktone",
+    "cursor_cloud",
 ]
 
 

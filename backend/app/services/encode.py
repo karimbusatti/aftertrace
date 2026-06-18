@@ -25,6 +25,54 @@ def _ffmpeg_exe() -> str | None:
         return shutil.which("ffmpeg")
 
 
+def transcode_for_processing(src_path: str, max_edge: int = 1080) -> tuple[str, bool]:
+    """
+    Normalize ANY uploaded clip into a clean H.264 mp4 that OpenCV can read.
+
+    Phone camera-roll videos are usually HEVC/.mov, which the headless OpenCV
+    build often cannot decode (=> "load failed"). ffmpeg decodes essentially
+    anything, so we transcode up front and also downscale to `max_edge` here -
+    that fixes 4K/HEVC uploads AND slashes memory/CPU (we then process 1080p,
+    not 4K). Audio is preserved for beat/envelope analysis.
+
+    Returns (path_to_use, did_transcode). On any failure, returns the original
+    path so the pipeline still tries.
+    """
+    ffmpeg = _ffmpeg_exe()
+    if ffmpeg is None:
+        return src_path, False
+
+    dst = src_path + ".norm.mp4"
+    # Fit within a max_edge x max_edge box, preserve aspect, force even dims.
+    vf = (
+        f"scale={max_edge}:{max_edge}:force_original_aspect_ratio=decrease,"
+        f"scale=trunc(iw/2)*2:trunc(ih/2)*2"
+    )
+    cmd = [
+        ffmpeg, "-y",
+        "-i", src_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        dst,
+    ]
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+        if result.returncode == 0 and os.path.exists(dst) and os.path.getsize(dst) > 0:
+            return dst, True
+        print(f"[encode] transcode failed (rc={result.returncode}): "
+              f"{result.stderr.decode('utf-8', 'ignore')[-400:]}")
+    except Exception as e:
+        print(f"[encode] transcode error: {e}")
+    if os.path.exists(dst):
+        try:
+            os.unlink(dst)
+        except OSError:
+            pass
+    return src_path, False
+
+
 def encode_h264(
     src_path: str,
     dst_path: str,

@@ -208,3 +208,12 @@ body {
 .animate-scanline {
   animation: scanline 2.2s ease-in-out infinite;
 }
+
+@keyframes ascii-fall {
+  0% { transform: translateY(-30%); }
+  100% { transform: translateY(30%); }
+}
+
+.animate-ascii-fall {
+  animation: ascii-fall 3s linear infinite alternate;
+}

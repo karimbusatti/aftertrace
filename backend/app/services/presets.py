@@ -1386,9 +1386,76 @@ PRESETS: dict[str, dict[str, Any]] = {
         "pc_pop": 8.0,           # upward relief from brightness
         "pc_noise": 1.6,         # animated jitter amplitude
         "pc_yaw": 0.28,          # rotation sweep (radians)
-        "pc_float": 6.0,         # floating-gravity buoyancy amount
+        "pc_float": 10.0,        # floating-gravity buoyancy amount
         "pc_ripple": 26.0,       # water-ripple displacement on movement
         "pc_dot": 2,             # dot size (square, in px)
+    },
+
+    # =========================================================================
+    # BLACKTONE (white halftone dots on black)
+    # =========================================================================
+
+    "blacktone": {
+        "name": "Blacktone",
+        "description": "White dots on black",
+
+        "spawn_per_beat": 0,
+        "max_points": 0,
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        "darken_factor": 1.0,
+
+        # Blacktone specific
+        "text_mode": "blacktone",
+        "dot_spacing": 8,
+        "dot_gamma": 0.85,
+        "dot_contrast": 1.3,
+    },
+
+    # =========================================================================
+    # CURSOR CLOUD (subject built from tiny white pixel cursors)
+    # =========================================================================
+
+    "cursor_cloud": {
+        "name": "Cursor Cloud",
+        "description": "Built from pixel cursors",
+
+        "audio_reactive": True,
+        "spawn_per_beat": 0,
+        "max_points": 0,
+        "life_frames": 1,
+        "trail_length": 0,
+        "trail_fade": False,
+        "shape": "none",
+        "point_size": 0,
+        "trace_thickness": 0,
+        "connect_points": False,
+        "max_connect_distance": 0,
+        "connection_thickness": 0,
+        "color_mode": "clean_white",
+        "blur_radius": 0,
+        "glow_intensity": 0,
+        "scanlines": False,
+        "high_contrast_bw": False,
+        "darken_factor": 1.0,
+
+        # Cursor Cloud specific
+        "text_mode": "cursor_cloud",
+        "cur_cell": 16,
+        "cur_density_gamma": 1.3,
+        "cur_min_bright": 26,
     },
 }
 
