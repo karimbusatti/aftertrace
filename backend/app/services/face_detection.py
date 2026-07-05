@@ -46,20 +46,28 @@ class FaceDetector:
             print("[face_detection] MediaPipe not available, using fallback")
             return
         
-        if detect_faces:
-            self._face_detection = mp.solutions.face_detection.FaceDetection(
-                model_selection=0,  # 0 for close-range, 1 for full-range
-                min_detection_confidence=min_detection_confidence
-            )
-        
-        if detect_mesh:
-            self._face_mesh = mp.solutions.face_mesh.FaceMesh(
-                static_image_mode=False,
-                max_num_faces=4,
-                refine_landmarks=True,
-                min_detection_confidence=min_detection_confidence,
-                min_tracking_confidence=0.5
-            )
+        # The legacy mp.solutions API was removed in mediapipe 0.10.30+; if we
+        # ever run against such a build, degrade to no-face mode instead of
+        # crashing the whole render.
+        try:
+            if detect_faces:
+                self._face_detection = mp.solutions.face_detection.FaceDetection(
+                    model_selection=0,  # 0 for close-range, 1 for full-range
+                    min_detection_confidence=min_detection_confidence
+                )
+
+            if detect_mesh:
+                self._face_mesh = mp.solutions.face_mesh.FaceMesh(
+                    static_image_mode=False,
+                    max_num_faces=4,
+                    refine_landmarks=True,
+                    min_detection_confidence=min_detection_confidence,
+                    min_tracking_confidence=0.5
+                )
+        except Exception as e:
+            print(f"[face_detection] could not init mediapipe ({e}), using fallback")
+            self._face_detection = None
+            self._face_mesh = None
     
     def detect(self, frame: np.ndarray) -> dict[str, Any]:
         """

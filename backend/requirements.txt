@@ -6,15 +6,19 @@ pydantic>=2.5.0
 pydantic-settings>=2.1.0
 
 # Video + Audio processing
-opencv-python-headless>=4.8.0
-numpy>=1.24.0
+# opencv <5 and numpy <2: required by mediapipe <0.10.30 (see below)
+opencv-python-headless>=4.8.0,<5
+numpy>=1.24.0,<2
 librosa>=0.10.0
 moviepy>=1.0.3
 imageio-ffmpeg>=0.4.9
 soundfile>=0.12.1
 
 # Face/Pose detection
-mediapipe>=0.10.9
+# mediapipe 0.10.30+ removed the legacy mp.solutions API this app uses
+# (face_detection, face_mesh, selfie_segmentation) - do not unpin without
+# migrating face_detection.py and segmentation.py to the Tasks API.
+mediapipe>=0.10.9,<0.10.30
 
 # Utilities
 aiofiles>=23.2.1
