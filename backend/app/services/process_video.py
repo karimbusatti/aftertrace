@@ -35,6 +35,7 @@ Usage:
 """
 
 import os
+import sys
 import time
 import cv2
 import numpy as np
@@ -296,397 +297,422 @@ def process_video(
                 pass
         raise ValueError(f"Could not open video: {input_path}")
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    in_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    in_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    # Pre-declare so the finally below can safely release/clean up whatever
+    # got created before an exception, even if it's just cap -- e.g. an
+    # exception during audio extraction (STEP 2) happens before the encoder
+    # writers and raw output paths further down are ever assigned.
+    out = None
+    out_original = None
+    face_detector = None
+    raw_output_path = None
+    raw_original_path = None
 
-    # Determine processing/output resolution: downscale so the longest edge is
-    # at most MAX_OUTPUT_EDGE. Dimensions are forced even for H.264 (yuv420p).
-    longest_edge = max(in_width, in_height)
-    if longest_edge > MAX_OUTPUT_EDGE:
-        scale = MAX_OUTPUT_EDGE / longest_edge
-        width = int(round(in_width * scale))
-        height = int(round(in_height * scale))
-    else:
-        width, height = in_width, in_height
-    width -= width % 2
-    height -= height % 2
-    width = max(2, width)
-    height = max(2, height)
-    needs_resize = (width, height) != (in_width, in_height)
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        in_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        in_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    metadata.duration_seconds = total_frames / fps if fps > 0 else 0
-    
-    # =========================================================================
-    # MODE SETUP: Single, Sequence, or Legacy Composition
-    # =========================================================================
-    preset_cache: dict[str, dict] = {}
-    sequence_mode = False
-    overlay_compose = False  # True when stacking multiple effects every frame
-    composition_mode = False  # True if using legacy composition system
-    sequence_effects: list[str] = []
-    overlay_effects: list[str] = []
-    segment_frames = 1
-
-    if mode == "overlay" and effects and len(effects) > 0:
-        # =================================================================
-        # OVERLAY MODE: render every effect each frame and stack them
-        # =================================================================
-        overlay_compose = True
-        overlay_effects = effects
-
-        print(f"[process] === OVERLAY MODE ===")
-        print(f"[process] effects={effects}")
-
-        for eff_id in effects:
-            if eff_id not in preset_cache:
-                preset_cache[eff_id] = validate_preset(get_preset(eff_id))
-
-        preset_name = f"overlay({'+'.join(effects)})"
-        preset_config = preset_cache[effects[0]]
-        metadata.composition_mode = True
-        metadata.preset_used = preset_name
-        metadata.segments_applied = [
-            {"effect": e, "start_frame": 0, "end_frame": total_frames} for e in effects
-        ]
-
-    elif mode == "sequence" and effects and len(effects) > 0:
-        # =================================================================
-        # SEQUENCE MODE: Direct frame-based effect alternation
-        # =================================================================
-        sequence_mode = True
-        sequence_effects = effects
-        
-        # Smart default for segment_duration_s
-        video_duration = total_frames / fps if fps > 0 else 10.0
-        if not segment_duration_s or segment_duration_s <= 0:
-            segment_duration_s = max(0.25, video_duration / len(effects))
-        
-        # Compute segment size in frames
-        segment_frames = max(1, int(segment_duration_s * fps))
-        
-        print(f"[process] === SEQUENCE MODE ===")
-        print(f"[process] effects={effects}")
-        print(f"[process] segment_duration_s={segment_duration_s:.2f}s ({segment_frames} frames)")
-        print(f"[process] total_frames={total_frames}, fps={fps:.1f}")
-        
-        # Pre-cache all effect presets
-        for eff_id in effects:
-            if eff_id not in preset_cache:
-                preset_cache[eff_id] = validate_preset(get_preset(eff_id))
-        
-        preset_name = f"sequence({','.join(effects)})"
-        preset_config = preset_cache[effects[0]]  # Primary config from first effect
-        
-        metadata.composition_mode = True
-        metadata.preset_used = preset_name
-        
-        # Record segments for frontend display
-        metadata.segments_applied = []
-        for i in range(0, total_frames, segment_frames):
-            seg_idx = (i // segment_frames) % len(effects)
-            metadata.segments_applied.append({
-                "effect": effects[seg_idx],
-                "start_frame": i,
-                "end_frame": min(i + segment_frames, total_frames),
-            })
-    
-    elif composition is not None and len(composition) > 0:
-        # =================================================================
-        # LEGACY COMPOSITION MODE (for backward compatibility)
-        # =================================================================
-        composition_mode = True
-        print(f"[process] === LEGACY COMPOSITION MODE ===")
-        
-        for seg in composition:
-            eff_id = seg.get("effect_id", "clean")
-            if eff_id != "clean" and eff_id not in preset_cache:
-                preset_cache[eff_id] = validate_preset(get_preset(eff_id))
-        
-        preset_name = "composition"
-        preset_config = validate_preset(get_preset("grid_trace"))
-        metadata.composition_mode = True
-        metadata.preset_used = preset_name
-    
-    else:
-        # =================================================================
-        # SINGLE MODE: One effect for entire video
-        # =================================================================
-        print(f"[process] === SINGLE MODE ===")
-        
-        if isinstance(preset, str):
-            preset_config = validate_preset(get_preset(preset))
-            preset_name = preset
+        # Determine processing/output resolution: downscale so the longest edge is
+        # at most MAX_OUTPUT_EDGE. Dimensions are forced even for H.264 (yuv420p).
+        longest_edge = max(in_width, in_height)
+        if longest_edge > MAX_OUTPUT_EDGE:
+            scale = MAX_OUTPUT_EDGE / longest_edge
+            width = int(round(in_width * scale))
+            height = int(round(in_height * scale))
         else:
-            preset_config = validate_preset(preset)
-            preset_name = preset_config.get("name", "custom")
+            width, height = in_width, in_height
+        width -= width % 2
+        height -= height % 2
+        width = max(2, width)
+        height = max(2, height)
+        needs_resize = (width, height) != (in_width, in_height)
+
+        metadata.duration_seconds = total_frames / fps if fps > 0 else 0
+    
+        # =========================================================================
+        # MODE SETUP: Single, Sequence, or Legacy Composition
+        # =========================================================================
+        preset_cache: dict[str, dict] = {}
+        sequence_mode = False
+        overlay_compose = False  # True when stacking multiple effects every frame
+        composition_mode = False  # True if using legacy composition system
+        sequence_effects: list[str] = []
+        overlay_effects: list[str] = []
+        segment_frames = 1
+
+        if mode == "overlay" and effects and len(effects) > 0:
+            # =================================================================
+            # OVERLAY MODE: render every effect each frame and stack them
+            # =================================================================
+            overlay_compose = True
+            overlay_effects = effects
+
+            print(f"[process] === OVERLAY MODE ===")
+            print(f"[process] effects={effects}")
+
+            for eff_id in effects:
+                if eff_id not in preset_cache:
+                    preset_cache[eff_id] = validate_preset(get_preset(eff_id))
+
+            preset_name = f"overlay({'+'.join(effects)})"
+            preset_config = preset_cache[effects[0]]
+            metadata.composition_mode = True
+            metadata.preset_used = preset_name
+            metadata.segments_applied = [
+                {"effect": e, "start_frame": 0, "end_frame": total_frames} for e in effects
+            ]
+
+        elif mode == "sequence" and effects and len(effects) > 0:
+            # =================================================================
+            # SEQUENCE MODE: Direct frame-based effect alternation
+            # =================================================================
+            sequence_mode = True
+            sequence_effects = effects
         
-        preset_cache[preset_name] = preset_config
-        metadata.preset_used = preset_name
-        print(f"[process] preset={preset_name}")
+            # Smart default for segment_duration_s
+            video_duration = total_frames / fps if fps > 0 else 10.0
+            if not segment_duration_s or segment_duration_s <= 0:
+                segment_duration_s = max(0.25, video_duration / len(effects))
+        
+            # Compute segment size in frames
+            segment_frames = max(1, int(segment_duration_s * fps))
+        
+            print(f"[process] === SEQUENCE MODE ===")
+            print(f"[process] effects={effects}")
+            print(f"[process] segment_duration_s={segment_duration_s:.2f}s ({segment_frames} frames)")
+            print(f"[process] total_frames={total_frames}, fps={fps:.1f}")
+        
+            # Pre-cache all effect presets
+            for eff_id in effects:
+                if eff_id not in preset_cache:
+                    preset_cache[eff_id] = validate_preset(get_preset(eff_id))
+        
+            preset_name = f"sequence({','.join(effects)})"
+            preset_config = preset_cache[effects[0]]  # Primary config from first effect
+        
+            metadata.composition_mode = True
+            metadata.preset_used = preset_name
+        
+            # Record segments for frontend display
+            metadata.segments_applied = []
+            for i in range(0, total_frames, segment_frames):
+                seg_idx = (i // segment_frames) % len(effects)
+                metadata.segments_applied.append({
+                    "effect": effects[seg_idx],
+                    "start_frame": i,
+                    "end_frame": min(i + segment_frames, total_frames),
+                })
     
-    print(f"[process] Input: {in_width}x{in_height} -> processing at {width}x{height} "
-          f"@ {fps:.1f}fps, {total_frames} frames")
-    print(f"[process] Mode: {mode}, Preset: {preset_name}, overlay: {overlay_mode}")
+        elif composition is not None and len(composition) > 0:
+            # =================================================================
+            # LEGACY COMPOSITION MODE (for backward compatibility)
+            # =================================================================
+            composition_mode = True
+            print(f"[process] === LEGACY COMPOSITION MODE ===")
+        
+            for seg in composition:
+                eff_id = seg.get("effect_id", "clean")
+                if eff_id != "clean" and eff_id not in preset_cache:
+                    preset_cache[eff_id] = validate_preset(get_preset(eff_id))
+        
+            preset_name = "composition"
+            preset_config = validate_preset(get_preset("grid_trace"))
+            metadata.composition_mode = True
+            metadata.preset_used = preset_name
     
-    # =========================================================================
-    # STEP 2: Extract and analyze audio (only if an active effect spawns points)
-    # =========================================================================
-    # Most "text_mode" effects don't track points (max_points == 0), so beat
-    # analysis is pure overhead for them. Skipping it is a big render-time win.
-    active_presets = list(preset_cache.values()) if preset_cache else [preset_config]
-    needs_beats = any(
-        p.get("max_points", 0) > 0 or p.get("spawn_per_beat", 0) > 0
-        for p in active_presets
-    )
-    needs_audio_level = any(p.get("audio_reactive", False) for p in active_presets)
-
-    audio_envelope = np.zeros(total_frames, dtype=np.float32)
-
-    if needs_beats or needs_audio_level:
-        print("[process] Extracting audio...")
-        audio_path, _ = extract_audio(source_path)
-
-        if needs_audio_level:
-            audio_envelope = get_amplitude_envelope(audio_path, total_frames)
-            print(f"[process] Computed audio envelope (peak frame "
-                  f"{int(np.argmax(audio_envelope)) if total_frames else 0})")
-
-        if needs_beats:
-            print("[process] Analyzing audio for beats...")
-            audio_data = analyze_audio(audio_path, fps)
-            metadata.beats_detected = len(audio_data["beat_frames"])
-            spawn_rate = max(10, int(fps / 2))  # Fallback: ~2 spawns per second
-            spawn_frames = get_spawn_frames(audio_data, total_frames, spawn_rate)
-            print(f"[process] Found {metadata.beats_detected} beats, {len(spawn_frames)} spawn frames")
         else:
-            # analyze_audio cleans up the temp file; do it here when we skip it.
+            # =================================================================
+            # SINGLE MODE: One effect for entire video
+            # =================================================================
+            print(f"[process] === SINGLE MODE ===")
+        
+            if isinstance(preset, str):
+                preset_config = validate_preset(get_preset(preset))
+                preset_name = preset
+            else:
+                preset_config = validate_preset(preset)
+                preset_name = preset_config.get("name", "custom")
+        
+            preset_cache[preset_name] = preset_config
+            metadata.preset_used = preset_name
+            print(f"[process] preset={preset_name}")
+    
+        print(f"[process] Input: {in_width}x{in_height} -> processing at {width}x{height} "
+              f"@ {fps:.1f}fps, {total_frames} frames")
+        print(f"[process] Mode: {mode}, Preset: {preset_name}, overlay: {overlay_mode}")
+    
+        # =========================================================================
+        # STEP 2: Extract and analyze audio (only if an active effect spawns points)
+        # =========================================================================
+        # Most "text_mode" effects don't track points (max_points == 0), so beat
+        # analysis is pure overhead for them. Skipping it is a big render-time win.
+        active_presets = list(preset_cache.values()) if preset_cache else [preset_config]
+        needs_beats = any(
+            p.get("max_points", 0) > 0 or p.get("spawn_per_beat", 0) > 0
+            for p in active_presets
+        )
+        needs_audio_level = any(p.get("audio_reactive", False) for p in active_presets)
+
+        audio_envelope = np.zeros(total_frames, dtype=np.float32)
+
+        if needs_beats or needs_audio_level:
+            print("[process] Extracting audio...")
+            audio_path, _ = extract_audio(source_path)
+
+            if needs_audio_level:
+                audio_envelope = get_amplitude_envelope(audio_path, total_frames)
+                print(f"[process] Computed audio envelope (peak frame "
+                      f"{int(np.argmax(audio_envelope)) if total_frames else 0})")
+
+            if needs_beats:
+                print("[process] Analyzing audio for beats...")
+                audio_data = analyze_audio(audio_path, fps)
+                metadata.beats_detected = len(audio_data["beat_frames"])
+                spawn_rate = max(10, int(fps / 2))  # Fallback: ~2 spawns per second
+                spawn_frames = get_spawn_frames(audio_data, total_frames, spawn_rate)
+                print(f"[process] Found {metadata.beats_detected} beats, {len(spawn_frames)} spawn frames")
+            else:
+                # analyze_audio cleans up the temp file; do it here when we skip it.
+                metadata.beats_detected = 0
+                spawn_frames = set()
+                if audio_path and os.path.exists(audio_path):
+                    try:
+                        os.unlink(audio_path)
+                    except OSError:
+                        pass
+        else:
             metadata.beats_detected = 0
             spawn_frames = set()
-            if audio_path and os.path.exists(audio_path):
-                try:
-                    os.unlink(audio_path)
-                except OSError:
-                    pass
-    else:
-        metadata.beats_detected = 0
-        spawn_frames = set()
-        print("[process] Skipping audio analysis (no beats / not audio-reactive)")
+            print("[process] Skipping audio analysis (no beats / not audio-reactive)")
     
-    # =========================================================================
-    # STEP 3: Setup output video writer(s)
-    # =========================================================================
-    # OpenCV writes an intermediate mp4v file; we re-encode to web-optimized
-    # H.264 at the very end (see STEP 8).
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    raw_output_path = output_path + ".raw.mp4"
-    out = cv2.VideoWriter(raw_output_path, fourcc, fps, (width, height))
+        # =========================================================================
+        # STEP 3: Setup output video writer(s)
+        # =========================================================================
+        # OpenCV writes an intermediate mp4v file; we re-encode to web-optimized
+        # H.264 at the very end (see STEP 8).
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        raw_output_path = output_path + ".raw.mp4"
+        out = cv2.VideoWriter(raw_output_path, fourcc, fps, (width, height))
 
-    if not out.isOpened():
-        cap.release()
-        raise ValueError(f"Could not create output video: {raw_output_path}")
+        if not out.isOpened():
+            cap.release()
+            raise ValueError(f"Could not create output video: {raw_output_path}")
 
-    # Optional: also save a re-encoded copy of original for alternating playback
-    out_original = None
-    raw_original_path = None
-    if original_output_path:
-        raw_original_path = original_output_path + ".raw.mp4"
-        out_original = cv2.VideoWriter(raw_original_path, fourcc, fps, (width, height))
-        if out_original.isOpened():
-            print(f"[process] Also saving original to: {original_output_path}")
-        else:
-            out_original.release()  # Release failed writer before discarding
-            out_original = None  # Fallback: don't save original if failed
-            raw_original_path = None
+        # Optional: also save a re-encoded copy of original for alternating playback
+        out_original = None
+        raw_original_path = None
+        if original_output_path:
+            raw_original_path = original_output_path + ".raw.mp4"
+            out_original = cv2.VideoWriter(raw_original_path, fourcc, fps, (width, height))
+            if out_original.isOpened():
+                print(f"[process] Also saving original to: {original_output_path}")
+            else:
+                out_original.release()  # Release failed writer before discarding
+                out_original = None  # Fallback: don't save original if failed
+                raw_original_path = None
     
-    # =========================================================================
-    # STEP 4: Initialize tracker with preset config
-    # =========================================================================
-    tracker = PointTracker(preset_config)
-    spawn_count = preset_config.get("spawn_per_beat", 30)
+        # =========================================================================
+        # STEP 4: Initialize tracker with preset config
+        # =========================================================================
+        tracker = PointTracker(preset_config)
+        spawn_count = preset_config.get("spawn_per_beat", 30)
     
-    # =========================================================================
-    # STEP 4b: Initialize face detector if preset requests it
-    # =========================================================================
-    face_detector = None
-    needs_faces = preset_config.get("detect_faces", False)
-    needs_mesh = preset_config.get("detect_mesh", False)
+        # =========================================================================
+        # STEP 4b: Initialize face detector if preset requests it
+        # =========================================================================
+        face_detector = None
+        needs_faces = preset_config.get("detect_faces", False)
+        needs_mesh = preset_config.get("detect_mesh", False)
 
-    # Check every active preset (covers sequence mode too, where a face effect
-    # may appear later in the chain without being the primary preset).
-    for p in preset_cache.values():
-        needs_faces = needs_faces or p.get("detect_faces", False)
-        needs_mesh = needs_mesh or p.get("detect_mesh", False)
+        # Check every active preset (covers sequence mode too, where a face effect
+        # may appear later in the chain without being the primary preset).
+        for p in preset_cache.values():
+            needs_faces = needs_faces or p.get("detect_faces", False)
+            needs_mesh = needs_mesh or p.get("detect_mesh", False)
     
-    if needs_faces or needs_mesh:
-        print("[process] Initializing face detection...")
-        face_detector = FaceDetector(
-            detect_faces=needs_faces,
-            detect_mesh=needs_mesh,
-        )
+        if needs_faces or needs_mesh:
+            print("[process] Initializing face detection...")
+            face_detector = FaceDetector(
+                detect_faces=needs_faces,
+                detect_mesh=needs_mesh,
+            )
     
-    # =========================================================================
-    # STEP 5: Main processing loop
-    # =========================================================================
-    prev_gray = None
-    frame_idx = 0
-    total_points_tracked = 0
-    total_faces_detected = 0
+        # =========================================================================
+        # STEP 5: Main processing loop
+        # =========================================================================
+        prev_gray = None
+        frame_idx = 0
+        total_points_tracked = 0
+        total_faces_detected = 0
     
-    print("[process] Processing frames...")
+        print("[process] Processing frames...")
     
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        # Downscale to processing/output resolution if the input was larger.
-        if needs_resize:
-            frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+            # Downscale to processing/output resolution if the input was larger.
+            if needs_resize:
+                frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
 
-        # Convert to grayscale for tracking
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Convert to grayscale for tracking
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
-        # --- Spawn new points on beat/spawn frames ---
-        if frame_idx in spawn_frames:
-            spawned = tracker.spawn_points(gray, frame_idx, spawn_count)
-            metadata.total_points_spawned += spawned
+            # --- Spawn new points on beat/spawn frames ---
+            if frame_idx in spawn_frames:
+                spawned = tracker.spawn_points(gray, frame_idx, spawn_count)
+                metadata.total_points_spawned += spawned
         
-        # --- Track existing points ---
-        if prev_gray is not None:
-            alive_count = tracker.update(prev_gray, gray, frame_idx, (height, width))
-            total_points_tracked += alive_count
+            # --- Track existing points ---
+            if prev_gray is not None:
+                alive_count = tracker.update(prev_gray, gray, frame_idx, (height, width))
+                total_points_tracked += alive_count
 
-            # Adaptive top-up: if tracked density drops too low, re-detect so
-            # point-based effects stay continuous instead of flickering out.
-            if spawn_count > 0 and tracker.max_points > 0:
-                alive_now = len(tracker.get_alive_points())
-                if alive_now < tracker.max_points * 0.5:
-                    topped = tracker.spawn_points(
-                        gray, frame_idx, tracker.max_points - alive_now
+                # Adaptive top-up: if tracked density drops too low, re-detect so
+                # point-based effects stay continuous instead of flickering out.
+                if spawn_count > 0 and tracker.max_points > 0:
+                    alive_now = len(tracker.get_alive_points())
+                    if alive_now < tracker.max_points * 0.5:
+                        topped = tracker.spawn_points(
+                            gray, frame_idx, tracker.max_points - alive_now
+                        )
+                        metadata.total_points_spawned += topped
+        
+            # --- Detect faces if enabled ---
+            face_data = None
+            if face_detector:
+                face_data = face_detector.detect(frame)
+                total_faces_detected = max(total_faces_detected, face_data["face_count"])
+        
+            # Per-frame audio loudness (0..1) for audio-reactive effects.
+            audio_level = float(audio_envelope[frame_idx]) if frame_idx < len(audio_envelope) else 0.0
+
+            # --- Draw the frame ---
+            if overlay_compose:
+                # =============================================================
+                # OVERLAY MODE: the FIRST effect owns the background; each later
+                # effect contributes only its marks (high-pass removes its own
+                # background) lightened on top. So Point Cloud first => black bg
+                # stays black with the other effects' lines/boxes/dots layered in.
+                # =============================================================
+                if frame_idx == 0:
+                    print(f"[process] mode=overlay, effects={overlay_effects}")
+                all_points = tracker.get_all_points()
+                output_frame = None
+                for i, eff_id in enumerate(overlay_effects):
+                    layer = draw_frame(
+                        frame, all_points, preset_cache[eff_id], frame_idx, overlay_mode,
+                        face_data=face_data, audio_level=audio_level,
                     )
-                    metadata.total_points_spawned += topped
-        
-        # --- Detect faces if enabled ---
-        face_data = None
-        if face_detector:
-            face_data = face_detector.detect(frame)
-            total_faces_detected = max(total_faces_detected, face_data["face_count"])
-        
-        # Per-frame audio loudness (0..1) for audio-reactive effects.
-        audio_level = float(audio_envelope[frame_idx]) if frame_idx < len(audio_envelope) else 0.0
+                    if i == 0:
+                        output_frame = layer
+                    else:
+                        # High-pass keeps sharp marks (dots/lines/boxes), drops the
+                        # layer's own smooth background (e.g. blob_track's video).
+                        # Threshold zeros faint residual so the first effect's
+                        # background (e.g. Point Cloud's black) stays clean.
+                        marks = cv2.subtract(layer, cv2.GaussianBlur(layer, (0, 0), 21))
+                        marks[marks < 30] = 0
+                        output_frame = np.maximum(output_frame, marks)
 
-        # --- Draw the frame ---
-        if overlay_compose:
-            # =============================================================
-            # OVERLAY MODE: the FIRST effect owns the background; each later
-            # effect contributes only its marks (high-pass removes its own
-            # background) lightened on top. So Point Cloud first => black bg
-            # stays black with the other effects' lines/boxes/dots layered in.
-            # =============================================================
-            if frame_idx == 0:
-                print(f"[process] mode=overlay, effects={overlay_effects}")
-            all_points = tracker.get_all_points()
-            output_frame = None
-            for i, eff_id in enumerate(overlay_effects):
-                layer = draw_frame(
-                    frame, all_points, preset_cache[eff_id], frame_idx, overlay_mode,
+            elif sequence_mode:
+                # =============================================================
+                # SEQUENCE MODE: Direct frame-based effect selection
+                # =============================================================
+                segment_idx = (frame_idx // segment_frames) % len(sequence_effects)
+                current_effect_id = sequence_effects[segment_idx]
+                current_preset = preset_cache[current_effect_id]
+
+                # Log effect transitions
+                if frame_idx == 0 or frame_idx % 30 == 0:
+                    print(f"[process] mode=sequence, effect={current_effect_id}, frame={frame_idx}, segment={segment_idx}")
+
+                all_points = tracker.get_all_points()
+                output_frame = draw_frame(
+                    frame, all_points, current_preset, frame_idx, overlay_mode,
                     face_data=face_data, audio_level=audio_level,
                 )
-                if i == 0:
-                    output_frame = layer
-                else:
-                    # High-pass keeps sharp marks (dots/lines/boxes), drops the
-                    # layer's own smooth background (e.g. blob_track's video).
-                    # Threshold zeros faint residual so the first effect's
-                    # background (e.g. Point Cloud's black) stays clean.
-                    marks = cv2.subtract(layer, cv2.GaussianBlur(layer, (0, 0), 21))
-                    marks[marks < 30] = 0
-                    output_frame = np.maximum(output_frame, marks)
 
-        elif sequence_mode:
-            # =============================================================
-            # SEQUENCE MODE: Direct frame-based effect selection
-            # =============================================================
-            segment_idx = (frame_idx // segment_frames) % len(sequence_effects)
-            current_effect_id = sequence_effects[segment_idx]
-            current_preset = preset_cache[current_effect_id]
-
-            # Log effect transitions
-            if frame_idx == 0 or frame_idx % 30 == 0:
-                print(f"[process] mode=sequence, effect={current_effect_id}, frame={frame_idx}, segment={segment_idx}")
-
-            all_points = tracker.get_all_points()
-            output_frame = draw_frame(
-                frame, all_points, current_preset, frame_idx, overlay_mode,
-                face_data=face_data, audio_level=audio_level,
-            )
-
-        elif composition is not None and len(composition) > 0:
-            # =============================================================
-            # LEGACY COMPOSITION MODE
-            # =============================================================
-            frame_ratio = frame_idx / max(total_frames - 1, 1)
-            frame_effects = get_frame_effects(frame_ratio, composition, crossfade_ratio)
+            elif composition is not None and len(composition) > 0:
+                # =============================================================
+                # LEGACY COMPOSITION MODE
+                # =============================================================
+                frame_ratio = frame_idx / max(total_frames - 1, 1)
+                frame_effects = get_frame_effects(frame_ratio, composition, crossfade_ratio)
             
+                if frame_idx % 30 == 0:
+                    effect_str = ", ".join([f"{e[0]}({e[1]:.0%})" for e in frame_effects])
+                    print(f"[process] mode=composition, frame={frame_idx}: {effect_str}")
+            
+                output_frame = apply_composed_frame(
+                    frame, frame_effects, preset_cache, frame_idx, tracker, face_data, overlay_mode
+                )
+        
+            else:
+                # =============================================================
+                # SINGLE MODE: One effect for entire video
+                # =============================================================
+                if frame_idx == 0:
+                    print(f"[process] mode=single, effect={preset_name}")
+            
+                all_points = tracker.get_all_points()
+                output_frame = draw_frame(
+                    frame, all_points, preset_config, frame_idx, overlay_mode,
+                    face_data=face_data, audio_level=audio_level,
+                )
+
+            # --- Write output ---
+            out.write(output_frame)
+        
+            # Also write original frame if requested
+            if out_original is not None:
+                out_original.write(frame)
+        
+            # --- Update state ---
+            prev_gray = gray.copy()
+            frame_idx += 1
+        
+            # Progress logging (every 30 frames)
             if frame_idx % 30 == 0:
-                effect_str = ", ".join([f"{e[0]}({e[1]:.0%})" for e in frame_effects])
-                print(f"[process] mode=composition, frame={frame_idx}: {effect_str}")
-            
-            output_frame = apply_composed_frame(
-                frame, frame_effects, preset_cache, frame_idx, tracker, face_data, overlay_mode
-            )
-        
-        else:
-            # =============================================================
-            # SINGLE MODE: One effect for entire video
-            # =============================================================
-            if frame_idx == 0:
-                print(f"[process] mode=single, effect={preset_name}")
-            
-            all_points = tracker.get_all_points()
-            output_frame = draw_frame(
-                frame, all_points, preset_config, frame_idx, overlay_mode,
-                face_data=face_data, audio_level=audio_level,
-            )
+                progress = (frame_idx / total_frames) * 100
+                stats = tracker.get_stats()
+                print(f"[process] {progress:.0f}% - {stats['alive']} active points")
+    finally:
+        # =====================================================================
+        # STEP 6: Always release native resources, success or exception, so a
+        # bad frame/effect never leaks file handles or leaves encoder temp
+        # files (raw .mp4, normalized input) stranded in /tmp.
+        # =====================================================================
+        cap.release()
+        if out is not None:
+            out.release()
 
-        # --- Write output ---
-        out.write(output_frame)
-        
-        # Also write original frame if requested
         if out_original is not None:
-            out_original.write(frame)
-        
-        # --- Update state ---
-        prev_gray = gray.copy()
-        frame_idx += 1
-        
-        # Progress logging (every 30 frames)
-        if frame_idx % 30 == 0:
-            progress = (frame_idx / total_frames) * 100
-            stats = tracker.get_stats()
-            print(f"[process] {progress:.0f}% - {stats['alive']} active points")
-    
-    # =========================================================================
-    # STEP 6: Cleanup and finalize
-    # =========================================================================
-    cap.release()
-    out.release()
+            out_original.release()
 
-    if out_original is not None:
-        out_original.release()
+        if face_detector:
+            face_detector.close()
 
-    if face_detector:
-        face_detector.close()
+        # Remove the normalized temp input now that decoding is done.
+        if did_transcode and norm_path != input_path and os.path.exists(norm_path):
+            try:
+                os.unlink(norm_path)
+            except OSError:
+                pass
 
-    # Remove the normalized temp input now that decoding is done.
-    if did_transcode and norm_path != input_path and os.path.exists(norm_path):
-        try:
-            os.unlink(norm_path)
-        except OSError:
-            pass
-
+        # On the failure path (an exception is propagating through this
+        # finally), the raw encoder outputs are incomplete/corrupt and STEP 8
+        # below never runs to consume them -- delete them here so they don't
+        # strand in /tmp indefinitely.
+        if sys.exc_info()[0] is not None:
+            for path in (raw_output_path, raw_original_path):
+                if path and os.path.exists(path):
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
     # =========================================================================
     # STEP 8: Re-encode to web-optimized H.264 (better quality, smaller, fast
     # to load and broadly browser-compatible). Falls back to the raw mp4v file
@@ -772,8 +798,6 @@ def process_video(
 # CLI for testing
 # =============================================================================
 if __name__ == "__main__":
-    import sys
-    
     if len(sys.argv) < 3:
         print("Usage: python -m app.services.process_video <input> <output> [preset]")
         print("\nAvailable presets:")

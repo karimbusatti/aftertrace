@@ -2,6 +2,7 @@
 API routes for Aftertrace.
 """
 
+import logging
 import uuid
 import tempfile
 from pathlib import Path
@@ -13,6 +14,8 @@ import cv2
 from app.services.process_video import process_video
 from app.services.presets import list_presets, PRESETS
 
+logger = logging.getLogger("aftertrace")
+
 router = APIRouter()
 
 # Directory for temporary files
@@ -22,6 +25,29 @@ TEMP_DIR.mkdir(exist_ok=True)
 # Upload limits
 MAX_DURATION_SECONDS = 60.0
 MAX_DIMENSION = 4096  # Longest edge - up to 4K/DCI (downscaled to 1080p internally)
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500MB safety cap so one upload can't exhaust disk/memory
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+async def save_upload_capped(file: UploadFile, dest: Path, max_bytes: int) -> None:
+    """
+    Stream an upload to disk in chunks (never buffering the whole file in
+    memory) and abort with a 413 if it exceeds max_bytes.
+    """
+    size = 0
+    try:
+        with open(dest, "wb") as f:
+            while chunk := await file.read(UPLOAD_CHUNK_BYTES):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"file is too large (over {max_bytes // (1024 * 1024)}MB)",
+                    )
+                f.write(chunk)
+    except HTTPException:
+        dest.unlink(missing_ok=True)
+        raise
 
 
 def check_video_limits(video_path: str) -> dict | None:
@@ -188,11 +214,10 @@ async def process_video_endpoint(
     original_path = TEMP_DIR / f"{job_id}_original.mp4"
     
     try:
-        # Save uploaded file
-        with open(input_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
-        
+        # Save uploaded file (streamed, capped -- never buffers the whole
+        # upload in memory and can't exhaust disk on a huge file).
+        await save_upload_capped(file, input_path, MAX_UPLOAD_BYTES)
+
         # Check video limits before processing
         limit_error = check_video_limits(str(input_path))
         if limit_error:

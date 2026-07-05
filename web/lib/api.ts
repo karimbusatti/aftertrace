@@ -1,6 +1,13 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const API_URL = API_BASE.endsWith("/api") ? API_BASE : `${API_BASE}/api`;
 
+if (!process.env.NEXT_PUBLIC_API_URL && typeof window !== "undefined" && window.location.hostname !== "localhost") {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "NEXT_PUBLIC_API_URL is not set — falling back to http://localhost:8000, which will not work in production."
+  );
+}
+
 export interface ProcessMetadata {
   // Basic stats
   frames_processed: number;
@@ -25,12 +32,6 @@ export interface ProcessMetadata {
     start_frame: number;
     end_frame: number;
   }[];
-}
-
-export interface CompositionSegment {
-  effect_id: string;
-  start: number;
-  end: number;
 }
 
 export interface ProcessResponse {
@@ -58,31 +59,12 @@ export interface ApiError {
   detail: string;
 }
 
-export async function checkHealth(): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_URL}/health`);
-    const data = await res.json();
-    return data.status === "ok";
-  } catch {
-    return false;
-  }
-}
-
-export async function getPresets(): Promise<Preset[]> {
-  try {
-    const res = await fetch(`${API_URL}/presets`);
-    const data: PresetsResponse = await res.json();
-    return data.presets;
-  } catch {
-    return [];
-  }
-}
-
 export async function processVideo(
   file: File,
   preset: string,
   overlayMode: boolean = false,
-  multiConfig: { mode: "sequence" | "overlay"; effects: string[]; segmentDuration: number } | null = null
+  multiConfig: { mode: "sequence" | "overlay"; effects: string[]; segmentDuration: number } | null = null,
+  signal?: AbortSignal
 ): Promise<ProcessResponse> {
   const formData = new FormData();
   formData.append("file", file);
@@ -106,6 +88,7 @@ export async function processVideo(
   const res = await fetch(`${API_URL}/process`, {
     method: "POST",
     body: formData,
+    signal,
   });
 
   if (!res.ok) {

@@ -52,8 +52,11 @@ def extract_audio(video_path: str) -> tuple[str | None, float]:
             clip.close()
             return None, duration
         
-        # Write to temp file
-        audio_path = tempfile.mktemp(suffix=".wav")
+        # Write to temp file. mkstemp (not mktemp) actually creates the file
+        # up front, closing the TOCTOU window where another process could
+        # claim the path between us picking a name and moviepy writing to it.
+        fd, audio_path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
         clip.audio.write_audiofile(audio_path, logger=None, verbose=False)
         clip.close()
         

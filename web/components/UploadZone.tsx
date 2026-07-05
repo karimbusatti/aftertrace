@@ -68,12 +68,6 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
     setIsDragging(false);
   }, []);
 
-  const handleClick = () => {
-    if (!disabled) {
-      inputRef.current?.click();
-    }
-  };
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -85,14 +79,16 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
 
   return (
     <div>
-      <div
-        onClick={handleClick}
+      <label
+        htmlFor="video-upload-input"
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
+        aria-label="Upload a video clip: drag and drop, or pick from your camera roll"
         className={`
           relative h-40 flex flex-col items-center justify-center rounded-2xl
           border-2 border-dashed transition-all duration-300 cursor-pointer
+          focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/40
           ${disabled ? "opacity-50 cursor-not-allowed" : ""}
           ${isDragging ? "border-accent bg-accent/5" : "border-white/20 hover:border-white/40"}
           ${error ? "border-danger/50" : ""}
@@ -100,10 +96,11 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
       >
         <input
           ref={inputRef}
+          id="video-upload-input"
           type="file"
           accept="video/*"
           onChange={handleChange}
-          className="hidden"
+          className="sr-only"
           disabled={disabled}
         />
 
@@ -135,7 +132,7 @@ export function UploadZone({ onFileSelect, disabled, error }: UploadZoneProps) {
             </p>
           </div>
         )}
-      </div>
+      </label>
 
       {notice && !error && (
         <p className="text-warning/90 text-xs mt-2 flex items-start gap-1.5">

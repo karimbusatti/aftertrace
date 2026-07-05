@@ -1,11 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { UploadZone } from "@/components/UploadZone";
 import { PresetPicker } from "@/components/PresetPicker";
 import { ResultPanel } from "@/components/ResultPanel";
 import { TipsSheet } from "@/components/TipsSheet";
 import { processVideo, type ProcessResponse } from "@/lib/api";
+
+// Long enough for a slow render on a big clip, short enough to not hang forever
+// if the backend or network genuinely drops the request.
+const REQUEST_TIMEOUT_MS = 6 * 60 * 1000;
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -22,8 +26,21 @@ export default function Home() {
   const [maxSlots, setMaxSlots] = useState(3); // Default 3 slots, can choose 2-5
   const [segmentDuration, setSegmentDuration] = useState(0.5); // Default 0.5s per segment
 
+  // Tracks the in-flight request so a new submit can cancel a stale one, and
+  // so a stale response/error can't clobber state from a newer request.
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
   const handleSubmit = async () => {
     if (!file) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     setIsLoading(true);
     setError(null);
@@ -38,17 +55,24 @@ export default function Home() {
         segmentDuration: segmentDuration,
       } : null;
 
-      const response = await processVideo(file, preset, false, multiConfig);
+      const response = await processVideo(file, preset, false, multiConfig, controller.signal);
+      if (abortRef.current !== controller) return; // a newer request has since started
       setResult(response);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Something went wrong";
-      if (message.includes("too heavy") || message.includes("under 20 seconds")) {
-        setValidationError(message);
+      if (abortRef.current !== controller) return; // a newer request has since started
+      if (controller.signal.aborted) {
+        setError("That took too long and was cancelled — try again, maybe with a shorter clip.");
       } else {
-        setError(message);
+        const message = err instanceof Error ? err.message : "Something went wrong";
+        if (message.includes("too heavy") || message.includes("under 20 seconds")) {
+          setValidationError(message);
+        } else {
+          setError(message);
+        }
       }
     } finally {
-      setIsLoading(false);
+      clearTimeout(timeoutId);
+      if (abortRef.current === controller) setIsLoading(false);
     }
   };
 
