@@ -748,6 +748,9 @@ def draw_ocular_overload(
 # MATRIX MODE EFFECT (Green data rain)
 # =============================================================================
 
+_matrix_cache: dict = {}
+
+
 def draw_matrix_mode(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -755,76 +758,94 @@ def draw_matrix_mode(
     frame_idx: int = 0,
 ) -> np.ndarray:
     """
-    Matrix Mode effect: Green digital rain over subject.
-    
-    Creates that iconic Matrix movie look with falling green characters
-    concentrated on the subject.
+    Matrix Mode: green digital rain revealing the subject.
+
+    Grid-locked rain like the film titles: every glyph sits in a fixed cell and
+    each column's head steps down the grid at its own (deterministic) speed
+    with its own trail length. Glyphs are stable and only occasionally mutate,
+    so the rain reads as falling code instead of 30Hz static. Fully vectorized
+    via pre-rendered glyph tiles, finished with phosphor glow + scanlines.
     """
     h, w = frame.shape[:2]
-    
+
+    cw = int(preset.get("matrix_cell_w", 10))
+    ch = int(preset.get("matrix_cell_h", 14))
+    # Hershey fonts are ASCII-only (the old katakana charset rendered as '?').
+    chars = preset.get("matrix_chars", "0123456789Z=+*:<>#$&@XKM")
+    n = len(chars)
+
+    grid_w, grid_h = max(1, w // cw), max(1, h // ch)
+
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    # Create dark green-tinted background
+
+    # --- Cached per-resolution constants: glyph tiles + per-column params ---
+    key = (grid_w, grid_h, cw, ch, chars)
+    cached = _matrix_cache.get(key)
+    if cached is None:
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fs = ch / 34.0
+        tiles = np.zeros((n, ch, cw), dtype=np.uint8)  # glyph alpha masks
+        for i, c in enumerate(chars):
+            cv2.putText(tiles[i], c, (0, ch - 3), font, fs, 255, 1, cv2.LINE_AA)
+
+        cols = np.arange(grid_w)
+        rows = np.arange(grid_h)
+        # Deterministic per-column personality (speed / trail / phase).
+        col_hash = (cols * 2654435761) % 2**32
+        speed = 1 + (col_hash >> 3) % 3            # head advances every 1-3 frames
+        trail = 8 + (col_hash >> 7) % 14           # trail length in cells
+        phase = (col_hash >> 11) % 199             # column start offset
+        # Stable per-cell base glyph + which cells mutate over time.
+        cell_hash = (cols[None, :] * 131 + rows[:, None] * 71) * 2654435761 % 2**32
+        base_glyph = (cell_hash >> 5) % n
+        mutates = ((cell_hash >> 9) % 3) == 0      # ~1/3 of cells cycle glyphs
+        cached = (tiles, speed, trail, phase, base_glyph, mutates, rows, cols)
+        _matrix_cache[key] = cached
+    tiles, speed, trail, phase, base_glyph, mutates, rows, cols = cached
+
+    # --- Rain intensity per cell (vectorized) ---
+    cycle = grid_h + trail                                    # per-column loop length
+    head_row = (phase + frame_idx // speed) % cycle           # (grid_w,)
+    dist = head_row[None, :] - rows[:, None]                  # rows above the head
+    on = (dist >= 0) & (dist < trail[None, :])
+    fade = np.where(on, 1.0 - dist / np.maximum(trail[None, :], 1), 0.0).astype(np.float32)
+    # Ease the tail (quadratic) so trails melt out instead of ending abruptly.
+    fade *= fade
+
+    # Subject reveal: rain is brighter where the source is bright.
+    cell_lum = cv2.resize(gray, (grid_w, grid_h), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+    fade *= 0.35 + 0.65 * cell_lum
+
+    # --- Glyph selection: stable, with occasional mutation on ~1/3 of cells ---
+    glyph_idx = np.where(mutates, (base_glyph + frame_idx // 6) % n, base_glyph)
+
+    # --- Compose: tile alpha x per-cell color (green body, pale head) ---
+    alpha = tiles[glyph_idx].transpose(0, 2, 1, 3).reshape(grid_h * ch, grid_w * cw)
+    alpha = alpha.astype(np.float32) / 255.0
+
+    green = np.array((70, 255, 0), dtype=np.float32)      # BGR phosphor green
+    head_col = np.array((215, 255, 215), dtype=np.float32)
+    is_head = (dist == 0)
+    cell_color = green[None, None, :] * fade[:, :, None]
+    cell_color[is_head] = head_col * np.maximum(fade[is_head], 0.85)[:, None]
+
+    color_full = cv2.resize(cell_color, (grid_w * cw, grid_h * ch),
+                            interpolation=cv2.INTER_NEAREST)
+    rain = (color_full * alpha[:, :, None]).astype(np.uint8)
+
     output = np.zeros((h, w, 3), dtype=np.uint8)
-    output[:, :, 1] = (gray * 0.15).astype(np.uint8)  # Subtle green hint
-    
-    # Matrix characters
-    matrix_chars = "01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン"
-    
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.35
-    char_height = 14
-    char_width = 10
-    
-    # Create columns of falling characters
-    num_cols = w // char_width
-    
-    # Use frame_idx to animate the rain
-    np.random.seed(42)  # Consistent random for each frame position
-    
-    for col in range(num_cols):
-        x = col * char_width
-        
-        # Each column has a "head" position that moves down
-        col_seed = col * 1000
-        head_y = ((frame_idx * 3 + col_seed) % (h + 200)) - 100
-        
-        # Draw trail of characters above the head
-        trail_length = random.randint(10, 25)
-        
-        for i in range(trail_length):
-            y = head_y - i * char_height
-            if 0 <= y < h:
-                # Brightness fades as we go up the trail
-                brightness = 1.0 - (i / trail_length) * 0.8
-                
-                # Check if this position is on the subject (brighter original)
-                if 0 <= y < h and 0 <= x < w:
-                    subject_brightness = gray[int(y), int(x)] / 255.0
-                    brightness *= (0.5 + subject_brightness * 0.5)
-                
-                # Green color with varying intensity
-                green = int(255 * brightness)
-                color = (0, green, int(green * 0.3))  # Slight cyan tint
-                
-                # Random character
-                char = random.choice(matrix_chars)
-                
-                # Head is brightest (white-green)
-                if i == 0:
-                    color = (200, 255, 200)
-                
-                cv2.putText(output, char, (x, int(y)), font, font_scale, 
-                           color, 1, cv2.LINE_AA)
-    
-    # Blend with original to show subject
-    subject_blend = 0.2
-    output = cv2.addWeighted(output, 1.0, frame, subject_blend, 0)
-    
-    # Add scanlines for CRT feel
-    for y in range(0, h, 3):
-        output[y, :] = (output[y, :] * 0.85).astype(np.uint8)
-    
+    output[:rain.shape[0], :rain.shape[1]] = rain[:h, :w]
+
+    # Faint green-tinted ghost of the scene so the subject reads through.
+    output[:, :, 1] = np.maximum(output[:, :, 1], (gray * 0.12).astype(np.uint8))
+
+    # Phosphor glow: the rain emits light.
+    glow = cv2.GaussianBlur(output, (0, 0), 2.5)
+    output = cv2.add(output, (glow.astype(np.float32) * 0.55).astype(np.uint8))
+
+    # CRT scanlines (vectorized).
+    output[::3] = (output[::3].astype(np.float32) * 0.85).astype(np.uint8)
+
     return output
 
 
@@ -1051,105 +1072,165 @@ def draw_signal_map(
 # BLOB TRACKING EFFECT (TouchDesigner style)
 # =============================================================================
 
+_blob_tracks: list[dict] = []
+_blob_next_id: int = 0
+
+
+def _box_iou(a, b) -> float:
+    """IoU of two [x, y, w, h] boxes."""
+    ax2, ay2 = a[0] + a[2], a[1] + a[3]
+    bx2, by2 = b[0] + b[2], b[1] + b[3]
+    ix = max(0.0, min(ax2, bx2) - max(a[0], b[0]))
+    iy = max(0.0, min(ay2, by2) - max(a[1], b[1]))
+    inter = ix * iy
+    union = a[2] * a[3] + b[2] * b[3] - inter
+    return inter / union if union > 0 else 0.0
+
+
 def draw_blob_track(
     frame: np.ndarray,
     preset: dict[str, Any],
     colors: dict,
 ) -> np.ndarray:
     """
-    Blob Track effect: Clean minimal tracking - TouchDesigner style.
-    
-    Simple thin white rectangles with:
-    - Clean thin box outlines (no crosshairs)
-    - White connection lines between nearby blobs
-    - NO boxes touching frame edges (removes corner artifacts)
+    Blob Track effect: clean minimal tracking - TouchDesigner style.
+
+    Thin white boxes with corner ticks, connection lines, and STABLE tracks:
+    detections are matched frame-to-frame by IoU, boxes are exponentially
+    smoothed, IDs persist on the same object, and tracks fade in on birth and
+    fade out for a few frames when lost - so the overlay reads as real
+    object tracking instead of per-frame detection flicker.
     """
+    global _blob_next_id
+
     h, w = frame.shape[:2]
-    
+
     # Edge margin - ignore detections touching frame borders
     edge_margin = 10
-    
+
     # Convert to grayscale for detection
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
+
     # Get parameters
     blur_size = preset.get("blob_blur", 11)
     blur_size = blur_size if blur_size % 2 == 1 else blur_size + 1
-    
+
     # Blur to reduce noise
     blurred = cv2.GaussianBlur(gray, (blur_size, blur_size), 0)
-    
+
     # Use edge detection + Otsu for robust detection
     edges = cv2.Canny(blurred, 30, 100)
     edges = cv2.dilate(edges, None, iterations=2)
     _, otsu = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     binary = cv2.bitwise_or(edges, otsu)
-    
+
     # Morphological cleanup
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-    
+
     # Find contours
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
+
     # Show original video with slight darkening
     bg_alpha = preset.get("bg_alpha", 0.75)
     output = (frame * bg_alpha).astype(np.uint8)
-    
+
     # Filter contours - exclude ones touching frame edges
     min_area = preset.get("min_blob_area", 200)
     max_blobs = preset.get("max_blobs", 80)
-    
-    valid_contours = []
+
+    detections: list[np.ndarray] = []
+    scored = []
     for contour in contours:
         area = cv2.contourArea(contour)
         if area < min_area:
             continue
         x, y, bw, bh = cv2.boundingRect(contour)
-        # Skip if touching any edge of the frame
         if x <= edge_margin or y <= edge_margin:
             continue
         if x + bw >= w - edge_margin or y + bh >= h - edge_margin:
             continue
-        valid_contours.append((area, contour))
-    
-    valid_contours.sort(key=lambda x: x[0], reverse=True)
-    valid_contours = valid_contours[:max_blobs]
-    
-    if not valid_contours:
-        return output
-    
-    # Colors - clean white
-    box_color = (255, 255, 255)
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.3
-    
-    # Collect blob data
-    blob_centers = []
-    blob_boxes = []
-    
-    for idx, (area, contour) in enumerate(valid_contours):
-        x, y, bw, bh = cv2.boundingRect(contour)
-        center_x = x + bw // 2
-        center_y = y + bh // 2
-        blob_centers.append((center_x, center_y))
-        blob_boxes.append((x, y, bw, bh, idx, area))
-    
-    # White connection mesh between nearby blobs (bright, lightly distance-faded).
-    max_connection_dist = preset.get("max_connection_dist", 200)
-    for i in range(len(blob_centers)):
-        for j in range(i + 1, len(blob_centers)):
-            p1, p2 = blob_centers[i], blob_centers[j]
-            dist = np.hypot(p1[0] - p2[0], p1[1] - p2[1])
-            if dist < max_connection_dist:
-                a = 1.0 - dist / max_connection_dist
-                c = int(150 + 105 * a)   # bright white, only gently faded
-                cv2.line(output, p1, p2, (c, c, c), 1, cv2.LINE_AA)
+        scored.append((area, (x, y, bw, bh)))
+    scored.sort(key=lambda s: s[0], reverse=True)
+    detections = [np.array(box, dtype=np.float32) for _, box in scored[:max_blobs]]
 
-    # Draw each blob as a clean white square (no centre crosshair) + ID label,
-    # with a small corner-tick accent so it still reads as a tracking box.
-    for (x, y, bw, bh, idx, area) in blob_boxes:
+    # =========================================================================
+    # TEMPORAL TRACKING: match detections to existing tracks by IoU (greedy,
+    # best pair first), smooth matched boxes, age out lost tracks.
+    # =========================================================================
+    smoothing = float(preset.get("track_smoothing", 0.45))  # det weight per frame
+    max_misses = int(preset.get("track_max_misses", 5))
+
+    pairs = []
+    for ti, tr in enumerate(_blob_tracks):
+        for di, det in enumerate(detections):
+            iou = _box_iou(tr["box"], det)
+            if iou > 0.15:
+                pairs.append((iou, ti, di))
+    pairs.sort(reverse=True)
+
+    matched_tracks: set[int] = set()
+    matched_dets: set[int] = set()
+    for iou, ti, di in pairs:
+        if ti in matched_tracks or di in matched_dets:
+            continue
+        matched_tracks.add(ti)
+        matched_dets.add(di)
+        tr = _blob_tracks[ti]
+        tr["box"] += (detections[di] - tr["box"]) * smoothing
+        tr["age"] += 1
+        tr["misses"] = 0
+
+    for ti, tr in enumerate(_blob_tracks):
+        if ti not in matched_tracks:
+            tr["misses"] += 1
+
+    _blob_tracks[:] = [t for t in _blob_tracks if t["misses"] <= max_misses]
+
+    for di, det in enumerate(detections):
+        if di not in matched_dets:
+            _blob_tracks.append({
+                "id": _blob_next_id, "box": det.copy(), "age": 0, "misses": 0,
+            })
+            _blob_next_id += 1
+
+    if not _blob_tracks:
+        return output
+
+    # Visibility: fade in over the first frames, fade out while missing.
+    def track_alpha(tr) -> float:
+        fade_in = min(1.0, (tr["age"] + 1) / 4.0)
+        fade_out = 1.0 - tr["misses"] / (max_misses + 1.0)
+        return fade_in * fade_out
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    # White connection mesh between nearby tracks (alpha-weighted).
+    max_connection_dist = preset.get("max_connection_dist", 200)
+    centers = [
+        (tr["box"][0] + tr["box"][2] / 2.0, tr["box"][1] + tr["box"][3] / 2.0)
+        for tr in _blob_tracks
+    ]
+    alphas = [track_alpha(tr) for tr in _blob_tracks]
+    for i in range(len(centers)):
+        for j in range(i + 1, len(centers)):
+            dist = np.hypot(centers[i][0] - centers[j][0], centers[i][1] - centers[j][1])
+            if dist < max_connection_dist:
+                a = (1.0 - dist / max_connection_dist) * min(alphas[i], alphas[j])
+                c = int((150 + 105 * a) * a)
+                if c > 8:
+                    cv2.line(output, (int(centers[i][0]), int(centers[i][1])),
+                             (int(centers[j][0]), int(centers[j][1])), (c, c, c), 1, cv2.LINE_AA)
+
+    # Draw each track: thin box + corner ticks + persistent ID label.
+    for tr, alpha in zip(_blob_tracks, alphas):
+        if alpha <= 0.05:
+            continue
+        x, y, bw, bh = (int(round(v)) for v in tr["box"])
         x2, y2 = x + bw, y + bh
+        cval = int(255 * alpha)
+        box_color = (cval, cval, cval)
+
         cv2.rectangle(output, (x, y), (x2, y2), box_color, 1, cv2.LINE_AA)
 
         # Subtle corner ticks (no plus in the middle).
@@ -1160,12 +1241,13 @@ def draw_blob_track(
             cv2.line(output, (px, py), (px + dx * cl, py), box_color, 2, cv2.LINE_AA)
             cv2.line(output, (px, py), (px, py + dy * cl), box_color, 2, cv2.LINE_AA)
 
-        # ID + coordinate readout above the box (shadowed for legibility).
+        # Persistent ID label above the box (shadowed for legibility).
         box_size = min(bw, bh)
         fscale = max(0.3, min(0.42, box_size / 220.0))
-        label = f"ID {idx:02d}"
+        label = f"ID {tr['id'] % 100:02d}"
         ly = y - 5 if y > 14 else y + int(box_size * 0.2) + 6
-        cv2.putText(output, label, (x + 1, ly + 1), font, fscale, (0, 0, 0), 1, cv2.LINE_AA)
+        cv2.putText(output, label, (x + 1, ly + 1), font, fscale,
+                    (0, 0, 0), 1, cv2.LINE_AA)
         cv2.putText(output, label, (x, ly), font, fscale, box_color, 1, cv2.LINE_AA)
 
     return output
@@ -2597,6 +2679,8 @@ def reset_stateful_effects():
     global _contour_prev_edges
     global _codenet_pts, _codenet_prev_gray
     global _pc_prev_small, _pc_energy
+    global _blob_next_id
+    global _crystal_pts, _crystal_prev_gray
 
     _motion_trace_prev_frame = None
     _motion_trace_trail_canvas = None
@@ -2612,6 +2696,10 @@ def reset_stateful_effects():
     _codenet_prev_gray = None
     _pc_prev_small = None
     _pc_energy = None
+    _blob_tracks.clear()
+    _blob_next_id = 0
+    _crystal_pts = None
+    _crystal_prev_gray = None
 
 
 # =============================================================================
@@ -2949,6 +3037,10 @@ def draw_chromatic_ghost(
 # CRYSTALLIZE (low-poly Delaunay triangulation mosaic)
 # =============================================================================
 
+_crystal_pts: np.ndarray | None = None
+_crystal_prev_gray: np.ndarray | None = None
+
+
 def draw_crystallize(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -2958,51 +3050,102 @@ def draw_crystallize(
     """
     Crystallize: shatter the frame into a low-poly mosaic of flat-shaded
     triangles. Feature points concentrate detail on the subject while a grid
-    guarantees full coverage; each triangle is filled with the color sampled at
-    its centroid. Premium generative-art look.
+    guarantees full coverage.
+
+    The seed points are TRACKED with optical flow frame-to-frame (with a
+    periodic top-up of fresh corners), so the triangulation deforms smoothly
+    with the motion instead of re-randomizing - the mosaic flows like faceted
+    glass rather than strobing. Facet colors are sampled from a pre-blurred
+    frame (one op) instead of averaging a patch per triangle.
     """
+    global _crystal_pts, _crystal_prev_gray
+
     h, w = frame.shape[:2]
     cells = int(preset.get("cells", 600))
     grid_step = int(preset.get("grid_step", max(36, (w + h) // 34)))
     facet_edges = bool(preset.get("facet_edges", True))
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    corners = cv2.goodFeaturesToTrack(gray, maxCorners=cells, qualityLevel=0.01, minDistance=8)
 
-    pts: list[tuple[float, float]] = []
-    if corners is not None:
-        pts.extend((float(c.ravel()[0]), float(c.ravel()[1])) for c in corners)
+    # --- Temporally coherent seed points ---
+    pts = None
+    if (_crystal_pts is not None and _crystal_prev_gray is not None
+            and _crystal_prev_gray.shape == gray.shape and len(_crystal_pts) >= 8):
+        tracked, status, _ = cv2.calcOpticalFlowPyrLK(
+            _crystal_prev_gray, gray, _crystal_pts.reshape(-1, 1, 2), None,
+            winSize=(21, 21), maxLevel=2,
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.02),
+        )
+        if tracked is not None:
+            ok = status.flatten() == 1
+            pts = tracked.reshape(-1, 2)[ok]
+            # Drop points that drifted out of frame.
+            inb = ((pts[:, 0] > 1) & (pts[:, 0] < w - 2)
+                   & (pts[:, 1] > 1) & (pts[:, 1] < h - 2))
+            pts = pts[inb]
 
-    # Grid + border points so the entire frame is tiled (no black gaps).
+    # Top up with fresh corners when thin (or on a slow cadence so new detail
+    # gets facets without disturbing existing ones).
+    if pts is None or len(pts) < cells * 0.6 or frame_idx % 45 == 0:
+        corners = cv2.goodFeaturesToTrack(
+            gray, maxCorners=cells, qualityLevel=0.01, minDistance=8)
+        fresh = (corners.reshape(-1, 2).astype(np.float32)
+                 if corners is not None else np.empty((0, 2), np.float32))
+        if pts is None or len(pts) == 0:
+            pts = fresh
+        elif len(fresh):
+            # Keep tracked points; add fresh ones only where no point already
+            # lives (coarse occupancy grid keeps this O(n)).
+            occ = np.zeros((h // 8 + 1, w // 8 + 1), dtype=bool)
+            oy = (pts[:, 1] // 8).astype(int)
+            ox = (pts[:, 0] // 8).astype(int)
+            occ[oy, ox] = True
+            fy = (fresh[:, 1] // 8).astype(int)
+            fx = (fresh[:, 0] // 8).astype(int)
+            new = fresh[~occ[fy, fx]]
+            if len(new):
+                pts = np.concatenate([pts, new])[: cells]
+
+    _crystal_pts = pts.astype(np.float32) if pts is not None else None
+    _crystal_prev_gray = gray
+
+    # --- Triangulate: tracked features + static grid/border for coverage ---
+    all_pts: list[tuple[float, float]] = []
+    if pts is not None:
+        all_pts.extend((float(x), float(y)) for x, y in pts)
     gx = list(range(0, w, grid_step)) + [w - 1]
     gy = list(range(0, h, grid_step)) + [h - 1]
     for y in gy:
         for x in gx:
-            pts.append((float(x), float(y)))
+            all_pts.append((float(x), float(y)))
 
     subdiv = cv2.Subdiv2D((0, 0, w, h))
-    for (x, y) in pts:
+    for (x, y) in all_pts:
         if 0 <= x < w and 0 <= y < h:
             subdiv.insert((float(x), float(y)))
 
+    # Facet color = pre-blurred frame sampled at the centroid (stable, cheap).
+    smooth = cv2.blur(frame, (7, 7))
+
     output = np.zeros((h, w, 3), dtype=np.uint8)
-    for t in subdiv.getTriangleList():
-        tri = np.array([[t[0], t[1]], [t[2], t[3]], [t[4], t[5]]], dtype=np.float32)
-        if (tri[:, 0] < 0).any() or (tri[:, 0] > w - 1).any():
-            continue
-        if (tri[:, 1] < 0).any() or (tri[:, 1] > h - 1).any():
-            continue
-        cx = int(np.clip(tri[:, 0].mean(), 0, w - 1))
-        cy = int(np.clip(tri[:, 1].mean(), 0, h - 1))
-        # Average a small patch around the centroid for a stable facet color.
-        y0, y1 = max(0, cy - 2), min(h, cy + 3)
-        x0, x1 = max(0, cx - 2), min(w, cx + 3)
-        color = frame[y0:y1, x0:x1].reshape(-1, 3).mean(axis=0)
-        color = [int(c) for c in color]
-        poly = tri.astype(np.int32)
-        cv2.fillConvexPoly(output, poly, color, cv2.LINE_AA)
-        if facet_edges:
-            cv2.polylines(output, [poly], True, [int(c * 0.65) for c in color], 1, cv2.LINE_AA)
+    tris = subdiv.getTriangleList()
+    if len(tris):
+        tris = tris.reshape(-1, 3, 2)
+        # Keep triangles fully inside the frame.
+        keep = ((tris[:, :, 0] >= 0).all(axis=1) & (tris[:, :, 0] <= w - 1).all(axis=1)
+                & (tris[:, :, 1] >= 0).all(axis=1) & (tris[:, :, 1] <= h - 1).all(axis=1))
+        tris = tris[keep]
+        cxs = np.clip(tris[:, :, 0].mean(axis=1), 0, w - 1).astype(np.int32)
+        cys = np.clip(tris[:, :, 1].mean(axis=1), 0, h - 1).astype(np.int32)
+        cols = smooth[cys, cxs]  # (n, 3) uint8
+        edge_cols = (cols.astype(np.float32) * 0.65).astype(np.uint8)
+        polys = tris.astype(np.int32)
+        for poly, col, ecol in zip(polys, cols, edge_cols):
+            c = (int(col[0]), int(col[1]), int(col[2]))
+            cv2.fillConvexPoly(output, poly, c, cv2.LINE_AA)
+            if facet_edges:
+                cv2.polylines(output, [poly], True,
+                              (int(ecol[0]), int(ecol[1]), int(ecol[2])), 1, cv2.LINE_AA)
 
     return output
 
