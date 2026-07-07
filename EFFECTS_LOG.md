@@ -102,6 +102,48 @@ neon_glow 1.55 · point_cloud 3.01 · blacktone 1.96 · cursor_cloud 1.29
 - **ASCII Core / Glyph Trace / Cursor Cloud**: glyph/cursor tile banks were
   rebuilt every frame → now cached (keyed by cell size/ramp).
 
+### Phase B — headline rewrites
+
+- **Matrix Mode** (`draw_matrix_mode`):
+  - Before: every glyph re-rolled with unseeded `random` each frame (30Hz
+    strobe), trail lengths jittered per frame, katakana charset that Hershey
+    fonts can't render, flat unlit look, Python putText loops.
+  - After: grid-locked rain — per-column deterministic speed/trail/phase,
+    stable glyphs with ~1/3 of cells slowly mutating, quadratic-eased trail
+    fade, subject-luminance reveal, phosphor glow, vectorized tile compose.
+    Same render cost (2.2s), enormously calmer + more cinematic.
+- **Blob Track** (`draw_blob_track`) — flagship preset:
+  - Before: fresh contour detection each frame; boxes flickered in/out and
+    "ID 00" hopped between objects (index = size order).
+  - After: real temporal tracking — greedy IoU matching, exponential box
+    smoothing, persistent per-object IDs, fade-in on birth / fade-out over 5
+    missed frames. Reads as genuine surveillance tracking.
+- **Crystallize** (`draw_crystallize`):
+  - Before: goodFeaturesToTrack re-seeded every frame → whole mosaic strobed;
+    per-triangle patch-mean color; slowest effect (3.59s).
+  - After: seeds tracked with pyramidal LK (mesh flows with motion), fresh
+    corners merged via occupancy grid only where empty, facet color = one
+    pre-blurred frame sampled at centroids. 3.59→2.04s (−43%).
+- **Numeric Aura** (`draw_number_cloud`):
+  - Before: thousands of putText calls/frame across two Python grid loops,
+    digits strobing at 30Hz, contour-only subject detection.
+  - After: full glyph-tile rewrite — scrolling hex background with smooth
+    pixel scroll (np.roll), binary foreground with per-cell 4-11-frame flip
+    cadence, person segmentation with heuristic fallback, mask built/blurred
+    at 1/8 res (the full-res sigma-25 blur dominated cost), cyan glow pass.
+    Digit depth gradient: dim blue edge → cyan → white-hot core.
+- **Binary Bloom** (`draw_binary_bloom`):
+  - Before: two nested putText grids per frame; whole-field digit re-roll
+    every 3 frames.
+  - After: tile compose with measured/centered glyphs (old ones clipped),
+    hash-staggered per-cell flips (5-12 frame periods), sparser interior via
+    stable cell dropout, bloom on the silhouette edge band.
+- **Neon Glow**: added tube persistence — previous edges decay at 0.58/frame
+  via max-blend, so outlines cool down like real neon instead of blinking
+  when Canny drops a line for a frame.
+- **Signal Map**: the two full-frame `output.copy()` per data box replaced
+  with crop-region blends (the hottest path in the effect).
+
 ---
 
 ## Needs Karim's input

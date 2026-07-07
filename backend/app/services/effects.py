@@ -1028,13 +1028,11 @@ def draw_signal_map(
         by = y + 3 + (idx * 11) % max(1, bh - box_h - 6)
         
         if bx + box_w < x + bw and by + box_h < y + bh:
-            # Draw filled box with scanlines
-            overlay = output.copy()
-            cv2.rectangle(overlay, (bx, by), (bx + box_w, by + box_h), fill_color, -1)
-            output[by:by+box_h, bx:bx+box_w] = cv2.addWeighted(
-                output[by:by+box_h, bx:bx+box_w], 0.4,
-                overlay[by:by+box_h, bx:bx+box_w], 0.6, 0
-            )
+            # Filled box with scanlines (blend only the crop - a full-frame
+            # copy per box was the hottest path in this effect)
+            region = output[by:by+box_h, bx:bx+box_w]
+            fill = np.full_like(region, fill_color)
+            output[by:by+box_h, bx:bx+box_w] = cv2.addWeighted(region, 0.4, fill, 0.6, 0)
             # Scanlines
             for sy in range(by, by + box_h, 2):
                 cv2.line(output, (bx, sy), (bx + box_w, sy), (30, 30, 30), 1)
@@ -1048,12 +1046,9 @@ def draw_signal_map(
             fill_color2 = red_fill if fill_color == green_fill else green_fill
             
             if bx2 > x + box_w:
-                overlay2 = output.copy()
-                cv2.rectangle(overlay2, (bx2, by2), (bx2 + box_w, by2 + box_h), fill_color2, -1)
-                output[by2:by2+box_h, bx2:bx2+box_w] = cv2.addWeighted(
-                    output[by2:by2+box_h, bx2:bx2+box_w], 0.4,
-                    overlay2[by2:by2+box_h, bx2:bx2+box_w], 0.6, 0
-                )
+                region2 = output[by2:by2+box_h, bx2:bx2+box_w]
+                fill2 = np.full_like(region2, fill_color2)
+                output[by2:by2+box_h, bx2:bx2+box_w] = cv2.addWeighted(region2, 0.4, fill2, 0.6, 0)
                 for sy in range(by2, by2 + box_h, 2):
                     cv2.line(output, (bx2, sy), (bx2 + box_w, sy), (30, 30, 30), 1)
                 cv2.rectangle(output, (bx2, by2), (bx2 + box_w, by2 + box_h), blue_outline, 1)
@@ -1314,6 +1309,9 @@ def draw_dither_trace(
 # NUMERIC AURA EFFECT (Subject isolation - numbers on subject, video background)
 # =============================================================================
 
+_number_cloud_cache: dict = {}
+
+
 def draw_number_cloud(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -1321,147 +1319,132 @@ def draw_number_cloud(
     frame_idx: int = 0,
 ) -> np.ndarray:
     """
-    Binary Bloom (Numeric Aura) effect - High-end data visualization style.
-    Features:
-    - Strict scrolling grid system for a structured aesthetic
-    - Dim hex background tracking the subject mask
-    - Bright glowing binary (0/1) foreground directly on the subject
-    - Smooth mask falloff for organic integration
-    - Pure sci-fi palette (cyan, deep blue, white hot)
+    Numeric Aura: the subject rendered as glowing binary in a sci-fi hex field.
+
+    - Dim deep-blue hex grid scrolling upward through the whole frame, faintly
+      brightening where it passes the subject
+    - Bright cyan 0/1 digits on the subject, white-hot in the core
+    - Each digit cell flips on its own 4-11 frame cadence (staggered by a cell
+      hash) so the field shimmers organically instead of strobing at 30Hz
+    - Person segmentation when available, contour heuristic otherwise
+    - Fully vectorized via cached glyph-tile banks (was thousands of putText
+      calls per frame)
     """
-    import string
     h, w = frame.shape[:2]
-    
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    # === SUBJECT DETECTION ===
-    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray)
-    edges = cv2.Canny(enhanced, 30, 100)
-    
-    kernel = np.ones((30, 30), np.uint8)
-    dilated = cv2.dilate(edges, kernel, iterations=3)
-    dilated = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel, iterations=2)
-    
-    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    subject_mask = np.zeros((h, w), dtype=np.float32)
-    
-    if contours:
-        best_contour = None
-        best_score = 0
-        center_x, center_y = w // 2, h // 2
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area < h * w * 0.03:
-                continue
-            M = cv2.moments(contour)
-            if M["m00"] > 0:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                dist = np.sqrt((cx - center_x)**2 + (cy - center_y)**2)
-                max_dist = np.sqrt(center_x**2 + center_y**2)
-                centrality = 1.0 - (dist / max_dist)
-                score = area * (0.4 + 0.6 * centrality)
-                if score > best_score:
-                    best_score = score
-                    best_contour = contour
-        if best_contour is not None:
-            hull = cv2.convexHull(best_contour)
-            temp_mask = np.zeros((h, w), dtype=np.uint8)
-            cv2.fillPoly(temp_mask, [hull], 255)
-            subject_mask = temp_mask.astype(np.float32) / 255.0
-    
-    if np.sum(subject_mask) < h * w * 0.03:
-        # Fallback mask if no subject found
-        center_x, center_y = w // 2, h // 2
-        temp_mask = np.zeros((h, w), dtype=np.uint8)
-        cv2.ellipse(temp_mask, (center_x, center_y), (w//3, h//2 + 50), 0, 0, 360, 255, -1)
-        subject_mask = temp_mask.astype(np.float32) / 255.0
-        
-    # Smooth the mask to create a glowing falloff instead of a hard edge
-    subject_mask = cv2.GaussianBlur(subject_mask, (81, 81), 0)
-    
-    # === COLORS ===
-    # Colors configured based on user's preference for clean, high-contrast look
-    # BGR format
-    bg_color = (0, 0, 0)          # Void black
-    blue_dim = (140, 50, 0)       # Deep dim background blue
-    cyan_bright = (255, 200, 50)  # Bright cyan for binary foreground
-    white_hot = (250, 250, 250)   # White hot core
-    
-    output = np.full((h, w, 3), bg_color, dtype=np.uint8)
-    
-    # Use FONT_HERSHEY_PLAIN for the crisp "code" look
-    font = cv2.FONT_HERSHEY_PLAIN
-    
-    # === LAYER 1: Background Hex Grid (Dim, moving upwards) ===
-    # Strict grid spacing for the background
-    grid_w, grid_h = 16, 20
-    hex_chars = string.hexdigits.upper()
-    
-    # Scrolling background by offset
-    y_offset = int(frame_idx * 1.5) % grid_h
-    
-    for y in range(grid_h - y_offset, h + grid_h, grid_h):
-        for x in range(4, w, grid_w):
-            mask_val = subject_mask[min(y, h-1), min(x, w-1)]
-            
-            # Base brightness depends slightly on the mask to wrap around the subject
-            alpha = 0.15 + (mask_val * 0.5)
-            color = tuple(int(c * alpha) for c in blue_dim)
-            
-            # Change characters based on time and position
-            idx = (x + y // 5 + int(frame_idx * 0.3)) % 16
-            char = hex_chars[idx]
-            
-            cv2.putText(output, char, (x, y), font, 1.0, color, 1, cv2.LINE_AA)
-            
-    # === LAYER 2: Foreground Binary Stream (Bright Cyan, fast changing) ===
-    # Larger grid for the foreground binary
-    bin_grid_w, bin_grid_h = 24, 30
-    
-    # Separate layer for glowing text
-    glow_layer = np.zeros_like(output)
-    
-    for y in range(16, h, bin_grid_h):
-        for x in range(12, w, bin_grid_w):
-            mask_val = subject_mask[y, x]
-            
-            # Only draw where the subject is prominent
-            if mask_val > 0.2:
-                # Fast flickering 0 and 1
-                is_one = ((x * y + frame_idx * 5) % 11) > 4
-                char = "1" if is_one else "0"
-                
-                # Center of the subject becomes white hot
-                if mask_val > 0.75:
-                    text_col = white_hot
-                    glow_col = cyan_bright
-                    thickness = 2
-                    scale = 1.3
-                else:
-                    # Blend the color intensity based on mask depth
-                    blend = (mask_val - 0.2) / 0.55
-                    text_col = tuple(
-                        int(cyan_bright[i] * blend + blue_dim[i] * (1 - blend))
-                        for i in range(3)
-                    )
-                    glow_col = blue_dim
-                    thickness = 1
-                    scale = 1.1 + (blend * 0.2)
-                
-                # Draw sharp primary text
-                cv2.putText(output, char, (x, y), font, scale, text_col, thickness, cv2.LINE_4)
-                
-                # Draw thick glow text onto the glow layer
-                if mask_val > 0.5:
-                    cv2.putText(glow_layer, char, (x, y), font, scale, glow_col, thickness + 2, cv2.LINE_AA)
-                    
-    # Composite the glow
-    glow_layer = cv2.GaussianBlur(glow_layer, (15, 15), 0)
-    output = cv2.addWeighted(output, 1.0, glow_layer, 0.9, 0)
-    
+
+    # === SUBJECT MASK (soft falloff) ===
+    # The mask is only ever sampled on coarse glyph grids, so build and blur it
+    # at 1/8 resolution - full-res masking + a sigma-25 blur dominated the
+    # frame cost for zero visible difference.
+    seg = get_person_mask(frame)
+    if seg is not None and np.count_nonzero(seg) > h * w * 0.02:
+        mask_src = seg
+    else:
+        mask_src = _subject_mask(cv2.resize(frame, (w // 4, h // 4),
+                                            interpolation=cv2.INTER_AREA))
+    subject = cv2.resize(mask_src, (max(8, w // 8), max(8, h // 8)),
+                         interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
+    subject = cv2.GaussianBlur(subject, (0, 0), 3.0)
+
+    # === PALETTE (BGR) ===
+    blue_dim = np.array((140, 50, 0), dtype=np.float32)
+    cyan_bright = np.array((255, 200, 50), dtype=np.float32)
+    white_hot = np.array((250, 250, 250), dtype=np.float32)
+
+    # =========================================================================
+    # LAYER 1: scrolling hex background (16x20 cells)
+    # =========================================================================
+    bw_, bh_ = 16, 20
+    bgw, bgh = max(1, w // bw_), max(1, h // bh_) + 2  # +2 rows for scroll wrap
+
+    key = ("bg", bw_, bh_)
+    bg_tiles = _number_cloud_cache.get(key)
+    if bg_tiles is None:
+        hex_chars = "0123456789ABCDEF"
+        bg_tiles = np.zeros((16, bh_, bw_), dtype=np.uint8)
+        for i, c in enumerate(hex_chars):
+            cv2.putText(bg_tiles[i], c, (2, bh_ - 5), cv2.FONT_HERSHEY_PLAIN,
+                        1.0, 255, 1, cv2.LINE_AA)
+        _number_cloud_cache[key] = bg_tiles
+
+    scroll = frame_idx * 1.5
+    row_off = int(scroll) // bh_
+    pix_off = int(scroll) % bh_
+
+    brows = np.arange(bgh)[:, None] + row_off
+    bcols = np.arange(bgw)[None, :]
+    bg_idx = ((bcols * 7 + brows * 13 + frame_idx // 12) % 16).astype(np.int32)
+
+    bg_alpha = bg_tiles[bg_idx].transpose(0, 2, 1, 3).reshape(bgh * bh_, bgw * bw_)
+    bg_alpha = np.roll(bg_alpha, -pix_off, axis=0)[:h, :]  # smooth upward scroll
+    bg_alpha = bg_alpha.astype(np.float32) / 255.0
+
+    # Cell brightness: dim everywhere, lifting near the subject.
+    sub_small = cv2.resize(subject, (bgw, bgh - 2), interpolation=cv2.INTER_AREA)
+    bg_gain = 0.15 + sub_small * 0.5
+    bg_gain_full = cv2.resize(bg_gain, (bgw * bw_, h), interpolation=cv2.INTER_NEAREST)
+
+    output = (blue_dim[None, None, :] * (bg_alpha * bg_gain_full)[:, :, None])
+
+    # Pad to frame width if the grid doesn't divide evenly.
+    if output.shape[1] != w:
+        padded = np.zeros((h, w, 3), dtype=np.float32)
+        padded[:, :output.shape[1]] = output[:, :w]
+        output = padded
+
+    # =========================================================================
+    # LAYER 2: binary digits on the subject (24x30 cells)
+    # =========================================================================
+    fw_, fh_ = 24, 30
+    fgw, fgh = max(1, w // fw_), max(1, h // fh_)
+
+    key = ("fg", fw_, fh_)
+    fg_tiles = _number_cloud_cache.get(key)
+    if fg_tiles is None:
+        # index: 0 blank, 1='0' normal, 2='1' normal, 3='0' hot, 4='1' hot
+        fg_tiles = np.zeros((5, fh_, fw_), dtype=np.uint8)
+        for i, (c, th, fs) in enumerate([("0", 1, 1.4), ("1", 1, 1.4),
+                                         ("0", 2, 1.7), ("1", 2, 1.7)]):
+            cv2.putText(fg_tiles[i + 1], c, (3, fh_ - 8), cv2.FONT_HERSHEY_PLAIN,
+                        fs, 255, th, cv2.LINE_AA)
+        _number_cloud_cache[key] = fg_tiles
+
+    frows = np.arange(fgh)[:, None]
+    fcols = np.arange(fgw)[None, :]
+    cell_hash = (fcols * 131 + frows * 71) * 2654435761 % 2**32
+    # Staggered flips: every cell has its own period (4-11 frames) and phase.
+    period = 4 + (cell_hash >> 4) % 8
+    bit = (((cell_hash >> 8) + frame_idx // period) % 2).astype(np.int32)
+
+    mask_small = cv2.resize(subject, (fgw, fgh), interpolation=cv2.INTER_AREA)
+    on = mask_small > 0.2
+    hot = mask_small > 0.75
+
+    fg_idx = np.where(on, 1 + bit + np.where(hot, 2, 0), 0)
+    fg_alpha = fg_tiles[fg_idx].transpose(0, 2, 1, 3).reshape(fgh * fh_, fgw * fw_)
+    fg_alpha = fg_alpha.astype(np.float32) / 255.0
+
+    # Depth-blended color: dim blue at the silhouette edge -> cyan -> white core.
+    blend = np.clip((mask_small - 0.2) / 0.55, 0.0, 1.0)[:, :, None]
+    cell_col = blue_dim[None, None, :] * (1 - blend) + cyan_bright[None, None, :] * blend
+    cell_col[hot] = white_hot
+    col_full = cv2.resize(cell_col, (fgw * fw_, fgh * fh_),
+                          interpolation=cv2.INTER_NEAREST)
+
+    fg_layer = np.zeros((h, w, 3), dtype=np.float32)
+    fh_full, fw_full = min(h, fgh * fh_), min(w, fgw * fw_)
+    fg_layer[:fh_full, :fw_full] = (col_full * fg_alpha[:, :, None])[:fh_full, :fw_full]
+
+    output = np.clip(output + fg_layer, 0, 255).astype(np.uint8)
+
+    # Cyan glow around the bright digits.
+    glow_src = np.zeros((h, w, 3), dtype=np.uint8)
+    glow_mask = cv2.resize((mask_small > 0.5).astype(np.float32), (w, h),
+                           interpolation=cv2.INTER_NEAREST)[:, :, None]
+    glow_src[:] = (fg_layer * glow_mask).astype(np.uint8)
+    glow = cv2.GaussianBlur(glow_src, (0, 0), 5.0)
+    output = cv2.add(output, (glow.astype(np.float32) * 0.85).astype(np.uint8))
+
     return output
 
 
@@ -2196,6 +2179,9 @@ def draw_code_shadow(
 # BINARY BLOOM (0/1 digits on solid color background)
 # =============================================================================
 
+_binary_bloom_cache: dict = {}
+
+
 def draw_binary_bloom(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -2203,26 +2189,18 @@ def draw_binary_bloom(
     frame_idx: int = 0,
 ) -> np.ndarray:
     """
-    Binary Bloom: 0/1 digits inside subject silhouette on solid background.
-    
-    Pipeline: grayscale → blur → Canny → morph close → largest contour → fill
-    Edge emphasis: brighter + denser digits along silhouette edges.
+    Binary Bloom: 0/1 digits inside the subject silhouette on a solid deep-blue
+    field. Edge cells are brighter, larger and denser than interior cells so
+    the silhouette pops.
+
+    Vectorized glyph tiles; each cell flips its digit on its own 5-12 frame
+    cadence (hash-staggered) instead of the whole field re-rolling at once.
     """
     h, w = frame.shape[:2]
-    
-    # Parameters
-    bg_color = preset.get("bg_color", (160, 40, 0))         # Deep blue BGR
-    grid_step = preset.get("grid_step", 14)                  # Sparser grid
-    edge_grid_step = preset.get("edge_grid_step", 10)        # Denser at edges
-    font_scale = preset.get("binary_font_scale", 0.4)
-    
-    # Colors
-    interior_color = (180, 180, 180)   # Dimmer grey for interior
-    edge_color = (255, 255, 255)       # Bright white for edges
-    
-    # Convert to grayscale
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
+
+    bg_color = preset.get("bg_color", (160, 40, 0))          # Deep blue BGR
+    cell = max(8, int(preset.get("bloom_cell", 12)))
+
     # =========================================================================
     # SUBJECT MASK: prefer real person segmentation, fall back to contours.
     # =========================================================================
@@ -2230,7 +2208,7 @@ def draw_binary_bloom(
     if seg is not None and np.count_nonzero(seg) > h * w * 0.02:
         _, subject_mask = cv2.threshold(seg, 110, 255, cv2.THRESH_BINARY)
     else:
-        # Fallback: blur -> Canny -> morph close -> largest reasonable contour.
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(blurred, 50, 150)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
@@ -2244,57 +2222,70 @@ def draw_binary_bloom(
                 cv2.drawContours(subject_mask, [best_contour], -1, 255, -1)
         if np.sum(subject_mask > 0) / (h * w) < 0.02:
             cv2.ellipse(subject_mask, (w // 2, h // 2), (w // 3, h // 3), 0, 0, 360, 255, -1)
-    
-    # =========================================================================
-    # EDGE MASK: detect edges of the silhouette for emphasis
-    # =========================================================================
+
+    # Silhouette edge band (for emphasis).
     edge_mask = cv2.Canny(subject_mask, 50, 150)
-    kernel_small = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    edge_mask = cv2.dilate(edge_mask, kernel_small, iterations=2)
-    
+    edge_mask = cv2.dilate(edge_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+                           iterations=2)
+
     # =========================================================================
-    # DRAW OUTPUT - solid blue background
+    # TILE COMPOSE: one grid; interior cells dim/small, edge cells bright/big
     # =========================================================================
+    grid_w, grid_h = max(1, w // cell), max(1, h // cell)
+
+    key = ("tiles", cell)
+    tiles = _binary_bloom_cache.get(key)
+    if tiles is None:
+        # 0 blank | 1-2: '0','1' interior | 3-4: '0','1' edge (bigger, brighter)
+        tiles = np.zeros((5, cell, cell), dtype=np.uint8)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fs_int = cell / 30.0
+        fs_edge = cell / 24.0
+        for i, (c, fs, val) in enumerate([
+            ("0", fs_int, 185), ("1", fs_int, 185),
+            ("0", fs_edge, 255), ("1", fs_edge, 255),
+        ]):
+            # Center the glyph in the tile (measured, so nothing clips).
+            (tw_, th_), _ = cv2.getTextSize(c, font, fs, 1)
+            org = (max(0, (cell - tw_) // 2), cell - max(1, (cell - th_) // 2))
+            cv2.putText(tiles[i + 1], c, org, font, fs, int(val), 1, cv2.LINE_AA)
+        _binary_bloom_cache[key] = tiles
+
+    inside = cv2.resize(subject_mask, (grid_w, grid_h), interpolation=cv2.INTER_AREA) > 100
+    on_edge = cv2.resize(edge_mask, (grid_w, grid_h), interpolation=cv2.INTER_AREA) > 40
+
+    rows = np.arange(grid_h)[:, None]
+    cols = np.arange(grid_w)[None, :]
+    cell_hash = (cols * 131 + rows * 71) * 2654435761 % 2**32
+    period = 5 + (cell_hash >> 4) % 8
+    bit = (((cell_hash >> 8) + frame_idx // period) % 2).astype(np.int32)
+
+    # Interior digits are sparser: drop ~1/3 of interior cells (stable choice).
+    interior_keep = ((cell_hash >> 12) % 3) != 0
+
+    idx = np.zeros((grid_h, grid_w), dtype=np.int32)
+    idx[inside & interior_keep] = (1 + bit)[inside & interior_keep]
+    idx[on_edge] = (3 + bit)[on_edge]
+
+    alpha = tiles[idx].transpose(0, 2, 1, 3).reshape(grid_h * cell, grid_w * cell)
+
     output = np.full((h, w, 3), bg_color, dtype=np.uint8)
-    
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    # Stable random seed (updates every ~100ms / 3 frames) for gentle flicker
-    random.seed(frame_idx // 3 + 42)
-    
-    # -------------------------------------------------------------------------
-    # PASS 1: Interior digits (dimmer, sparser)
-    # -------------------------------------------------------------------------
-    for row in range(0, h, grid_step):
-        for col in range(0, w, grid_step):
-            cy = min(row + grid_step // 2, h - 1)
-            cx = min(col + grid_step // 2, w - 1)
-            
-            # Only inside subject, skip edges (drawn separately)
-            if subject_mask[cy, cx] == 0:
-                continue
-            if edge_mask[cy, cx] > 0:
-                continue
-            
-            digit = "0" if random.random() < 0.5 else "1"
-            pos = (col, row + grid_step - 2)
-            cv2.putText(output, digit, pos, font, font_scale, interior_color, 1, cv2.LINE_AA)
-    
-    # -------------------------------------------------------------------------
-    # PASS 2: Edge digits (brighter, denser)
-    # -------------------------------------------------------------------------
-    for row in range(0, h, edge_grid_step):
-        for col in range(0, w, edge_grid_step):
-            cy = min(row + edge_grid_step // 2, h - 1)
-            cx = min(col + edge_grid_step // 2, w - 1)
-            
-            # Only on edges
-            if edge_mask[cy, cx] == 0:
-                continue
-            
-            digit = "0" if random.random() < 0.5 else "1"
-            pos = (col, row + edge_grid_step - 2)
-            cv2.putText(output, digit, pos, font, font_scale * 1.1, edge_color, 1, cv2.LINE_AA)
-    
+    ah, aw = min(h, alpha.shape[0]), min(w, alpha.shape[1])
+    layer = alpha[:ah, :aw].astype(np.float32) / 255.0
+
+    white = np.array((255, 255, 255), dtype=np.float32)
+    region = output[:ah, :aw].astype(np.float32)
+    output[:ah, :aw] = (region * (1 - layer[:, :, None])
+                        + white[None, None, :] * layer[:, :, None]).astype(np.uint8)
+
+    # Soft bloom on the bright edge band so the silhouette glows.
+    edge_glow_src = np.zeros((h, w), dtype=np.uint8)
+    edge_full = cv2.resize(on_edge.astype(np.uint8) * 255, (aw, ah),
+                           interpolation=cv2.INTER_NEAREST)
+    edge_glow_src[:ah, :aw] = (alpha[:ah, :aw] * (edge_full > 0)).astype(np.uint8)
+    glow = cv2.GaussianBlur(edge_glow_src, (0, 0), 4.0)
+    output = cv2.add(output, cv2.cvtColor((glow * 0.6).astype(np.uint8), cv2.COLOR_GRAY2BGR))
+
     return output
 
 
@@ -2681,6 +2672,7 @@ def reset_stateful_effects():
     global _pc_prev_small, _pc_energy
     global _blob_next_id
     global _crystal_pts, _crystal_prev_gray
+    global _neon_prev_edges
 
     _motion_trace_prev_frame = None
     _motion_trace_trail_canvas = None
@@ -2700,6 +2692,7 @@ def reset_stateful_effects():
     _blob_next_id = 0
     _crystal_pts = None
     _crystal_prev_gray = None
+    _neon_prev_edges = None
 
 
 # =============================================================================
@@ -3319,6 +3312,7 @@ def draw_ink(
 # =============================================================================
 
 _neon_cache: dict = {}
+_neon_prev_edges: np.ndarray | None = None
 
 
 def draw_neon_glow(
@@ -3336,11 +3330,20 @@ def draw_neon_glow(
     speed = float(preset.get("neon_speed", 2.0))
     thickness = int(preset.get("neon_thickness", 2))
 
+    global _neon_prev_edges
+
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     smooth = cv2.bilateralFilter(gray, 7, 60, 60)
     edges = cv2.bitwise_or(cv2.Canny(smooth, 40, 110), cv2.Canny(smooth, 80, 180))
     if thickness > 1:
         edges = cv2.dilate(edges, np.ones((thickness, thickness), np.uint8))
+
+    # Tube persistence: carry a fading echo of previous edges so lines that
+    # Canny drops for a frame decay smoothly instead of blinking off, like a
+    # real neon tube cooling down.
+    if _neon_prev_edges is not None and _neon_prev_edges.shape == edges.shape:
+        edges = cv2.max(edges, (_neon_prev_edges * 0.58).astype(np.uint8))
+    _neon_prev_edges = edges.copy()
 
     # Cached diagonal hue ramp; shift it over time for the flowing-neon feel.
     key = (h, w)
