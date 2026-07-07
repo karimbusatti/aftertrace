@@ -493,11 +493,10 @@ def draw_points(
 def draw_scanlines(frame: np.ndarray, frame_idx: int):
     """Add CRT-style scanlines effect (modifies frame in-place)."""
     h, w = frame.shape[:2]
-    
+
     # Static horizontal scanlines
-    for y in range(0, h, 3):
-        frame[y, :] = (frame[y, :] * 0.7).astype(np.uint8)
-    
+    frame[::3] = (frame[::3].astype(np.float32) * 0.7).astype(np.uint8)
+
     # Moving bright scanline (top to bottom sweep)
     scan_y = (frame_idx * 4) % h
     if scan_y + 2 < h:
@@ -581,186 +580,6 @@ def draw_data_body(
     return output
 
 
-def draw_numeric_aura(
-    frame: np.ndarray,
-    preset: dict[str, Any],
-    colors: dict,
-) -> np.ndarray:
-    """
-    Numeric Aura effect: glowing 0s and 1s clustered around edges/motion.
-    
-    Uses Canny edge detection to find interesting regions, then places
-    binary glyphs with a soft glow/halo effect.
-    """
-    h, w = frame.shape[:2]
-    
-    # Get preset params with defaults
-    glyph_chars = preset.get("glyph_chars", "01")
-    edge_threshold = preset.get("edge_threshold", 50)
-    density = preset.get("glyph_density", 0.4)
-    font_scale = preset.get("glyph_font_scale", 0.4)
-    glow_radius = preset.get("text_glow_radius", 11)
-    glow_intensity = preset.get("text_glow_intensity", 0.6)
-    
-    # Convert to grayscale
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    # Edge detection
-    edges = cv2.Canny(gray, edge_threshold, edge_threshold * 2)
-    
-    # Get edge pixel coordinates
-    edge_points = np.column_stack(np.where(edges > 0))  # (row, col) format
-    
-    # Create glyph layer (black background)
-    glyph_layer = np.zeros((h, w, 3), dtype=np.uint8)
-    
-    # Font settings
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    thickness = 1
-    text_color = colors.get("point", (50, 200, 255))  # Amber/gold
-    
-    glyph_list = list(glyph_chars)
-    
-    # Downsample edge points for performance (max ~2000 glyphs)
-    max_glyphs = 2000
-    if len(edge_points) > max_glyphs / density:
-        step = int(len(edge_points) * density / max_glyphs)
-        step = max(1, step)
-        edge_points = edge_points[::step]
-    
-    # Place glyphs at edge locations
-    for (row, col) in edge_points:
-        glyph = random.choice(glyph_list)
-        
-        # Small random offset for organic feel
-        ox = random.randint(-3, 3)
-        oy = random.randint(-3, 3)
-        
-        px = max(0, min(col + ox, w - 1))
-        py = max(8, min(row + oy, h - 1))  # Offset for text baseline
-        
-        cv2.putText(
-            glyph_layer, glyph, (px, py),
-            font, font_scale, text_color,
-            thickness, cv2.LINE_AA
-        )
-    
-    # Create glow/halo effect
-    if glow_radius > 0 and glow_intensity > 0:
-        # Blur the glyph layer
-        kernel = glow_radius if glow_radius % 2 == 1 else glow_radius + 1
-        glow_layer = cv2.GaussianBlur(glyph_layer, (kernel, kernel), 0)
-        
-        # Add glow back onto glyphs (additive blend)
-        glyph_layer = cv2.addWeighted(
-            glyph_layer, 1.0,
-            glow_layer, glow_intensity,
-            0
-        )
-    
-    # Create dark background with subtle original frame hint
-    output = (frame * 0.15).astype(np.uint8)
-    
-    # Composite glyphs onto output
-    output = cv2.add(output, glyph_layer)
-    
-    return output
-
-
-# =============================================================================
-# THERMAL SCAN EFFECT (Skepta "Ignorance is Bliss" style)
-# =============================================================================
-
-def draw_thermal_scan(
-    frame: np.ndarray,
-    preset: dict[str, Any],
-    colors: dict,
-) -> np.ndarray:
-    """
-    Thermal Scan effect: EXACT Skepta "Ignorance is Bliss" style.
-    Uses the fast vectorized version.
-    """
-    return draw_thermal_scan_fast(frame, preset, colors)
-
-
-def draw_thermal_scan_slow(
-    frame: np.ndarray,
-    preset: dict[str, Any],
-    colors: dict,
-) -> np.ndarray:
-    """
-    Thermal Scan effect (slow pixel-by-pixel version - not used).
-    """
-    h, w = frame.shape[:2]
-    
-    # Convert to grayscale (intensity = "temperature")
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    # Apply slight blur for smoother thermal look
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # Enhance contrast for more dramatic thermal effect
-    gray = cv2.equalizeHist(gray)
-    
-    # Create thermal colormap
-    # We'll map grayscale to: cold (cyan/blue) -> warm (yellow/orange/red)
-    output = np.zeros((h, w, 3), dtype=np.uint8)
-    
-    # Normalize gray to 0-1
-    normalized = gray.astype(np.float32) / 255.0
-    
-    # Custom thermal colormap (Skepta style):
-    # Low values (0-0.3): Cyan/Teal (cold)
-    # Mid values (0.3-0.6): Green/Yellow transition  
-    # High values (0.6-1.0): Orange/Red (hot)
-    
-    for y in range(h):
-        for x in range(w):
-            t = normalized[y, x]
-            
-            if t < 0.25:
-                # Cold: Deep cyan/teal
-                r = int(20 + t * 80)
-                g = int(120 + t * 200)
-                b = int(180 + t * 75)
-            elif t < 0.45:
-                # Cool: Teal to green
-                blend = (t - 0.25) / 0.2
-                r = int(40 + blend * 60)
-                g = int(170 + blend * 50)
-                b = int(200 - blend * 100)
-            elif t < 0.6:
-                # Warm: Green-yellow
-                blend = (t - 0.45) / 0.15
-                r = int(100 + blend * 100)
-                g = int(220 - blend * 30)
-                b = int(100 - blend * 80)
-            elif t < 0.75:
-                # Hot: Yellow-orange
-                blend = (t - 0.6) / 0.15
-                r = int(200 + blend * 55)
-                g = int(190 - blend * 80)
-                b = int(20 - blend * 20)
-            else:
-                # Very hot: Orange-red/white
-                blend = (t - 0.75) / 0.25
-                r = int(255)
-                g = int(110 + blend * 100)
-                b = int(0 + blend * 50)
-            
-            output[y, x] = [b, g, r]  # BGR format
-    
-    # Optional: Add subtle glow to hot areas
-    hot_mask = (normalized > 0.6).astype(np.uint8) * 255
-    if np.any(hot_mask):
-        glow = cv2.GaussianBlur(output, (21, 21), 0)
-        hot_mask_3d = np.stack([hot_mask] * 3, axis=-1) / 255.0
-        output = cv2.addWeighted(output, 1.0, (glow * hot_mask_3d * 0.3).astype(np.uint8), 1.0, 0)
-    
-    return output
-
-
-# Optimized thermal using numpy vectorization
 def draw_ocular_overload(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -1603,18 +1422,22 @@ def draw_motion_trace(
     frame_alpha = preset.get("frame_alpha", 0.6)  # Original frame visibility
     trail_alpha = preset.get("trail_alpha", 0.9)  # Trail canvas visibility
     
-    # Initialize or reset trail canvas if needed
+    # Initialize or reset trail canvas if needed. float32: repeated uint8
+    # decay quantized the falloff, so faint trails died in visible steps.
     if _motion_trace_trail_canvas is None or _motion_trace_trail_canvas.shape[:2] != (h, w):
-        _motion_trace_trail_canvas = np.zeros((h, w, 3), dtype=np.uint8)
-    
+        _motion_trace_trail_canvas = np.zeros((h, w, 3), dtype=np.float32)
+
     # Fade previous trails (creates the comet/persistence effect)
-    _motion_trace_trail_canvas = ((_motion_trace_trail_canvas.astype(np.float32)) * trail_fade).astype(np.uint8)
-    
+    _motion_trace_trail_canvas *= trail_fade
+
     # Need previous frame for optical flow
     if _motion_trace_prev_frame is None or _motion_trace_prev_frame.shape != gray.shape:
         _motion_trace_prev_frame = gray.copy()
         # Return original frame with empty trail on first frame
-        return cv2.addWeighted(frame, frame_alpha, _motion_trace_trail_canvas, trail_alpha, 0)
+        return cv2.addWeighted(
+            frame, frame_alpha,
+            _motion_trace_trail_canvas.astype(np.uint8), trail_alpha, 0,
+        )
     
     # Compute dense optical flow (Farneback) at half resolution - visually
     # identical for this effect but roughly 4x cheaper at 1080p.
@@ -1633,15 +1456,9 @@ def draw_motion_trace(
         poly_sigma=1.2,
         flags=0
     )
-    flow = cv2.resize(flow_small, (w, h), interpolation=cv2.INTER_LINEAR) / sf
-
     # Update previous frame
     _motion_trace_prev_frame = gray.copy()
-    
-    # Compute flow magnitude
-    flow_x, flow_y = flow[..., 0], flow[..., 1]
-    magnitude = np.sqrt(flow_x**2 + flow_y**2)
-    
+
     # Color palette for variety (BGR - cyan/blue tones)
     flow_colors = [
         flow_color,                    # Primary from preset
@@ -1649,30 +1466,34 @@ def draw_motion_trace(
         (200, 255, 150),              # Light cyan-green
         (255, 220, 180),              # Pale cyan
     ]
+
+    # =========================================================================
+    # COLLECT MOTION POINTS (vectorized). The flow field is only ever read on
+    # the sample grid, so sample flow_small directly instead of upscaling the
+    # whole field back to frame resolution first.
+    # =========================================================================
+    ys = np.arange(sample_step, h - sample_step, sample_step)
+    xs = np.arange(sample_step, w - sample_step, sample_step)
+    GX, GY = np.meshgrid(xs, ys)
+    sy = np.clip((GY * sf).astype(np.int32), 0, flow_small.shape[0] - 1)
+    sx = np.clip((GX * sf).astype(np.int32), 0, flow_small.shape[1] - 1)
+    gdx = flow_small[sy, sx, 0] / sf
+    gdy = flow_small[sy, sx, 1] / sf
+    gmag = np.sqrt(gdx * gdx + gdy * gdy)
+    moving = gmag >= min_flow_mag
+
+    motion_points = [
+        (int(x), int(y), float(dx), float(dy), float(mag),
+         flow_colors[i % len(flow_colors)])
+        for i, (x, y, dx, dy, mag) in enumerate(zip(
+            GX[moving], GY[moving], gdx[moving], gdy[moving], gmag[moving]))
+    ]
     
     # =========================================================================
-    # COLLECT MOTION POINTS
+    # DRAW FLOW LINES onto a uint8 ink layer (cv2 drawing on float images is
+    # much slower), then merge into the float trail canvas below.
     # =========================================================================
-    motion_points = []
-    color_idx = 0
-    
-    for y in range(sample_step, h - sample_step, sample_step):
-        for x in range(sample_step, w - sample_step, sample_step):
-            mag = magnitude[y, x]
-            
-            if mag < min_flow_mag:
-                continue
-            
-            # Store motion point with its flow vector and color
-            dx = flow_x[y, x]
-            dy = flow_y[y, x]
-            color = flow_colors[color_idx % len(flow_colors)]
-            motion_points.append((x, y, dx, dy, mag, color))
-            color_idx += 1
-    
-    # =========================================================================
-    # DRAW FLOW LINES onto trail canvas
-    # =========================================================================
+    ink = np.zeros((h, w, 3), dtype=np.uint8)
     for (x, y, dx, dy, mag, color) in motion_points:
         # Calculate end point
         x2 = int(x + dx * line_length_scale)
@@ -1695,11 +1516,11 @@ def draw_motion_trace(
         draw_color = tuple(int(c * alpha) for c in color)
         
         # Draw curved flow line
-        cv2.polylines(_motion_trace_trail_canvas, [pts], False, draw_color, thickness, cv2.LINE_AA)
-        
+        cv2.polylines(ink, [pts], False, draw_color, thickness, cv2.LINE_AA)
+
         # Glowing head at end point for strong motion
         if mag > min_flow_mag * 1.5:
-            cv2.circle(_motion_trace_trail_canvas, (x2, y2), 3, (255, 255, 255), -1, cv2.LINE_AA)
+            cv2.circle(ink, (x2, y2), 3, (255, 255, 255), -1, cv2.LINE_AA)
     
     # =========================================================================
     # DRAW NETWORK CONNECTIONS between nearby motion points
@@ -1721,18 +1542,25 @@ def draw_motion_trace(
                     # Fainter connection lines
                     conn_alpha = 0.4 * (1 - dist / max_connect_dist)
                     conn_color = tuple(int(c * conn_alpha) for c in color1)
-                    cv2.line(_motion_trace_trail_canvas, (x1, y1), (x2, y2), conn_color, 1, cv2.LINE_AA)
-    
+                    cv2.line(ink, (x1, y1), (x2, y2), conn_color, 1, cv2.LINE_AA)
+
+    # Merge fresh ink into the persistent float canvas (brightest wins, same
+    # semantics as drawing directly but without float-draw cost).
+    np.maximum(_motion_trace_trail_canvas, ink.astype(np.float32),
+               out=_motion_trace_trail_canvas)
+
     # =========================================================================
     # COMPOSITE: trail canvas over original frame
     # =========================================================================
+    canvas8 = np.clip(_motion_trace_trail_canvas, 0, 255).astype(np.uint8)
+
     # Add subtle glow to trail canvas
-    glow = cv2.GaussianBlur(_motion_trace_trail_canvas, (7, 7), 0)
-    trail_with_glow = cv2.addWeighted(_motion_trace_trail_canvas, 1.0, glow, 0.4, 0)
-    
+    glow = cv2.GaussianBlur(canvas8, (7, 7), 0)
+    trail_with_glow = cv2.addWeighted(canvas8, 1.0, glow, 0.4, 0)
+
     # Blend with original frame
     output = cv2.addWeighted(frame, frame_alpha, trail_with_glow, trail_alpha, 0)
-    
+
     return output
 
 
@@ -2394,7 +2222,8 @@ def draw_binary_bloom(
 
 # Persistent state for signal feedback effect
 _signal_feedback_buffer: np.ndarray | None = None
-_signal_feedback_noise: np.ndarray | None = None
+_signal_feedback_noise: np.ndarray | None = None  # (2, nh, nw) low-res x/y fields
+_signal_feedback_grid: dict = {}  # cached per-(h,w) coordinate grid + vignette
 
 def draw_signal_feedback(
     frame: np.ndarray,
@@ -2428,32 +2257,49 @@ def draw_signal_feedback(
     # =========================================================================
     # INITIALIZE STATE
     # =========================================================================
-    if _signal_feedback_buffer is None or _signal_feedback_buffer.shape[:2] != (h, w):
+    # Noise lives at 1/8 resolution: blurring per-pixel white noise at full res
+    # was expensive and produced busy mid-scale wobble; a smoothed low-res
+    # field upscaled to frame size gives the broad liquid warp this effect
+    # wants. Two independent fields (x and y) so the displacement can swirl in
+    # any direction instead of shearing along the diagonal only.
+    nh, nw = max(8, h // 8), max(8, w // 8)
+    if (_signal_feedback_buffer is None
+            or _signal_feedback_buffer.shape[:2] != (h, w)
+            or _signal_feedback_noise is None
+            or _signal_feedback_noise.shape != (2, nh, nw)):
         _signal_feedback_buffer = current_float.copy()
-        _signal_feedback_noise = np.random.rand(h, w).astype(np.float32)
+        _signal_feedback_noise = np.random.rand(2, nh, nw).astype(np.float32)
         return frame  # Return original on first frame
-    
+
     # =========================================================================
     # STEP 1: Generate noise-based warp map
     # =========================================================================
-    # Slowly evolve the noise field
-    new_noise = np.random.rand(h, w).astype(np.float32)
-    _signal_feedback_noise = _signal_feedback_noise * (1 - noise_scale) + new_noise * noise_scale
-    
-    # Smooth noise for organic warping
-    smooth_noise = cv2.GaussianBlur(_signal_feedback_noise, (51, 51), 0)
-    
-    # Create base coordinate grid
-    grid_x, grid_y = np.meshgrid(np.arange(w), np.arange(h))
-    grid_x = grid_x.astype(np.float32)
-    grid_y = grid_y.astype(np.float32)
-    
-    # Add noise-based displacement
-    offset_x = (smooth_noise - 0.5) * distortion_amp
-    offset_y = (smooth_noise - 0.5) * distortion_amp
-    
-    map_x = grid_x + offset_x
-    map_y = grid_y + offset_y
+    # Slowly evolve the noise fields
+    new_noise = np.random.rand(2, nh, nw).astype(np.float32)
+    _signal_feedback_noise *= (1 - noise_scale)
+    _signal_feedback_noise += new_noise * noise_scale
+
+    smooth_x = cv2.GaussianBlur(_signal_feedback_noise[0], (0, 0), 3.0)
+    smooth_y = cv2.GaussianBlur(_signal_feedback_noise[1], (0, 0), 3.0)
+    offset_x = cv2.resize(smooth_x, (w, h), interpolation=cv2.INTER_LINEAR)
+    offset_y = cv2.resize(smooth_y, (w, h), interpolation=cv2.INTER_LINEAR)
+
+    # Cached base coordinate grid (+ vignette, used in STEP 5)
+    cached = _signal_feedback_grid.get((h, w))
+    if cached is None:
+        grid_x, grid_y = np.meshgrid(
+            np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32)
+        )
+        cy, cx = h // 2, w // 2
+        dist_from_center = np.sqrt((grid_x - cx) ** 2 + (grid_y - cy) ** 2)
+        max_dist = np.sqrt(cx ** 2 + cy ** 2)
+        vignette = np.clip(1.0 - (dist_from_center / max_dist) * 0.3, 0.7, 1.0)
+        cached = (grid_x, grid_y, vignette.astype(np.float32)[..., np.newaxis])
+        _signal_feedback_grid[(h, w)] = cached
+    grid_x, grid_y, vignette = cached
+
+    map_x = grid_x + (offset_x - 0.5) * distortion_amp
+    map_y = grid_y + (offset_y - 0.5) * distortion_amp
     
     # =========================================================================
     # STEP 2: Warp feedback buffer and blend with current frame
@@ -2500,18 +2346,10 @@ def draw_signal_feedback(
         result = (result.astype(np.float32) * scanline_mask[..., np.newaxis]).astype(np.uint8)
     
     # =========================================================================
-    # STEP 5: Subtle vignette for CRT feel
+    # STEP 5: Subtle vignette for CRT feel (precomputed in the grid cache)
     # =========================================================================
-    # Create radial gradient
-    cy, cx = h // 2, w // 2
-    Y, X = np.ogrid[:h, :w]
-    dist_from_center = np.sqrt((X - cx)**2 + (Y - cy)**2)
-    max_dist = np.sqrt(cx**2 + cy**2)
-    vignette = 1.0 - (dist_from_center / max_dist) * 0.3
-    vignette = np.clip(vignette, 0.7, 1.0).astype(np.float32)
-    
-    result = (result.astype(np.float32) * vignette[..., np.newaxis]).astype(np.uint8)
-    
+    result = (result.astype(np.float32) * vignette).astype(np.uint8)
+
     return result
 
 # =============================================================================
@@ -2613,6 +2451,9 @@ def draw_signal_bloom(
 # GLYPH TRACE (ASCII INK)
 # =============================================================================
 
+_glyph_trace_tiles: np.ndarray | None = None
+
+
 def draw_glyph_trace(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -2625,32 +2466,36 @@ def draw_glyph_trace(
     Uses perfectly crisp monospaced pre-rendered text tiles mapped via NumPy
     for real-time performance and pixel-perfect clarity.
     """
+    global _glyph_trace_tiles
+
     h, w = frame.shape[:2]
-    
+
     # 1. Colors
     # Ink (#1F1E1D) -> BGR (29, 30, 31)
     # Paper (#FAF9F5) -> BGR (245, 249, 250)
     ink_color = (29, 30, 31)
     paper_color = (245, 249, 250)
-    
-    # 2. Pre-render crisp ASCII tiles
+
+    # 2. Pre-render crisp ASCII tiles (once - constants, so no cache key)
     # Using a 6x10 block gives a nice tall terminal look
     tw, th = 6, 10
     ascii_chars = " .:-=+*#%@"
     num_chars = len(ascii_chars)
-    
-    # Create the tile bank (num_chars, height, width, 3)
-    tiles = np.full((num_chars, th, tw, 3), paper_color, dtype=np.uint8)
-    font = cv2.FONT_HERSHEY_PLAIN
-    
-    for i, char in enumerate(ascii_chars):
-        if char == ' ':
-            continue
-        # FONT_HERSHEY_PLAIN at scale 0.8 is approx 8 pixels tall. 
-        # (0, 8) is the bottom-left baseline for the text
-        # cv2.LINE_4 avoids anti-aliasing blur for maximum crispness
-        cv2.putText(tiles[i], char, (0, 8), font, 0.8, ink_color, 1, cv2.LINE_4)
-        
+
+    if _glyph_trace_tiles is None:
+        # Tile bank (num_chars, height, width, 3)
+        tiles = np.full((num_chars, th, tw, 3), paper_color, dtype=np.uint8)
+        font = cv2.FONT_HERSHEY_PLAIN
+        for i, char in enumerate(ascii_chars):
+            if char == ' ':
+                continue
+            # FONT_HERSHEY_PLAIN at scale 0.8 is approx 8 pixels tall.
+            # (0, 8) is the bottom-left baseline for the text
+            # cv2.LINE_4 avoids anti-aliasing blur for maximum crispness
+            cv2.putText(tiles[i], char, (0, 8), font, 0.8, ink_color, 1, cv2.LINE_4)
+        _glyph_trace_tiles = tiles
+    tiles = _glyph_trace_tiles
+
     # 3. Downsample Image mathematically to match grid
     grid_w = w // tw
     grid_h = h // th
@@ -2773,6 +2618,9 @@ def reset_stateful_effects():
 # ASCII CORE (high-detail white ASCII on black)
 # =============================================================================
 
+_ascii_core_cache: dict = {}
+
+
 def draw_ascii_core(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -2808,13 +2656,16 @@ def draw_ascii_core(
     norm = np.clip(np.power(small, gamma) + edge_small * 0.35, 0.0, 1.0)
     idx = np.clip((norm * (n - 1)).astype(np.int32), 0, n - 1)
 
-    # Pre-render each glyph to a white-on-black tile.
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    fs = cell / 22.0
-    tiles = np.zeros((n, cell, cell, 3), dtype=np.uint8)
-    for i, ch in enumerate(ramp):
-        if ch != " ":
-            cv2.putText(tiles[i], ch, (0, cell - 1), font, fs, (255, 255, 255), 1, cv2.LINE_AA)
+    # Pre-render each glyph to a white-on-black tile (cached per cell/ramp).
+    tiles = _ascii_core_cache.get((cell, ramp))
+    if tiles is None:
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fs = cell / 22.0
+        tiles = np.zeros((n, cell, cell, 3), dtype=np.uint8)
+        for i, ch in enumerate(ramp):
+            if ch != " ":
+                cv2.putText(tiles[i], ch, (0, cell - 1), font, fs, (255, 255, 255), 1, cv2.LINE_AA)
+        _ascii_core_cache[(cell, ramp)] = tiles
 
     mapped = tiles[idx]  # (grid_h, grid_w, cell, cell, 3)
 
@@ -3233,27 +3084,30 @@ def draw_light_trails(
     floor = int(preset.get("bright_thresh", 50))   # but never below this
     boost = float(preset.get("trail_boost", 1.3))
 
+    # float32 canvas: uint8 decay quantized the fade, so long streaks died in
+    # visible brightness steps instead of melting away smoothly.
     if _light_canvas is None or _light_canvas.shape[:2] != (h, w):
-        _light_canvas = np.zeros((h, w, 3), dtype=np.uint8)
+        _light_canvas = np.zeros((h, w, 3), dtype=np.float32)
 
     # Decay the accumulated light (older streaks fade out).
-    _light_canvas = (_light_canvas.astype(np.float32) * decay).astype(np.uint8)
+    _light_canvas *= decay
 
     # Contribution: only the brightest parts of the current frame (adaptive to
     # exposure via a percentile) so it paints trails instead of flooding.
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     thresh = max(floor, int(np.percentile(gray, pct)))
     bright = gray > thresh
-    contrib = np.zeros_like(frame)
+    contrib = np.zeros((h, w, 3), dtype=np.float32)
     contrib[bright] = frame[bright]
-    contrib = np.clip(contrib.astype(np.float32) * boost, 0, 255).astype(np.uint8)
+    contrib = np.clip(contrib * boost, 0, 255)
 
     # Keep the brightest of (decayed history, new light) -> persistent trails.
-    _light_canvas = np.maximum(_light_canvas, contrib)
+    np.maximum(_light_canvas, contrib, out=_light_canvas)
 
     # Bloom and composite over a dark version of the scene for context.
-    glow = cv2.GaussianBlur(_light_canvas, (0, 0), 6)
-    trails = cv2.addWeighted(_light_canvas, 1.0, glow, 0.9, 0)
+    canvas8 = _light_canvas.astype(np.uint8)
+    glow = cv2.GaussianBlur(canvas8, (0, 0), 6)
+    trails = cv2.addWeighted(canvas8, 1.0, glow, 0.9, 0)
     output = cv2.add((frame * 0.10).astype(np.uint8), trails)
     return output
 
@@ -3642,13 +3496,17 @@ def draw_cursor_cloud(
     else:
         subject = cell_lum * 255 > min_bright
 
-    # Pre-render a brightness-stack of cursor tiles (index 0 = blank).
+    # Pre-render a brightness-stack of cursor tiles (index 0 = blank), cached
+    # per cell size.
     levels = 6
-    mask = _cursor_sprite_mask(cell).astype(np.float32) / 255.0
-    tiles = np.zeros((levels + 1, cell, cell, 3), dtype=np.uint8)
-    for L in range(1, levels + 1):
-        val = 150 + int(105 * (L - 1) / (levels - 1))
-        tiles[L] = (mask[:, :, None] * val).astype(np.uint8)
+    tiles = _cursor_cache.get(("tiles", cell))
+    if tiles is None:
+        mask = _cursor_sprite_mask(cell).astype(np.float32) / 255.0
+        tiles = np.zeros((levels + 1, cell, cell, 3), dtype=np.uint8)
+        for L in range(1, levels + 1):
+            val = 150 + int(105 * (L - 1) / (levels - 1))
+            tiles[L] = (mask[:, :, None] * val).astype(np.uint8)
+        _cursor_cache[("tiles", cell)] = tiles
 
     # Density follows brightness (stable hash, no strobe); audio packs in more.
     gy, gx = np.indices((grid_h, grid_w))
