@@ -38,7 +38,8 @@ const CATEGORIES: { label: string; presets: Preset[] }[] = [
     presets: [
       { id: "binary_bloom", name: "Binary Bloom", description: "0/1 silhouette", fam: "code" },
       { id: "code_shadow", name: "Code Shadow", description: "ascii matrix", fam: "code" },
-      { id: "data_body", name: "Matrix Mode", description: "data rain", fam: "code" },
+      { id: "matrix_mode", name: "Matrix Rain", description: "falling code", fam: "code" },
+      { id: "data_body", name: "Data Body", description: "glyph silhouette", fam: "code" },
       { id: "glyph_trace", name: "Glyph Trace", description: "ascii ink", fam: "code" },
       { id: "ascii_core", name: "ASCII Core", description: "white on black", fam: "code" },
     ],

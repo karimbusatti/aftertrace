@@ -52,6 +52,29 @@ body {
   }
 }
 
+/* Respect reduced motion: kill decorative animation, keep functional
+   feedback (spinner/progress) but slow and simple. */
+@media (prefers-reduced-motion: reduce) {
+  .card-glow::before,
+  .animate-scanline,
+  .animate-ascii-fall,
+  .animate-pulse-glow {
+    animation: none !important;
+  }
+  .animate-fade-in,
+  .animate-slide-up {
+    animation-duration: 0.01ms !important;
+  }
+  .btn-primary,
+  .btn-secondary {
+    transition: none;
+  }
+  .btn-primary:hover,
+  .btn-primary:active {
+    transform: none;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 6px;
 }

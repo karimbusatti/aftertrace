@@ -580,6 +580,9 @@ def draw_data_body(
     return output
 
 
+_ocular_vignette_cache: dict = {}
+
+
 def draw_ocular_overload(
     frame: np.ndarray,
     preset: dict[str, Any],
@@ -734,12 +737,15 @@ def draw_ocular_overload(
     y1b, y2b = band_y, min(h, band_y + bh)
     output[y1b:y2b] = np.clip(output[y1b:y2b].astype(np.int16) + 40, 0, 255).astype(np.uint8)
 
-    # Subtle vignette for depth.
-    yy, xx = np.ogrid[:h, :w]
-    cyv, cxv = h / 2.0, w / 2.0
-    d = np.sqrt(((xx - cxv) / cxv) ** 2 + ((yy - cyv) / cyv) ** 2)
-    vig = np.clip(1.0 - (d - 0.6) * 0.5, 0.55, 1.0).astype(np.float32)
-    output = (output.astype(np.float32) * vig[:, :, None]).astype(np.uint8)
+    # Subtle vignette for depth (cached per resolution).
+    vig = _ocular_vignette_cache.get((h, w))
+    if vig is None:
+        yy, xx = np.ogrid[:h, :w]
+        cyv, cxv = h / 2.0, w / 2.0
+        d = np.sqrt(((xx - cxv) / cxv) ** 2 + ((yy - cyv) / cyv) ** 2)
+        vig = np.clip(1.0 - (d - 0.6) * 0.5, 0.55, 1.0).astype(np.float32)[:, :, None]
+        _ocular_vignette_cache[(h, w)] = vig
+    output = (output.astype(np.float32) * vig).astype(np.uint8)
 
     return output
 
@@ -1811,9 +1817,17 @@ def draw_catodic_cube(
     if rgb_offset > 0:
         output = apply_rgb_split(output, rgb_offset, motion_factor)
     
-    # Apply glitch effect on certain frames
-    if glitch_freq > 0 and frame_idx % glitch_freq == 0:
-        output = apply_glitch(output, glitch_strength, frame_idx)
+    # Glitch arrives in short 2-3 frame bursts on a hashed schedule with
+    # eased strength, instead of a single-frame tick exactly every N frames
+    # (the old metronome read as a rhythmic pop).
+    if glitch_freq > 0:
+        window = frame_idx // glitch_freq
+        burst = ((window * 2654435761) % 97) < 40      # ~40% of windows glitch
+        pos = frame_idx % glitch_freq
+        burst_len = 2 + (window % 2)
+        if burst and pos < burst_len:
+            ease = np.sin((pos + 1) / (burst_len + 1) * np.pi)  # in-out
+            output = apply_glitch(output, glitch_strength * (0.6 + 0.8 * ease), window)
     
     return output
 
@@ -1926,6 +1940,8 @@ def apply_cube_effect(
 
 _codenet_pts: np.ndarray | None = None
 _codenet_prev_gray: np.ndarray | None = None
+_codenet_ids: np.ndarray | None = None
+_codenet_next_id: int = 0
 
 
 def draw_codenet_overlay(
@@ -1953,7 +1969,7 @@ def draw_codenet_overlay(
     label_scale = preset.get("label_font_scale", 0.28)
     blend_alpha = preset.get("blend_alpha", 0.85)
     
-    global _codenet_pts, _codenet_prev_gray
+    global _codenet_pts, _codenet_prev_gray, _codenet_ids, _codenet_next_id
 
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -1962,18 +1978,13 @@ def draw_codenet_overlay(
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
 
-    # Stabilized nodes: track existing corners with optical flow each frame and
-    # only re-detect periodically (or when too many are lost). The mesh then
-    # follows the image smoothly instead of jittering with fresh detections.
-    redetect = (
-        _codenet_pts is None
-        or _codenet_prev_gray is None
-        or _codenet_prev_gray.shape != gray.shape
-        or len(_codenet_pts) < max(8, max_points // 4)
-        or frame_idx % 12 == 0
-    )
-
-    if not redetect:
+    # Stabilized nodes: track existing corners with optical flow every frame.
+    # The old version threw the whole set away every 12 frames, which made the
+    # entire mesh (and every label) pop and renumber on a visible beat. Now
+    # tracked points persist with stable ids and fresh corners are only merged
+    # into empty regions when the set runs thin.
+    if (_codenet_pts is not None and _codenet_prev_gray is not None
+            and _codenet_prev_gray.shape == gray.shape and len(_codenet_pts) >= 3):
         tracked, status, _ = cv2.calcOpticalFlowPyrLK(
             _codenet_prev_gray, gray, _codenet_pts.reshape(-1, 1, 2), None,
             winSize=(21, 21), maxLevel=2,
@@ -1981,11 +1992,20 @@ def draw_codenet_overlay(
         )
         if tracked is not None:
             ok = status.flatten() == 1
-            _codenet_pts = tracked.reshape(-1, 2)[ok]
+            pts = tracked.reshape(-1, 2)[ok]
+            ids = _codenet_ids[ok] if _codenet_ids is not None else None
+            inb = ((pts[:, 0] > 1) & (pts[:, 0] < w - 2)
+                   & (pts[:, 1] > 1) & (pts[:, 1] < h - 2))
+            _codenet_pts = pts[inb]
+            _codenet_ids = ids[inb] if ids is not None else None
         else:
-            redetect = True
+            _codenet_pts = None
+            _codenet_ids = None
+    elif _codenet_prev_gray is not None and _codenet_prev_gray.shape != gray.shape:
+        _codenet_pts = None
+        _codenet_ids = None
 
-    if redetect:
+    if _codenet_pts is None or len(_codenet_pts) < max(8, int(max_points * 0.7)):
         corners = cv2.goodFeaturesToTrack(
             enhanced,
             maxCorners=max_points,
@@ -1993,8 +2013,28 @@ def draw_codenet_overlay(
             minDistance=20,
             blockSize=7,
         )
-        if corners is not None:
-            _codenet_pts = corners.reshape(-1, 2).astype(np.float32)
+        fresh = (corners.reshape(-1, 2).astype(np.float32)
+                 if corners is not None else np.empty((0, 2), np.float32))
+        if _codenet_pts is None or len(_codenet_pts) == 0:
+            _codenet_pts = fresh
+            _codenet_ids = np.arange(_codenet_next_id,
+                                     _codenet_next_id + len(fresh), dtype=np.int64)
+            _codenet_next_id += len(fresh)
+        elif len(fresh):
+            # Merge only corners that don't sit on an existing node (coarse
+            # occupancy grid ~ the detector's minDistance).
+            occ = np.zeros((h // 16 + 2, w // 16 + 2), dtype=bool)
+            occ[(_codenet_pts[:, 1] // 16).astype(int),
+                (_codenet_pts[:, 0] // 16).astype(int)] = True
+            keep = ~occ[(fresh[:, 1] // 16).astype(int),
+                        (fresh[:, 0] // 16).astype(int)]
+            new_pts = fresh[keep][: max_points - len(_codenet_pts)]
+            if len(new_pts):
+                _codenet_pts = np.concatenate([_codenet_pts, new_pts])
+                new_ids = np.arange(_codenet_next_id,
+                                    _codenet_next_id + len(new_pts), dtype=np.int64)
+                _codenet_next_id += len(new_pts)
+                _codenet_ids = np.concatenate([_codenet_ids, new_ids])
 
     _codenet_prev_gray = gray.copy()
 
@@ -2011,11 +2051,11 @@ def draw_codenet_overlay(
     subdiv = cv2.Subdiv2D(rect)
     
     valid_points = []
-    for pt in points:
+    for pt, pid in zip(points, _codenet_ids):
         x, y = pt
         if 0 < x < w - 1 and 0 < y < h - 1:
             subdiv.insert((float(x), float(y)))
-            valid_points.append((int(x), int(y)))
+            valid_points.append((int(x), int(y), int(pid)))
     
     # Get edges from triangulation
     edge_list = subdiv.getEdgeList()
@@ -2066,7 +2106,7 @@ def draw_codenet_overlay(
     
     # Draw nodes with glow
     glow_layer = np.zeros_like(frame)
-    for idx, (px, py) in enumerate(valid_points):
+    for (px, py, _pid) in valid_points:
         # Glow (larger, blurred)
         cv2.circle(glow_layer, (px, py), node_radius * 3, (255, 255, 200), -1)
         
@@ -2080,8 +2120,8 @@ def draw_codenet_overlay(
     
     # Draw labels
     font = cv2.FONT_HERSHEY_SIMPLEX
-    for idx, (px, py) in enumerate(valid_points):
-        label = f"codecore {idx + 1}"
+    for (px, py, pid) in valid_points:
+        label = f"codecore {pid % 1000 + 1}"
         label_y = max(py - 8, 12)
         
         # Shadow
@@ -2668,7 +2708,7 @@ def reset_stateful_effects():
     global _ghost_buffer, _ghost_pos
     global _light_canvas
     global _contour_prev_edges
-    global _codenet_pts, _codenet_prev_gray
+    global _codenet_pts, _codenet_prev_gray, _codenet_ids, _codenet_next_id
     global _pc_prev_small, _pc_energy
     global _blob_next_id
     global _crystal_pts, _crystal_prev_gray
@@ -2686,6 +2726,8 @@ def reset_stateful_effects():
     _contour_prev_edges = None
     _codenet_pts = None
     _codenet_prev_gray = None
+    _codenet_ids = None
+    _codenet_next_id = 0
     _pc_prev_small = None
     _pc_energy = None
     _blob_tracks.clear()
@@ -2919,14 +2961,13 @@ def _broadcast_static(h: int, w: int, frame_idx: int, color_amt: float, block: i
         shift = int(rng.integers(-w // 6, w // 6))
         static[by:by + bh] = np.roll(static[by:by + bh], shift, axis=1)
 
-    # 4. Melting lower edge: rows near the bottom copy from progressively higher
-    #    rows, creating the downward "signal melt" smear from the reference.
+    # 4. Melting lower edge: rows near the bottom copy from progressively
+    #    higher rows, creating the downward "signal melt" smear (one gather).
     melt_start = int(h * 0.78)
-    for y in range(melt_start, h):
-        amt = int((y - melt_start) / max(1, h - melt_start) * 18)
-        if amt > 0:
-            src = max(melt_start, y - amt)
-            static[y] = static[src]
+    if melt_start < h:
+        ys = np.arange(melt_start, h)
+        amt = ((ys - melt_start) / max(1, h - melt_start) * 18).astype(np.int32)
+        static[ys] = static[np.maximum(melt_start, ys - amt)]
 
     # 5. Scanlines + RGB fringing.
     static[1::2] = (static[1::2].astype(np.float32) * 0.75).astype(np.uint8)
@@ -3144,10 +3185,44 @@ def draw_crystallize(
 
 
 # =============================================================================
-# HALFTONE (classic black-and-white newsprint dots)
+# HALFTONE / BLACKTONE (newsprint dot screens, positive and negative)
 # =============================================================================
 
 _halftone_cache: dict = {}
+
+
+def _halftone_pattern(h: int, w: int, dot: int) -> np.ndarray:
+    """
+    Cached per-pixel distance-to-dot-center pattern on a classic 45-degree
+    printing screen (rotated grid reads as authentic newsprint rather than a
+    computer grid). 0 at cell centers -> ~1 at cell corners.
+    """
+    key = (h, w, dot)
+    patt = _halftone_cache.get(key)
+    if patt is None:
+        yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+        # Rotate coordinates 45 degrees, then tile into cells.
+        s = np.float32(1.0 / np.sqrt(2.0))
+        u = (xx + yy) * s
+        v = (xx - yy) * s
+        cu = (u % dot) - (dot - 1) / 2.0
+        cv_ = (v % dot) - (dot - 1) / 2.0
+        patt = (np.sqrt(cu * cu + cv_ * cv_) / ((dot / 2.0) * np.sqrt(2.0))).astype(np.float32)
+        _halftone_cache[key] = patt
+    return patt
+
+
+def _halftone_radius(frame: np.ndarray, dot: int, contrast: float, gamma: float) -> np.ndarray:
+    """Per-pixel dot radius (0..1) from block-averaged, contrast-punched luma."""
+    h, w = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
+    gw, gh = max(1, w // dot), max(1, h // dot)
+    small = cv2.resize(gray, (gw, gh), interpolation=cv2.INTER_AREA)
+    lum = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST).astype(np.float32) / 255.0
+    lum = np.clip((lum - 0.5) * contrast + 0.5, 0.0, 1.0)
+    return np.power(np.clip(1.0 - lum, 0.0, 1.0), gamma)
 
 
 def draw_halftone(
@@ -3157,40 +3232,48 @@ def draw_halftone(
     frame_idx: int = 0,
 ) -> np.ndarray:
     """
-    Halftone: classic black-and-white newsprint look. Black dots on a white
-    page, where each dot grows as the source gets darker. Crisp, high-contrast,
-    fully vectorized via a cached radial cell pattern.
+    Halftone: classic black-and-white newsprint. Black dots on a white page on
+    a 45-degree screen; each dot grows as the source gets darker.
     """
     h, w = frame.shape[:2]
     dot = max(4, int(preset.get("dot_spacing", 8)))
     gamma = float(preset.get("dot_gamma", 0.9))
     contrast = float(preset.get("dot_contrast", 1.25))
 
-    key = (h, w, dot)
-    patt = _halftone_cache.get(key)
-    if patt is None:
-        yy, xx = np.mgrid[0:h, 0:w]
-        cx = (xx % dot) - (dot - 1) / 2.0
-        cy = (yy % dot) - (dot - 1) / 2.0
-        patt = (np.sqrt(cx * cx + cy * cy) / ((dot / 2.0) * np.sqrt(2.0))).astype(np.float32)
-        _halftone_cache[key] = patt
-
-    # Per-cell brightness (blocky via downsample -> nearest upsample).
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    gray = clahe.apply(gray)
-    gw, gh = max(1, w // dot), max(1, h // dot)
-    small = cv2.resize(gray, (gw, gh), interpolation=cv2.INTER_AREA)
-    lum = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST).astype(np.float32) / 255.0
-
-    # Punch contrast, then darker source -> larger black dot.
-    lum = np.clip((lum - 0.5) * contrast + 0.5, 0.0, 1.0)
-    radius = np.power(np.clip(1.0 - lum, 0.0, 1.0), gamma)
+    patt = _halftone_pattern(h, w, dot)
+    radius = _halftone_radius(frame, dot, contrast, gamma)
 
     mask = patt <= radius
     output = np.full((h, w, 3), 255, dtype=np.uint8)  # white page
     output[mask] = (0, 0, 0)                            # black ink dots
     return output
+
+
+def draw_blacktone(
+    frame: np.ndarray,
+    preset: dict[str, Any],
+    colors: dict,
+    frame_idx: int = 0,
+) -> np.ndarray:
+    """
+    Blacktone: Halftone's photo negative - emissive white dots on black, same
+    dot-size logic, finished with a soft glow.
+    """
+    h, w = frame.shape[:2]
+    dot = max(4, int(preset.get("dot_spacing", 8)))
+    gamma = float(preset.get("dot_gamma", 0.9))
+    contrast = float(preset.get("dot_contrast", 1.25))
+
+    patt = _halftone_pattern(h, w, dot)
+    radius = _halftone_radius(frame, dot, contrast, gamma)
+
+    mask = patt <= radius
+    canvas = np.zeros((h, w, 3), dtype=np.uint8)   # black page
+    canvas[mask] = (255, 255, 255)                  # white ink dots
+
+    glow = cv2.GaussianBlur(canvas, (0, 0), max(1.0, dot * 0.35))
+    out = cv2.add(canvas, (glow.astype(np.float32) * 0.5).astype(np.uint8))
+    return out
 
 
 # =============================================================================
@@ -3530,58 +3613,6 @@ def draw_point_cloud(
     # glows like a suspended energy field.
     aura = cv2.GaussianBlur(out, (0, 0), 13.0 + a * 8.0)
     out = cv2.add(out, (aura.astype(np.float32) * (0.30 + a * 0.35)).astype(np.uint8))
-    return out
-
-
-# =============================================================================
-# BLACKTONE (halftone inverted: glowing white dots on black)
-# =============================================================================
-
-_blacktone_cache: dict = {}
-
-
-def draw_blacktone(
-    frame: np.ndarray,
-    preset: dict[str, Any],
-    colors: dict,
-    frame_idx: int = 0,
-) -> np.ndarray:
-    """
-    Blacktone: exactly Halftone with the colours swapped - white dots on a black
-    page, same dot-size logic (a darker source = a bigger dot). It's the photo
-    negative of Halftone, with a soft glow so the white dots read as emissive.
-    """
-    h, w = frame.shape[:2]
-    dot = max(4, int(preset.get("dot_spacing", 8)))
-    gamma = float(preset.get("dot_gamma", 0.9))
-    contrast = float(preset.get("dot_contrast", 1.25))
-
-    key = (h, w, dot)
-    patt = _blacktone_cache.get(key)
-    if patt is None:
-        yy, xx = np.mgrid[0:h, 0:w]
-        cx = (xx % dot) - (dot - 1) / 2.0
-        cy = (yy % dot) - (dot - 1) / 2.0
-        patt = (np.sqrt(cx * cx + cy * cy) / ((dot / 2.0) * np.sqrt(2.0))).astype(np.float32)
-        _blacktone_cache[key] = patt
-
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    gray = clahe.apply(gray)
-    gw, gh = max(1, w // dot), max(1, h // dot)
-    small = cv2.resize(gray, (gw, gh), interpolation=cv2.INTER_AREA)
-    lum = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST).astype(np.float32) / 255.0
-
-    # Identical to Halftone: contrast then darker source -> bigger dot.
-    lum = np.clip((lum - 0.5) * contrast + 0.5, 0.0, 1.0)
-    radius = np.power(np.clip(1.0 - lum, 0.0, 1.0), gamma)
-
-    mask = patt <= radius
-    canvas = np.zeros((h, w, 3), dtype=np.uint8)   # black page
-    canvas[mask] = (255, 255, 255)                  # white ink dots
-
-    glow = cv2.GaussianBlur(canvas, (0, 0), max(1.0, dot * 0.35))
-    out = cv2.add(canvas, (glow.astype(np.float32) * 0.5).astype(np.uint8))
     return out
 
 

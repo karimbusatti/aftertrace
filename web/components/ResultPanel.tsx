@@ -193,16 +193,44 @@ export function ResultPanel({ result, error, isLoading, onOpenTips }: ResultPane
 }
 
 function StatBlock({ value, label }: { value: number; label: string }) {
+  const display = useCountUp(value);
   return (
     <div>
-      <p className="text-white text-2xl font-bold">
-        {value.toLocaleString()}
+      <p className="text-white text-2xl font-bold tabular-nums">
+        {display.toLocaleString()}
       </p>
       <p className="text-text-muted text-xs mt-1">
         {label}
       </p>
     </div>
   );
+}
+
+/** Count up to `target` over ~0.9s with ease-out; skipped for reduced motion. */
+function useCountUp(target: number): number {
+  const [display, setDisplay] = useState(target);
+  useEffect(() => {
+    if (typeof window === "undefined" || target <= 0) {
+      setDisplay(target);
+      return;
+    }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setDisplay(target);
+      return;
+    }
+    const duration = 900;
+    const start = performance.now();
+    let raf: number;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(Math.round(target * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target]);
+  return display;
 }
 
 function TrackabilityBadge({ score }: { score: number }) {

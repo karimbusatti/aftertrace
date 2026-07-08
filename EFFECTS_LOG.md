@@ -144,6 +144,43 @@ neon_glow 1.55 · point_cloud 3.01 · blacktone 1.96 · cursor_cloud 1.29
 - **Signal Map**: the two full-frame `output.copy()` per data box replaced
   with crop-region blends (the hottest path in the effect).
 
+### Phase C — polish + cohesion
+
+- **CodeNet**: the tracker threw away ALL nodes every 12 frames — the whole
+  mesh + every label popped and renumbered on a visible beat. Now nodes track
+  continuously with persistent ids ("codecore N" stays on its feature), and
+  fresh corners merge only into empty regions when the set runs thin.
+- **Halftone + Blacktone**: deduplicated into shared pattern/luma helpers and
+  moved onto a classic 45° rotated printing screen (reads as authentic
+  newsprint instead of a computer grid).
+- **TV Static**: bottom "signal melt" row loop vectorized to one gather.
+- **Ocular Overload**: per-frame vignette rebuild cached per resolution.
+- **Catodic Cube**: glitch was a single-frame tick exactly every 8 frames
+  (metronome pop) → now 2-3-frame bursts on a hashed ~40% schedule with
+  sine-eased strength.
+
+### Frontend
+
+- **Matrix Rain now reachable**: the "Matrix Mode" chip actually sent
+  `data_body` — the real rain effect wasn't selectable at all (probably
+  because the old one strobed). Added a proper "Matrix Rain" chip and
+  relabelled "Data Body" honestly; copy bumped to 26 effects.
+  ⚠️ Judgment call — see needs-input list.
+- **prefers-reduced-motion**: decorative animation (rotating card glow,
+  scanline sweep, chip scale transforms) now disabled for reduced-motion
+  users; functional feedback kept.
+- **Result stats count up** (~0.9s ease-out, reduced-motion guarded,
+  tabular-nums so digits don't jitter).
+
+### Full-suite regression (36/36 pass, seconds before → after)
+
+Wins: crystallize 3.59→1.55 · signal_feedback 2.96→1.84 · matrix_mode
+2.24→1.61 · tv_static 2.86→2.30 · point_cloud 3.01→1.39 · code_shadow
+1.72→1.55 · light_trails 1.83→1.66 · motion_flow 3.48→3.33.
+Face effects render again (were crashes). numeric_aura/binary_bloom/
+cursor_cloud +0.5-0.6s each — that's mediapipe person segmentation actually
+running now (it was silently broken); the visual upgrade is the point.
+
 ---
 
 ## Needs Karim's input
@@ -154,7 +191,15 @@ neon_glow 1.55 · point_cloud 3.01 · blacktone 1.96 · cursor_cloud 1.29
    own repo, or delete?
 2. **Prod deploy**: the mediapipe pin + all effect improvements are committed
    locally only. Nothing pushed/deployed without your approval.
-3. **`backend/debug_effects_crash.py`, `final_bloom_red_fix.py`,
-   `new_bloom_refinement.py`**: look like one-off debug/scratch scripts
-   (committed in repo). I plan to delete the clearly-dead ones from
-   `app/services/`; say if you want them kept.
+3. **Deleted scratch files**: `app/services/final_bloom_red_fix.py` and
+   `new_bloom_refinement.py` (orphaned old signal_bloom iterations, imported
+   nowhere) are removed — recoverable from git history if you want them.
+   `backend/debug_effects_crash.py` left in place.
+4. **"Matrix Rain" chip (judgment call)**: the picker's "Matrix Mode" chip
+   secretly sent `data_body`. I split them: "Matrix Rain" → the (rewritten)
+   `matrix_mode`, "Data Body" → `data_body`. If you'd hidden matrix_mode on
+   purpose, revert the chip in `web/components/PresetPicker.tsx`.
+5. **Sequence/overlay picker only exposes 26 of 36 presets** (grid_trace,
+   heat_map, ember_trails, soft_blobs, face_scanner, face_mesh, motion_flow,
+   signal_feedback, data_body-adjacent legacy ones are hidden). Intentional
+   curation or worth surfacing some? Left as-is.
